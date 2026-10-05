@@ -1,4 +1,5 @@
-#include "ConsoleEventSink.h"
+#include "FluidSynthEventSink.h"
+// #include "ConsoleEventSink.h"
 #include "MidiFileReader.h"
 #include "MidiPlayer.h"
 
@@ -11,9 +12,9 @@
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2 || argc > 3)
+    if (argc < 3 || argc > 4)
     {
-        std::cerr << "Usage: merik <file.mid> [start-seconds]\n";
+        std::cerr << "Usage: merik <file.mid> <soundfont.sf2> [start-seconds]\n";
         return 2;
     }
 
@@ -23,21 +24,28 @@ int main(int argc, char* argv[])
 
         std::cout << "Loaded: " << song->sourceFile << '\n'
                   << "Events: " << song->playbackEvents.size() << '\n'
-                  << "Lyrics: " << song->lyrics.size() << "\n\n";
+                  << "Lyrics: " << song->lyrics.size() << '\n'
+                  << "Sample rate: " << song->sampleRate << " Hz\n"
+                  << "SoundFont: " << argv[2] << "\n\n";
 
-        ConsoleEventSink sink;
+        // ConsoleEventSink sink;
+        // MidiPlayer player(sink);
+        // player.load(song);
+
+        FluidSynthEventSink sink(argv[2], song->sampleRate);
         MidiPlayer player(sink);
         player.load(song);
 
-        if (argc == 3)
+        if (argc == 4)
         {
-            const auto seconds = std::stod(argv[2]);
+            const auto seconds = std::stod(argv[3]);
             player.seek(std::chrono::milliseconds {
                 static_cast<std::int64_t>(seconds * 1000.0)
             });
         }
 
         player.start();
+
         while (player.isPlaying())
             std::this_thread::sleep_for(std::chrono::milliseconds { 50 });
 
