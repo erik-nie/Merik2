@@ -1,59 +1,81 @@
-#include "FluidSynthEventSink.h"
-// #include "ConsoleEventSink.h"
-#include "MidiFileReader.h"
-#include "MidiPlayer.h"
+#include <juce_gui_extra/juce_gui_extra.h>
+#include "MainComponent.h"
 
-#include <chrono>
-#include <exception>
-#include <iostream>
-#include <memory>
-#include <string>
-#include <thread>
-
-int main(int argc, char* argv[])
+class MerikApplication : public juce::JUCEApplication
 {
-    if (argc < 3 || argc > 4)
+public:
+    MerikApplication() = default;
+
+    const juce::String getApplicationName() override
     {
-        std::cerr << "Usage: merik <file.mid> <soundfont.sf2> [start-seconds]\n";
-        return 2;
+        return "Merik";
     }
 
-    try
+    const juce::String getApplicationVersion() override
     {
-        const auto song = std::make_shared<Song>(MidiFileReader{}.read(argv[1]));
+        return "0.1.0";
+    }
 
-        std::cout << "Loaded: " << song->sourceFile << '\n'
-                  << "Events: " << song->playbackEvents.size() << '\n'
-                  << "Lyrics: " << song->lyrics.size() << '\n'
-                  << "Sample rate: " << song->sampleRate << " Hz\n"
-                  << "SoundFont: " << argv[2] << "\n\n";
+    bool moreThanOneInstanceAllowed() override
+    {
+        return true;
+    }
 
-        // ConsoleEventSink sink;
-        // MidiPlayer player(sink);
-        // player.load(song);
+    void initialise(const juce::String&) override
+    {
+        mainWindow = std::make_unique<MainWindow>(
+            getApplicationName(),
+            *this
+        );
+    }
 
-        FluidSynthEventSink sink(argv[2], song->sampleRate);
-        MidiPlayer player(sink);
-        player.load(song);
+    void shutdown() override
+    {
+        mainWindow.reset();
+    }
 
-        if (argc == 4)
+    void systemRequestedQuit() override
+    {
+        quit();
+    }
+
+    void anotherInstanceStarted(const juce::String&) override
+    {
+    }
+
+private:
+    class MainWindow : public juce::DocumentWindow
+    {
+    public:
+        MainWindow(const juce::String& name,
+                   MerikApplication& application)
+            : DocumentWindow(
+                  name,
+                  juce::Colours::black,
+                  juce::DocumentWindow::allButtons),
+              app(application)
         {
-            const auto seconds = std::stod(argv[3]);
-            player.seek(std::chrono::milliseconds {
-                static_cast<std::int64_t>(seconds * 1000.0)
-            });
+            setUsingNativeTitleBar(true);
+            setContentOwned(new MainComponent(), true);
+            setResizable(true, true);
+            centreWithSize(1100, 700);
+            setVisible(true);
         }
 
-        player.start();
+        void closeButtonPressed() override
+        {
+            app.systemRequestedQuit();
+        }
 
-        while (player.isPlaying())
-            std::this_thread::sleep_for(std::chrono::milliseconds { 50 });
+    private:
+        MerikApplication& app;
 
-        return 0;
-    }
-    catch (const std::exception& error)
-    {
-        std::cerr << "Error: " << error.what() << '\n';
-        return 1;
-    }
-}
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
+    };
+
+    std::unique_ptr<MainWindow> mainWindow;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MerikApplication)
+};
+
+START_JUCE_APPLICATION(MerikApplication)
