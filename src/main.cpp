@@ -1,13 +1,51 @@
+#include "ConsoleEventSink.h"
+#include "MidiFileReader.h"
+#include "MidiPlayer.h"
+
+#include <chrono>
+#include <exception>
 #include <iostream>
-#include "MidiParser.h"
+#include <memory>
+#include <string>
+#include <thread>
 
-int main()
+int main(int argc, char* argv[])
 {
-    std::cout << "Merik2 started" << std::endl;
+    if (argc < 2 || argc > 3)
+    {
+        std::cerr << "Usage: merik <file.mid> [start-seconds]\n";
+        return 2;
+    }
 
-    MidiParser parser;
+    try
+    {
+        const auto song = std::make_shared<Song>(MidiFileReader{}.read(argv[1]));
 
-    parser.load("../test/midi/paradise.mid");
+        std::cout << "Loaded: " << song->sourceFile << '\n'
+                  << "Events: " << song->playbackEvents.size() << '\n'
+                  << "Lyrics: " << song->lyrics.size() << "\n\n";
 
-    return 0;
+        ConsoleEventSink sink;
+        MidiPlayer player(sink);
+        player.load(song);
+
+        if (argc == 3)
+        {
+            const auto seconds = std::stod(argv[2]);
+            player.seek(std::chrono::milliseconds {
+                static_cast<std::int64_t>(seconds * 1000.0)
+            });
+        }
+
+        player.start();
+        while (player.isPlaying())
+            std::this_thread::sleep_for(std::chrono::milliseconds { 50 });
+
+        return 0;
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << "Error: " << error.what() << '\n';
+        return 1;
+    }
 }

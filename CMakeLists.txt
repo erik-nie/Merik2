@@ -3,13 +3,20 @@ cmake_minimum_required(VERSION 3.20)
 project(Merik2)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Prevent midifile from building all example tools.
+set(BUILD_MIDILIBRARY_ONLY ON CACHE BOOL "Build only midifile library" FORCE)
 add_subdirectory(external/midifile)
 
 add_executable(
     merik
     src/main.cpp
-    src/MidiParser.cpp
+    src/MidiFileReader.cpp
+    src/TempoMap.cpp
+    src/ConsoleEventSink.cpp
+    src/MidiPlayer.cpp
 )
 
 target_include_directories(

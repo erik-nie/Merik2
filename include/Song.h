@@ -1,22 +1,40 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
-struct Lyric
+struct RawMidiEvent
 {
-    double time;
+    std::int64_t tick = 0;
+    double seconds = 0.0;
+    std::int64_t samplePosition = 0;
+    int sourceTrack = 0;
+    std::vector<std::uint8_t> bytes;
+};
+
+struct LyricEvent
+{
+    std::int64_t tick = 0;
+    double seconds = 0.0;
+    std::int64_t samplePosition = 0;
+    int sourceTrack = 0;
     std::string text;
 };
 
-struct Chord
+struct TempoPoint
 {
-    double time;
-    std::string name;
+    std::int64_t tick = 0;
+    double seconds = 0.0;
+    double bpm = 120.0;
 };
 
 struct Song
 {
-    std::vector<Lyric> lyrics;
-    std::vector<Chord> chords;
+    std::string sourceFile;
+    int ticksPerQuarterNote = 480;
+    double sampleRate = 48000.0;
+    std::vector<TempoPoint> tempoMap;
+    std::vector<RawMidiEvent> playbackEvents;
+    std::vector<LyricEvent> lyrics;
 };
