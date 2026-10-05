@@ -1,2 +1,21 @@
+# Build output
 build/
+bin/
+out/
+
+# VS Code
 .vscode/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Compilers
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.exe
