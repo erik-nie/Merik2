@@ -8,6 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/workspaces/Merik2/src/MidiParser.cpp" "CMakeFiles/merik.dir/src/MidiParser.cpp.o" "gcc" "CMakeFiles/merik.dir/src/MidiParser.cpp.o.d"
   "/workspaces/Merik2/src/main.cpp" "CMakeFiles/merik.dir/src/main.cpp.o" "gcc" "CMakeFiles/merik.dir/src/main.cpp.o.d"
   )
 

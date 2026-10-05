@@ -81,12 +81,12 @@ clean: CMakeFiles/merik.dir/clean
 CMakeFiles/merik.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/merik.dir/build.make CMakeFiles/merik.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/merik.dir/build.make CMakeFiles/merik.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/workspaces/Merik2/build/CMakeFiles --progress-num=1,2 "Built target merik"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/workspaces/Merik2/build/CMakeFiles --progress-num=1,2,3 "Built target merik"
 .PHONY : CMakeFiles/merik.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/merik.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/Merik2/build/CMakeFiles 2
+	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/Merik2/build/CMakeFiles 3
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/merik.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/Merik2/build/CMakeFiles 0
 .PHONY : CMakeFiles/merik.dir/rule

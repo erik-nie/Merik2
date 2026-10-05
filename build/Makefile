@@ -129,6 +129,30 @@ merik/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/merik.dir/build.make CMakeFiles/merik.dir/build
 .PHONY : merik/fast
 
+src/MidiParser.o: src/MidiParser.cpp.o
+.PHONY : src/MidiParser.o
+
+# target to build an object file
+src/MidiParser.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/merik.dir/build.make CMakeFiles/merik.dir/src/MidiParser.cpp.o
+.PHONY : src/MidiParser.cpp.o
+
+src/MidiParser.i: src/MidiParser.cpp.i
+.PHONY : src/MidiParser.i
+
+# target to preprocess a source file
+src/MidiParser.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/merik.dir/build.make CMakeFiles/merik.dir/src/MidiParser.cpp.i
+.PHONY : src/MidiParser.cpp.i
+
+src/MidiParser.s: src/MidiParser.cpp.s
+.PHONY : src/MidiParser.s
+
+# target to generate assembly for a file
+src/MidiParser.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/merik.dir/build.make CMakeFiles/merik.dir/src/MidiParser.cpp.s
+.PHONY : src/MidiParser.cpp.s
+
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -162,6 +186,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... merik"
+	@echo "... src/MidiParser.o"
+	@echo "... src/MidiParser.i"
+	@echo "... src/MidiParser.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"

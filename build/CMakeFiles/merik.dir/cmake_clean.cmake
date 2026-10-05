@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/merik.dir/src/MidiParser.cpp.o"
+  "CMakeFiles/merik.dir/src/MidiParser.cpp.o.d"
   "CMakeFiles/merik.dir/src/main.cpp.o"
   "CMakeFiles/merik.dir/src/main.cpp.o.d"
   "merik"
