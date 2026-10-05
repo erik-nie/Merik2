@@ -138,6 +138,7 @@ private:
 
     void loadMidi();
     void selectSoundFont();
+    void showAudioSettings();
     void play();
     void stop();
 

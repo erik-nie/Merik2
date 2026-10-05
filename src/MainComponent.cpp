@@ -19,7 +19,70 @@ namespace
 
     const juce::Colour secondaryTextColour =
         juce::Colour::fromRGB(190, 190, 190);
+
+
 }
+
+class MerikLookAndFeel final : public juce::LookAndFeel_V4
+{
+public:
+    MerikLookAndFeel()
+    {
+        setColour(
+            juce::TextButton::buttonColourId,
+            panelLightColour);
+
+        setColour(
+            juce::TextButton::buttonOnColourId,
+            merikBlue);
+
+        setColour(
+            juce::TextButton::textColourOffId,
+            juce::Colours::white);
+
+        setColour(
+            juce::TextButton::textColourOnId,
+            juce::Colours::white);
+    }
+
+    juce::Font getLabelFont(juce::Label&) override
+    {
+        return makeFont(15.0f);
+    }
+
+    juce::Font getTextButtonFont(
+        juce::TextButton&,
+        int buttonHeight) override
+    {
+        return makeFont(
+            juce::jlimit(
+                13.0f,
+                16.0f,
+                buttonHeight * 0.45f));
+    }
+
+    juce::Font getComboBoxFont(
+        juce::ComboBox&) override
+    {
+        return makeFont(14.0f);
+    }
+
+    juce::Font getPopupMenuFont() override
+    {
+        return makeFont(14.0f);
+    }
+
+private:
+    static juce::Font makeFont(float height)
+    {
+        return juce::Font(
+            juce::FontOptions{}
+                .withName("SF Pro Text")
+                .withHeight(height));
+    }
+};
+
+MerikLookAndFeel merikLookAndFeel;
 
 // ============================================================================
 // Basic list model
@@ -76,6 +139,51 @@ private:
     std::vector<juce::String> values;
 };
 
+namespace
+{
+class AudioSettingsWindow final : public juce::DialogWindow
+{
+public:
+    AudioSettingsWindow(juce::Component* content,
+                        juce::Component* owner)
+        : juce::DialogWindow(
+              "Audio Settings",
+              backgroundColour,
+              true)
+    {
+        setUsingNativeTitleBar(true);
+        setResizable(true, true);
+
+        setContentOwned(content, true);
+
+        centreAroundComponent(owner, 700, 500);
+        setVisible(true);
+    }
+
+    void closeButtonPressed() override
+    {
+        delete this;
+    }
+};
+}
+
+void MainComponent::showAudioSettings()
+{
+    auto* selector = new juce::AudioDeviceSelectorComponent(
+        deviceManager,
+        0, 0,   // geen audio-input
+        1, 2,   // 1-2 outputkanalen
+        false,  // geen MIDI input
+        false,  // geen MIDI output
+        true,   // stereo pairs
+        false); // advanced settings
+
+    selector->setSize(700, 500);
+
+    new AudioSettingsWindow(
+        selector,
+        this);
+}
 // ============================================================================
 // SetlistModel
 // ============================================================================
@@ -221,6 +329,7 @@ public:
 MainComponent::MainComponent()
 {
     setOpaque(true);
+    setLookAndFeel(&merikLookAndFeel);
 
     // -------------------------------------------------------------------------
     // MIDI Control
@@ -294,16 +403,29 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(soundFontButton);
 
-    settingsButton.setButtonText("⚙");
-    settingsButton.setTooltip("Settings");
+    settingsButton.setButtonText("Settings");
+    settingsButton.setTooltip("Audio Settings");
 
     settingsButton.setColour(
         juce::TextButton::buttonColourId,
-        panelLightColour);
+        merikBlue);
+
+    settingsButton.setColour(
+        juce::TextButton::buttonOnColourId,
+        merikBlue);
 
     settingsButton.setColour(
         juce::TextButton::textColourOffId,
-        textColour);
+        juce::Colours::white);
+
+    settingsButton.setColour(
+        juce::TextButton::textColourOnId,
+        juce::Colours::white);
+
+    settingsButton.onClick = [this]
+    {
+        showAudioSettings();
+    };
 
     addAndMakeVisible(settingsButton);
 
@@ -336,7 +458,10 @@ MainComponent::MainComponent()
             textColour);
 
         control.label.setFont(
-            juce::FontOptions(11.0f));
+            juce::Font(
+                juce::FontOptions{}
+                    .withName("SF Pro Text")
+                    .withHeight(11.0f)));
 
         control.label.setJustificationType(
             juce::Justification::centred);
@@ -381,7 +506,10 @@ MainComponent::MainComponent()
         textColour);
 
     songTitle.setFont(
-        juce::FontOptions(27.0f));
+        juce::Font(
+            juce::FontOptions{}
+                .withName("SF Pro Display")
+                .withHeight(47.0f)));
 
     songTitle.setJustificationType(
         juce::Justification::centred);
@@ -892,7 +1020,7 @@ void MainComponent::resized()
     topRow.removeFromLeft(12);
 
     auto soundFontArea =
-        topRow.removeFromLeft(225);
+        topRow.removeFromLeft(285);
 
     soundFontLabel.setBounds(
         soundFontArea.removeFromTop(18));
@@ -906,7 +1034,7 @@ void MainComponent::resized()
     soundFontRow.removeFromLeft(5);
 
     settingsButton.setBounds(
-        soundFontRow);
+        soundFontRow.removeFromLeft(90));
 
     // Second row: family controls
 
