@@ -66,6 +66,8 @@ target_sources(
         src/TempoMap.cpp
         src/FluidSynthEngine.cpp
         src/MainComponent.cpp
+        src/MainComponentAudio.cpp
+        src/MainComponentPlayback.cpp
 )
 
 target_include_directories(

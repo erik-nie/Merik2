@@ -1,14 +1,15 @@
 #include "MainComponent.h"
 
-#include <algorithm>
-#include <cmath>
-#include <exception>
-
 namespace
 {
-    const juce::Colour backgroundColour = juce::Colour::fromRGB(25, 25, 25);
-    const juce::Colour panelColour      = juce::Colour::fromRGB(38, 38, 38);
-    const juce::Colour panelLightColour = juce::Colour::fromRGB(48, 48, 48);
+    const juce::Colour backgroundColour =
+        juce::Colour::fromRGB(25, 25, 25);
+
+    const juce::Colour panelColour =
+        juce::Colour::fromRGB(38, 38, 38);
+
+    const juce::Colour panelLightColour =
+        juce::Colour::fromRGB(48, 48, 48);
 
     const juce::Colour merikBlue =
         juce::Colour::fromRGB(0, 164, 235);
@@ -46,7 +47,9 @@ public:
     {
         if (rowNumber < 0 ||
             rowNumber >= static_cast<int>(values.size()))
+        {
             return;
+        }
 
         if (rowIsSelected)
             g.setColour(merikBlue);
@@ -725,7 +728,8 @@ MainComponent::MainComponent()
     // Channel table
     // -------------------------------------------------------------------------
 
-    channelModel = std::make_unique<ChannelModel>();
+    channelModel =
+        std::make_unique<ChannelModel>();
 
     channelTable.setModel(
         channelModel.get());
@@ -762,15 +766,15 @@ MainComponent::MainComponent()
     // Audio
     // -------------------------------------------------------------------------
 
-    setAudioChannels(
-        0,
-        2);
+    setAudioChannels(0, 2);
 
     startTimerHz(20);
 
     setSize(1100, 700);
 }
 
+// ============================================================================
+// Destructor
 // ============================================================================
 
 MainComponent::~MainComponent()
@@ -783,96 +787,6 @@ MainComponent::~MainComponent()
 }
 
 // ============================================================================
-// AudioAppComponent
-// ============================================================================
-
-void MainComponent::prepareToPlay(
-    int,
-    double sampleRate)
-{
-    audioSampleRate = sampleRate;
-
-    synthEngine.setSampleRate(
-        sampleRate);
-
-    audioReady = true;
-
-    if (currentSong)
-        synthEngine.loadSong(
-            currentSong);
-}
-
-// ============================================================================
-
-void MainComponent::getNextAudioBlock(
-    const juce::AudioSourceChannelInfo& bufferToFill)
-{
-    if (bufferToFill.buffer == nullptr ||
-        bufferToFill.numSamples <= 0)
-        return;
-
-    const int numChannels =
-        bufferToFill.buffer->getNumChannels();
-
-    for (int channel = 0;
-         channel < numChannels;
-         ++channel)
-    {
-        bufferToFill.buffer->clear(
-            channel,
-            bufferToFill.startSample,
-            bufferToFill.numSamples);
-    }
-
-    if (!audioReady ||
-        !currentSong ||
-        !isPlaying)
-        return;
-
-    const int channelsToRender =
-        std::min(
-            numChannels,
-            2);
-
-    if (channelsToRender <= 0)
-        return;
-
-    float* output[2] = { nullptr, nullptr };
-
-    output[0] =
-        bufferToFill.buffer->getWritePointer(
-            0,
-            bufferToFill.startSample);
-
-    if (channelsToRender >= 2)
-    {
-        output[1] =
-            bufferToFill.buffer->getWritePointer(
-                1,
-                bufferToFill.startSample);
-    }
-    else
-    {
-        output[1] = output[0];
-    }
-
-    synthEngine.render(
-        output,
-        channelsToRender,
-        bufferToFill.numSamples);
-
-    if (!synthEngine.isPlaying())
-        isPlaying = false;
-}
-
-// ============================================================================
-
-void MainComponent::releaseResources()
-{
-    audioReady = false;
-}
-
-// ============================================================================
 // Painting
 // ============================================================================
 
@@ -882,8 +796,12 @@ void MainComponent::paint(juce::Graphics& g)
 
     auto bounds = getLocalBounds();
 
+    // Header now contains:
+    // row 1 = MIDI Control / MIDI Out / SoundFont
+    // row 2 = family controls
+
     auto header =
-        bounds.removeFromTop(76);
+        bounds.removeFromTop(125);
 
     g.setColour(panelColour);
     g.fillRect(header);
@@ -944,21 +862,26 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto header =
-        bounds.removeFromTop(76).reduced(10);
+        bounds.removeFromTop(125).reduced(10);
 
-    auto left =
-        header.removeFromLeft(155);
+    // First row: MIDI Control / MIDI Out / SoundFont / Settings
+
+    auto topRow =
+        header.removeFromTop(52);
+
+    auto midiControlArea =
+        topRow.removeFromLeft(155);
 
     midiControlLabel.setBounds(
-        left.removeFromTop(18));
+        midiControlArea.removeFromTop(18));
 
     midiControlBox.setBounds(
-        left.removeFromTop(28));
+        midiControlArea.removeFromTop(28));
 
-    header.removeFromLeft(12);
+    topRow.removeFromLeft(12);
 
     auto midiOutArea =
-        header.removeFromLeft(155);
+        topRow.removeFromLeft(155);
 
     midiOutLabel.setBounds(
         midiOutArea.removeFromTop(18));
@@ -966,10 +889,10 @@ void MainComponent::resized()
     midiOutBox.setBounds(
         midiOutArea.removeFromTop(28));
 
-    header.removeFromLeft(12);
+    topRow.removeFromLeft(12);
 
     auto soundFontArea =
-        header.removeFromLeft(225);
+        topRow.removeFromLeft(225);
 
     soundFontLabel.setBounds(
         soundFontArea.removeFromTop(18));
@@ -985,12 +908,14 @@ void MainComponent::resized()
     settingsButton.setBounds(
         soundFontRow);
 
+    // Second row: family controls
+
+    header.removeFromTop(5);
+
     auto familyArea = header;
 
     const int familyWidth =
-        juce::jmax(
-            70,
-            familyArea.getWidth() / 8);
+        familyArea.getWidth() / 8;
 
     for (auto& control : familyControls)
     {
@@ -1002,7 +927,7 @@ void MainComponent::resized()
             area.removeFromTop(18));
 
         control.slider.setBounds(
-            area.reduced(2, 3));
+            area.reduced(4, 3));
     }
 
     // -------------------------------------------------------------------------
@@ -1148,322 +1073,4 @@ void MainComponent::resized()
 
     channelTable.setBounds(
         channelArea);
-}
-
-// ============================================================================
-// Load MIDI
-// ============================================================================
-
-void MainComponent::loadMidi()
-{
-    auto chooser =
-        std::make_shared<juce::FileChooser>(
-            "Select MIDI file",
-            currentMidiFile.existsAsFile()
-                ? currentMidiFile.getParentDirectory()
-                : juce::File(),
-            "*.mid;*.midi;*.MID;*.MIDI;*.kar;*.KAR");
-
-    chooser->launchAsync(
-        juce::FileBrowserComponent::openMode |
-        juce::FileBrowserComponent::canSelectFiles,
-        [this, chooser](const juce::FileChooser& fc)
-        {
-            const auto file =
-                fc.getResult();
-
-            if (!file.existsAsFile())
-                return;
-
-            try
-            {
-                /*
-                    Read the MIDI at the current audio sample rate.
-
-                    If the audio device isn't available yet, use
-                    the same default rate as the engine.
-                */
-                const double sampleRate =
-                    audioReady
-                        ? audioSampleRate
-                        : 48000.0;
-
-                const Song song =
-                    midiReader.read(
-                        file.getFullPathName().toStdString(),
-                        sampleRate);
-
-                currentSong =
-                    std::make_shared<Song>(
-                        std::move(song));
-
-                currentMidiFile = file;
-
-                isPlaying = false;
-
-                synthEngine.stop();
-                synthEngine.setSampleRate(
-                    sampleRate);
-                synthEngine.loadSong(
-                    currentSong);
-
-                updateSongDisplay();
-            }
-            catch (const std::exception& e)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Could not load MIDI",
-                    e.what());
-            }
-        });
-}
-
-// ============================================================================
-// SoundFont
-// ============================================================================
-
-void MainComponent::selectSoundFont()
-{
-    auto chooser =
-        std::make_shared<juce::FileChooser>(
-            "Select SoundFont",
-            currentSoundFont.existsAsFile()
-                ? currentSoundFont.getParentDirectory()
-                : juce::File(),
-            "*.sf2;*.SF2");
-
-    chooser->launchAsync(
-        juce::FileBrowserComponent::openMode |
-        juce::FileBrowserComponent::canSelectFiles,
-        [this, chooser](const juce::FileChooser& fc)
-        {
-            const auto file =
-                fc.getResult();
-
-            if (!file.existsAsFile())
-                return;
-
-            std::string error;
-
-            if (!synthEngine.loadSoundFont(
-                    file.getFullPathName().toStdString(),
-                    error))
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Could not load SoundFont",
-                    juce::String(error));
-                return;
-            }
-
-            currentSoundFont = file;
-
-            auto name =
-                currentSoundFont.getFileName();
-
-            if (name.length() > 27)
-                name =
-                    name.substring(0, 24) + "...";
-
-            soundFontButton.setButtonText(
-                name);
-        });
-}
-
-// ============================================================================
-// Play
-// ============================================================================
-
-void MainComponent::play()
-{
-    if (!currentSong)
-        return;
-
-    if (!audioReady)
-        return;
-
-    /*
-        The synth itself owns the exact sample position.
-        If the song reached its end, FluidSynthEngine::start()
-        automatically resets it to zero.
-    */
-    synthEngine.start();
-
-    isPlaying =
-        synthEngine.isPlaying();
-
-    if (isPlaying)
-    {
-        playButton.setButtonText(
-            "▶  Playing");
-
-        playButton.setColour(
-            juce::TextButton::buttonColourId,
-            merikBlue);
-    }
-}
-
-// ============================================================================
-// Stop
-// ============================================================================
-
-void MainComponent::stop()
-{
-    synthEngine.stop();
-
-    isPlaying = false;
-
-    playButton.setButtonText(
-        "▶  Play");
-
-    playButton.setColour(
-        juce::TextButton::buttonColourId,
-        merikBlue);
-}
-
-// ============================================================================
-// Song display
-// ============================================================================
-
-void MainComponent::updateSongDisplay()
-{
-    if (!currentSong ||
-        !currentMidiFile.existsAsFile())
-        return;
-
-    auto name =
-        currentMidiFile.getFileNameWithoutExtension();
-
-    songTitle.setText(
-        name,
-        juce::dontSendNotification);
-
-    nextSong.setText(
-        "Next: -",
-        juce::dontSendNotification);
-
-    updateTransportDisplay();
-}
-
-// ============================================================================
-// Transport display
-// ============================================================================
-
-void MainComponent::updateTransportDisplay()
-{
-    if (!currentSong)
-    {
-        elapsedTime.setText(
-            "00:00",
-            juce::dontSendNotification);
-
-        totalTime.setText(
-            "00:00",
-            juce::dontSendNotification);
-
-        positionSlider.setValue(
-            0.0,
-            juce::dontSendNotification);
-
-        return;
-    }
-
-    const auto lengthSamples =
-        synthEngine.lengthSamples();
-
-    const auto positionSamples =
-        synthEngine.positionSamples();
-
-    const double sampleRate =
-        audioSampleRate > 0.0
-            ? audioSampleRate
-            : 48000.0;
-
-    const double positionSeconds =
-        static_cast<double>(
-            positionSamples)
-        / sampleRate;
-
-    const double lengthSeconds =
-        static_cast<double>(
-            lengthSamples)
-        / sampleRate;
-
-    elapsedTime.setText(
-        formatTime(positionSeconds),
-        juce::dontSendNotification);
-
-    totalTime.setText(
-        formatTime(lengthSeconds),
-        juce::dontSendNotification);
-
-    const double fraction =
-        lengthSamples > 0
-            ? static_cast<double>(
-                  positionSamples)
-              / static_cast<double>(
-                  lengthSamples)
-            : 0.0;
-
-    positionSlider.setValue(
-        juce::jlimit(
-            0.0,
-            1.0,
-            fraction),
-        juce::dontSendNotification);
-
-    const bool enginePlaying =
-        synthEngine.isPlaying();
-
-    if (!enginePlaying && isPlaying)
-    {
-        isPlaying = false;
-
-        playButton.setButtonText(
-            "▶  Play");
-
-        playButton.setColour(
-            juce::TextButton::buttonColourId,
-            merikBlue);
-    }
-}
-
-// ============================================================================
-// Timer
-// ============================================================================
-
-void MainComponent::timerCallback()
-{
-    updateTransportDisplay();
-}
-
-// ============================================================================
-// Time formatting
-// ============================================================================
-
-juce::String MainComponent::formatTime(
-    double seconds)
-{
-    if (!std::isfinite(seconds) ||
-        seconds < 0.0)
-    {
-        seconds = 0.0;
-    }
-
-    const auto totalSeconds =
-        static_cast<int>(
-            std::floor(seconds));
-
-    const int minutes =
-        totalSeconds / 60;
-
-    const int remainingSeconds =
-        totalSeconds % 60;
-
-    return juce::String(minutes)
-        + ":"
-        + juce::String(
-              remainingSeconds)
-              .paddedLeft('0', 2);
 }
