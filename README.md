@@ -1,5 +1,6 @@
 # Merik2
 
+
 Next generation MIDI, Lyrics, Chord and Audio engine.
 
 Goals:
@@ -12,3 +13,8 @@ Goals:
 - JUCE UI
 - Audio stems
 - Browser based remote control
+
+Build:
+- mkdir external
+- cd external
+- git clone https://github.com/craigsapp/midifile.git
