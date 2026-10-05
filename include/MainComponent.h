@@ -1,12 +1,12 @@
 #pragma once
 
 #include "FluidSynthEngine.h"
-
-#pragma once
+#include "MidiFileReader.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_audio_devices/juce_audio_devices.h>
+
 #include <memory>
 
 class MainComponent final
@@ -17,51 +17,137 @@ public:
     MainComponent();
     ~MainComponent() override;
 
-    void prepareToPlay(
-        int samplesPerBlockExpected,
-        double sampleRate) override;
+    void paint(juce::Graphics&) override;
+    void resized() override;
+
+    void prepareToPlay(int samplesPerBlockExpected,
+                       double sampleRate) override;
 
     void getNextAudioBlock(
         const juce::AudioSourceChannelInfo& bufferToFill) override;
 
     void releaseResources() override;
 
-    void paint(juce::Graphics& g) override;
-
-    void resized() override;
-
 private:
+    struct FamilyControl
+    {
+        juce::Label label;
+        juce::Slider slider;
+    };
+
+    // -------------------------------------------------------------------------
+    // Audio / playback
+    // -------------------------------------------------------------------------
+
+    MidiFileReader midiReader;
+    FluidSynthEngine synthEngine;
+
+    std::shared_ptr<const Song> currentSong;
+
+    double audioSampleRate = 48000.0;
+    bool audioReady = false;
+
+    // -------------------------------------------------------------------------
+    // Top controls
+    // -------------------------------------------------------------------------
+
+    juce::Label midiControlLabel;
+    juce::ComboBox midiControlBox;
+
+    juce::Label midiOutLabel;
+    juce::ComboBox midiOutBox;
+
+    juce::Label soundFontLabel;
+    juce::TextButton soundFontButton;
+    juce::TextButton settingsButton;
+
+    std::array<FamilyControl, 8> familyControls;
+
+    // -------------------------------------------------------------------------
+    // Player
+    // -------------------------------------------------------------------------
+
+    juce::Label songTitle;
+    juce::Label nextSong;
+    juce::Label elapsedTime;
+    juce::Label totalTime;
+    juce::Slider positionSlider;
+
+    juce::TextButton loadButton;
+    juce::TextButton playButton;
+    juce::TextButton stopButton;
+    juce::TextButton nextButton;
+
+    juce::TextButton transposeDownButton;
+    juce::Label transposeValue;
+    juce::TextButton transposeUpButton;
+
+    juce::TextButton panicButton;
+    juce::TextButton lyricsButton;
+    juce::TextButton channelsButton;
+
+    // -------------------------------------------------------------------------
+    // Lists
+    // -------------------------------------------------------------------------
+
+    juce::Label setlistsTitle;
+    juce::Label songsTitle;
+    juce::Label totalTimeTitle;
+
+    juce::ListBox setlistBox;
+    juce::ListBox songBox;
+
+    juce::TextButton newSetlistButton;
+    juce::TextButton deleteSetlistButton;
+
+    juce::ToggleButton doubleClickToggle;
+    juce::ToggleButton normalizeToggle;
+    juce::ToggleButton continuousToggle;
+
+    juce::TextButton addButton;
+    juce::TextButton removeButton;
+
+    // -------------------------------------------------------------------------
+    // Channel table
+    // -------------------------------------------------------------------------
+
+    juce::TableListBox channelTable;
+
+    class SetlistModel;
+    class SongModel;
+    class ChannelModel;
+
+    std::unique_ptr<SetlistModel> setlistModel;
+    std::unique_ptr<SongModel> songModel;
+    std::unique_ptr<ChannelModel> channelModel;
+
+    // -------------------------------------------------------------------------
+    // Current files / state
+    // -------------------------------------------------------------------------
+
+    juce::File currentMidiFile;
+    juce::File currentSoundFont;
+
+    bool isPlaying = false;
+    int transpose = 0;
+
+    // -------------------------------------------------------------------------
+    // Actions
+    // -------------------------------------------------------------------------
+
+    void loadMidi();
+    void selectSoundFont();
+    void play();
+    void stop();
+
+    void updateSongDisplay();
+    void updateTransportDisplay();
+
     void timerCallback() override;
 
-    void openMidi();
+    static juce::String formatTime(double seconds);
 
-    void openSoundFont();
-
-    void showAudioSettings();
-
-    void updateTransport();
-
-    static juce::String formatTime(
-        std::int64_t milliseconds);
-
-    FluidSynthEngine synth_;
-
-    std::shared_ptr<const Song> song_;
-
-    juce::TextButton openMidiButton { "Open MIDI" };
-    juce::TextButton soundFontButton { "SoundFont" };
-    juce::TextButton settingsButton { "Audio Settings" };
-
-    juce::TextButton playButton { "▶" };
-    juce::TextButton stopButton { "■" };
-
-    juce::Label titleLabel;
-    juce::Label statusLabel;
-    juce::Label positionLabel;
-    juce::Label bpmLabel;
-    juce::Label soundFontLabel;
-
-    juce::Slider positionSlider;
+    static constexpr juce::uint32 merikBlueRGB = 0x00A4EB;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

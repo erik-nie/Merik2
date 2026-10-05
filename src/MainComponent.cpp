@@ -1,400 +1,1173 @@
 #include "MainComponent.h"
 
-#include "MidiFileReader.h"
-
 #include <algorithm>
 #include <cmath>
+#include <exception>
+
+namespace
+{
+    const juce::Colour backgroundColour = juce::Colour::fromRGB(25, 25, 25);
+    const juce::Colour panelColour      = juce::Colour::fromRGB(38, 38, 38);
+    const juce::Colour panelLightColour = juce::Colour::fromRGB(48, 48, 48);
+
+    const juce::Colour merikBlue =
+        juce::Colour::fromRGB(0, 164, 235);
+
+    const juce::Colour textColour =
+        juce::Colours::white;
+
+    const juce::Colour secondaryTextColour =
+        juce::Colour::fromRGB(190, 190, 190);
+}
+
+// ============================================================================
+// Basic list model
+// ============================================================================
+
+class BasicListModel : public juce::ListBoxModel
+{
+public:
+    explicit BasicListModel(std::vector<juce::String> valuesToUse)
+        : values(std::move(valuesToUse))
+    {
+    }
+
+    int getNumRows() override
+    {
+        return static_cast<int>(values.size());
+    }
+
+    void paintListBoxItem(
+        int rowNumber,
+        juce::Graphics& g,
+        int width,
+        int height,
+        bool rowIsSelected) override
+    {
+        if (rowNumber < 0 ||
+            rowNumber >= static_cast<int>(values.size()))
+            return;
+
+        if (rowIsSelected)
+            g.setColour(merikBlue);
+        else if (rowNumber % 2 == 0)
+            g.setColour(juce::Colour::fromRGB(47, 47, 47));
+        else
+            g.setColour(juce::Colour::fromRGB(39, 39, 39));
+
+        g.fillRect(0, 0, width, height);
+
+        g.setColour(textColour);
+        g.setFont(juce::FontOptions(13.0f));
+
+        g.drawText(
+            values[static_cast<size_t>(rowNumber)],
+            8,
+            0,
+            width - 16,
+            height,
+            juce::Justification::centredLeft);
+    }
+
+private:
+    std::vector<juce::String> values;
+};
+
+// ============================================================================
+// SetlistModel
+// ============================================================================
+
+class MainComponent::SetlistModel : public BasicListModel
+{
+public:
+    SetlistModel()
+        : BasicListModel(
+        {
+            "First Setlist        176:40",
+            "Party                160:58",
+            "Misc                  15:28",
+            "OnlyText              47:03",
+            "Test12                149:37",
+            "Karaoke               398:41",
+            "Test1                 148:51",
+            "Test2                 356:12"
+        })
+    {
+    }
+};
+
+// ============================================================================
+// SongModel
+// ============================================================================
+
+class MainComponent::SongModel : public BasicListModel
+{
+public:
+    SongModel()
+        : BasicListModel(
+        {
+            "It's Not Unusual       Tom Jones",
+            "Delilah                Tom Jones",
+            "Sex Bomb               Tom Jones",
+            "Africa                 Toto",
+            "Rosanna                Toto",
+            "Hold The Line          Toto",
+            "Red Red Wine           UB40",
+            "Kingston Town          UB40",
+            "Can't Help Falling     UB40",
+            "Summer Of '69          Bryan Adams",
+            "Have You Ever Seen     CCR",
+            "Brown Eyed Girl        Van Morrison",
+            "Sweet Caroline         Neil Diamond"
+        })
+    {
+    }
+};
+
+// ============================================================================
+// ChannelModel
+// ============================================================================
+
+class MainComponent::ChannelModel
+    : public juce::TableListBoxModel
+{
+public:
+    int getNumRows() override
+    {
+        return 16;
+    }
+
+    void paintRowBackground(
+        juce::Graphics& g,
+        int rowNumber,
+        int width,
+        int height,
+        bool rowIsSelected) override
+    {
+        if (rowIsSelected)
+            g.setColour(merikBlue);
+        else if (rowNumber % 2 == 0)
+            g.setColour(juce::Colour::fromRGB(47, 47, 47));
+        else
+            g.setColour(juce::Colour::fromRGB(39, 39, 39));
+
+        g.fillRect(0, 0, width, height);
+    }
+
+    void paintCell(
+        juce::Graphics& g,
+        int rowNumber,
+        int columnId,
+        int width,
+        int height,
+        bool rowIsSelected) override
+    {
+        juce::String value;
+
+        switch (columnId)
+        {
+            case 1:
+                value = "✓";
+                break;
+
+            case 2:
+                value = juce::String(rowNumber + 1);
+                break;
+
+            case 3:
+                value = "120 → 127";
+                break;
+
+            case 4:
+                value = "127";
+                break;
+
+            case 5:
+                value = "Piano";
+                break;
+
+            case 6:
+                value = "Keys";
+                break;
+
+            default:
+                return;
+        }
+
+        g.setColour(
+            rowIsSelected
+                ? juce::Colours::white
+                : juce::Colour::fromRGB(210, 210, 210));
+
+        g.setFont(juce::FontOptions(12.0f));
+
+        g.drawText(
+            value,
+            6,
+            0,
+            width - 12,
+            height,
+            juce::Justification::centredLeft);
+    }
+};
+
+// ============================================================================
+// MainComponent
+// ============================================================================
 
 MainComponent::MainComponent()
 {
     setOpaque(true);
 
-    addAndMakeVisible(openMidiButton);
-    addAndMakeVisible(soundFontButton);
-    addAndMakeVisible(settingsButton);
+    // -------------------------------------------------------------------------
+    // MIDI Control
+    // -------------------------------------------------------------------------
 
-    addAndMakeVisible(playButton);
-    addAndMakeVisible(stopButton);
-
-    addAndMakeVisible(titleLabel);
-    addAndMakeVisible(statusLabel);
-    addAndMakeVisible(positionLabel);
-    addAndMakeVisible(bpmLabel);
-    addAndMakeVisible(soundFontLabel);
-
-    addAndMakeVisible(positionSlider);
-
-    titleLabel.setText(
-        "MERIK",
+    midiControlLabel.setText(
+        "MIDI Control",
         juce::dontSendNotification);
 
-    titleLabel.setFont(
-        juce::FontOptions(28.0f)
-            .withStyle("Bold"));
-
-    titleLabel.setColour(
+    midiControlLabel.setColour(
         juce::Label::textColourId,
-        juce::Colours::white);
+        secondaryTextColour);
 
-    statusLabel.setText(
-        "Ready",
+    addAndMakeVisible(midiControlLabel);
+
+    midiControlBox.addItem("Default", 1);
+    midiControlBox.addItem("None", 2);
+    midiControlBox.setSelectedId(1);
+
+    addAndMakeVisible(midiControlBox);
+
+    // -------------------------------------------------------------------------
+    // MIDI Out
+    // -------------------------------------------------------------------------
+
+    midiOutLabel.setText(
+        "MIDI Out",
         juce::dontSendNotification);
 
-    statusLabel.setColour(
+    midiOutLabel.setColour(
         juce::Label::textColourId,
-        juce::Colours::lightgrey);
+        secondaryTextColour);
 
-    positionLabel.setText(
-        "00:00 / 00:00",
-        juce::dontSendNotification);
+    addAndMakeVisible(midiOutLabel);
 
-    positionLabel.setFont(
-        juce::FontOptions(24.0f)
-            .withStyle("Bold"));
+    midiOutBox.addItem("Default", 1);
+    midiOutBox.addItem("None", 2);
+    midiOutBox.setSelectedId(1);
 
-    positionLabel.setColour(
-        juce::Label::textColourId,
-        juce::Colours::white);
+    addAndMakeVisible(midiOutBox);
 
-    positionLabel.setJustificationType(
-        juce::Justification::centred);
-
-    bpmLabel.setText(
-        "BPM --",
-        juce::dontSendNotification);
-
-    bpmLabel.setColour(
-        juce::Label::textColourId,
-        juce::Colours::lightgrey);
+    // -------------------------------------------------------------------------
+    // SoundFont
+    // -------------------------------------------------------------------------
 
     soundFontLabel.setText(
-        "No SoundFont loaded",
+        "SoundFont",
         juce::dontSendNotification);
 
     soundFontLabel.setColour(
         juce::Label::textColourId,
-        juce::Colours::lightgrey);
+        secondaryTextColour);
 
-    positionSlider.setRange(
-        0.0,
-        1.0,
-        0.000001);
+    addAndMakeVisible(soundFontLabel);
+
+    soundFontButton.setButtonText(
+        "Select SoundFont...");
+
+    soundFontButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    soundFontButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    soundFontButton.onClick = [this]
+    {
+        selectSoundFont();
+    };
+
+    addAndMakeVisible(soundFontButton);
+
+    settingsButton.setButtonText("⚙");
+    settingsButton.setTooltip("Settings");
+
+    settingsButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    settingsButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    addAndMakeVisible(settingsButton);
+
+    // -------------------------------------------------------------------------
+    // Family controls
+    // -------------------------------------------------------------------------
+
+    const std::array<juce::String, 8> familyNames =
+    {
+        "1 Drums CH10",
+        "2 Bass",
+        "3 Guitar",
+        "4 Keys",
+        "5 Strings",
+        "6 Winds",
+        "7 FX",
+        "8 Melody CH4"
+    };
+
+    for (size_t i = 0; i < familyControls.size(); ++i)
+    {
+        auto& control = familyControls[i];
+
+        control.label.setText(
+            familyNames[i],
+            juce::dontSendNotification);
+
+        control.label.setColour(
+            juce::Label::textColourId,
+            textColour);
+
+        control.label.setFont(
+            juce::FontOptions(11.0f));
+
+        control.label.setJustificationType(
+            juce::Justification::centred);
+
+        addAndMakeVisible(control.label);
+
+        control.slider.setSliderStyle(
+            juce::Slider::LinearHorizontal);
+
+        control.slider.setRange(
+            0.0,
+            127.0,
+            1.0);
+
+        control.slider.setValue(100.0);
+
+        control.slider.setColour(
+            juce::Slider::trackColourId,
+            merikBlue);
+
+        control.slider.setColour(
+            juce::Slider::thumbColourId,
+            juce::Colours::white);
+
+        control.slider.setColour(
+            juce::Slider::backgroundColourId,
+            juce::Colour::fromRGB(70, 70, 70));
+
+        addAndMakeVisible(control.slider);
+    }
+
+    // -------------------------------------------------------------------------
+    // Player
+    // -------------------------------------------------------------------------
+
+    songTitle.setText(
+        "No MIDI loaded",
+        juce::dontSendNotification);
+
+    songTitle.setColour(
+        juce::Label::textColourId,
+        textColour);
+
+    songTitle.setFont(
+        juce::FontOptions(27.0f));
+
+    songTitle.setJustificationType(
+        juce::Justification::centred);
+
+    addAndMakeVisible(songTitle);
+
+    nextSong.setText(
+        "Next: -",
+        juce::dontSendNotification);
+
+    nextSong.setColour(
+        juce::Label::textColourId,
+        secondaryTextColour);
+
+    nextSong.setFont(
+        juce::FontOptions(14.0f));
+
+    nextSong.setJustificationType(
+        juce::Justification::centred);
+
+    addAndMakeVisible(nextSong);
+
+    elapsedTime.setText(
+        "00:00",
+        juce::dontSendNotification);
+
+    elapsedTime.setColour(
+        juce::Label::textColourId,
+        secondaryTextColour);
+
+    elapsedTime.setFont(
+        juce::FontOptions(12.0f));
+
+    addAndMakeVisible(elapsedTime);
+
+    totalTime.setText(
+        "00:00",
+        juce::dontSendNotification);
+
+    totalTime.setColour(
+        juce::Label::textColourId,
+        secondaryTextColour);
+
+    totalTime.setJustificationType(
+        juce::Justification::centredRight);
+
+    addAndMakeVisible(totalTime);
 
     positionSlider.setSliderStyle(
         juce::Slider::LinearHorizontal);
 
-    positionSlider.setTextBoxStyle(
-        juce::Slider::NoTextBox,
-        false,
+    positionSlider.setRange(
+        0.0,
+        1.0,
+        0.001);
+
+    positionSlider.setValue(0.0);
+
+    positionSlider.setColour(
+        juce::Slider::trackColourId,
+        merikBlue);
+
+    positionSlider.setColour(
+        juce::Slider::thumbColourId,
+        juce::Colours::white);
+
+    positionSlider.setColour(
+        juce::Slider::backgroundColourId,
+        juce::Colour::fromRGB(70, 70, 70));
+
+    addAndMakeVisible(positionSlider);
+
+    // -------------------------------------------------------------------------
+    // Transport
+    // -------------------------------------------------------------------------
+
+    loadButton.setButtonText("Load MIDI");
+
+    loadButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    loadButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    loadButton.onClick = [this]
+    {
+        loadMidi();
+    };
+
+    addAndMakeVisible(loadButton);
+
+    playButton.setButtonText("▶  Play");
+
+    playButton.setColour(
+        juce::TextButton::buttonColourId,
+        merikBlue);
+
+    playButton.setColour(
+        juce::TextButton::textColourOffId,
+        juce::Colours::white);
+
+    playButton.onClick = [this]
+    {
+        play();
+    };
+
+    addAndMakeVisible(playButton);
+
+    stopButton.setButtonText("■  Stop");
+
+    stopButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    stopButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    stopButton.onClick = [this]
+    {
+        stop();
+    };
+
+    addAndMakeVisible(stopButton);
+
+    nextButton.setButtonText("Next");
+
+    nextButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    nextButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    addAndMakeVisible(nextButton);
+
+    transposeDownButton.setButtonText("−");
+
+    transposeDownButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    transposeDownButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    transposeDownButton.onClick = [this]
+    {
+        --transpose;
+
+        transposeValue.setText(
+            juce::String(transpose),
+            juce::dontSendNotification);
+    };
+
+    addAndMakeVisible(transposeDownButton);
+
+    transposeValue.setText(
+        "0",
+        juce::dontSendNotification);
+
+    transposeValue.setColour(
+        juce::Label::textColourId,
+        textColour);
+
+    transposeValue.setFont(
+        juce::FontOptions(14.0f));
+
+    transposeValue.setJustificationType(
+        juce::Justification::centred);
+
+    addAndMakeVisible(transposeValue);
+
+    transposeUpButton.setButtonText("+");
+
+    transposeUpButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    transposeUpButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    transposeUpButton.onClick = [this]
+    {
+        ++transpose;
+
+        transposeValue.setText(
+            juce::String(transpose),
+            juce::dontSendNotification);
+    };
+
+    addAndMakeVisible(transposeUpButton);
+
+    panicButton.setButtonText("Panic");
+
+    panicButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    panicButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    addAndMakeVisible(panicButton);
+
+    lyricsButton.setButtonText("Lyrics");
+
+    lyricsButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    lyricsButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    addAndMakeVisible(lyricsButton);
+
+    channelsButton.setButtonText("Channels");
+
+    channelsButton.setColour(
+        juce::TextButton::buttonColourId,
+        panelLightColour);
+
+    channelsButton.setColour(
+        juce::TextButton::textColourOffId,
+        textColour);
+
+    addAndMakeVisible(channelsButton);
+
+    // -------------------------------------------------------------------------
+    // Lists
+    // -------------------------------------------------------------------------
+
+    setlistsTitle.setText(
+        "Setlists",
+        juce::dontSendNotification);
+
+    setlistsTitle.setColour(
+        juce::Label::textColourId,
+        textColour);
+
+    setlistsTitle.setFont(
+        juce::FontOptions(14.0f));
+
+    addAndMakeVisible(setlistsTitle);
+
+    songsTitle.setText(
+        "Songs",
+        juce::dontSendNotification);
+
+    songsTitle.setColour(
+        juce::Label::textColourId,
+        textColour);
+
+    songsTitle.setFont(
+        juce::FontOptions(14.0f));
+
+    addAndMakeVisible(songsTitle);
+
+    totalTimeTitle.setText(
+        "Total time",
+        juce::dontSendNotification);
+
+    totalTimeTitle.setColour(
+        juce::Label::textColourId,
+        secondaryTextColour);
+
+    addAndMakeVisible(totalTimeTitle);
+
+    setlistModel = std::make_unique<SetlistModel>();
+    songModel = std::make_unique<SongModel>();
+
+    setlistBox.setModel(setlistModel.get());
+    songBox.setModel(songModel.get());
+
+    setlistBox.setColour(
+        juce::ListBox::backgroundColourId,
+        panelColour);
+
+    songBox.setColour(
+        juce::ListBox::backgroundColourId,
+        panelColour);
+
+    addAndMakeVisible(setlistBox);
+    addAndMakeVisible(songBox);
+
+    newSetlistButton.setButtonText("+ Setlist");
+    deleteSetlistButton.setButtonText("− Setlist");
+
+    addButton.setButtonText("+");
+    removeButton.setButtonText("−");
+
+    for (auto* button :
+         {
+             &newSetlistButton,
+             &deleteSetlistButton,
+             &addButton,
+             &removeButton
+         })
+    {
+        button->setColour(
+            juce::TextButton::buttonColourId,
+            panelLightColour);
+
+        button->setColour(
+            juce::TextButton::textColourOffId,
+            textColour);
+
+        addAndMakeVisible(button);
+    }
+
+    doubleClickToggle.setButtonText(
+        "Dbl Click Plays");
+
+    normalizeToggle.setButtonText(
+        "Normalize");
+
+    continuousToggle.setButtonText(
+        "Continuous Play");
+
+    for (auto* toggle :
+         {
+             &doubleClickToggle,
+             &normalizeToggle,
+             &continuousToggle
+         })
+    {
+        toggle->setColour(
+            juce::ToggleButton::textColourId,
+            secondaryTextColour);
+
+        toggle->setColour(
+            juce::ToggleButton::tickColourId,
+            merikBlue);
+
+        addAndMakeVisible(toggle);
+    }
+
+    // -------------------------------------------------------------------------
+    // Channel table
+    // -------------------------------------------------------------------------
+
+    channelModel = std::make_unique<ChannelModel>();
+
+    channelTable.setModel(
+        channelModel.get());
+
+    channelTable.getHeader().addColumn(
+        "Active", 1, 55);
+
+    channelTable.getHeader().addColumn(
+        "CH", 2, 45);
+
+    channelTable.getHeader().addColumn(
+        "CC7 Volume", 3, 110);
+
+    channelTable.getHeader().addColumn(
+        "CC11 Expression", 4, 125);
+
+    channelTable.getHeader().addColumn(
+        "Program", 5, 110);
+
+    channelTable.getHeader().addColumn(
+        "Family", 6, 110);
+
+    channelTable.setColour(
+        juce::ListBox::backgroundColourId,
+        panelColour);
+
+    channelTable.setColour(
+        juce::ListBox::outlineColourId,
+        juce::Colour::fromRGB(65, 65, 65));
+
+    addAndMakeVisible(channelTable);
+
+    // -------------------------------------------------------------------------
+    // Audio
+    // -------------------------------------------------------------------------
+
+    setAudioChannels(
         0,
-        0);
+        2);
 
-    positionSlider.setEnabled(false);
+    startTimerHz(20);
 
-    openMidiButton.onClick =
-        [this]
-        {
-            openMidi();
-        };
-
-    soundFontButton.onClick =
-        [this]
-        {
-            openSoundFont();
-        };
-
-    settingsButton.onClick =
-        [this]
-        {
-            showAudioSettings();
-        };
-
-    playButton.onClick =
-        [this]
-        {
-            if (synth_.isPlaying())
-                synth_.stop();
-            else
-                synth_.start();
-
-            updateTransport();
-        };
-
-    stopButton.onClick =
-        [this]
-        {
-            synth_.stop();
-            synth_.seekSamples(0);
-
-            updateTransport();
-        };
-
-    setSize(1000, 650);
-
-    /*
-        Start the JUCE audio device.
-
-        We request stereo output only.
-        JUCE then owns the CoreAudio device.
-    */
-    setAudioChannels(0, 2);
-
-    startTimerHz(30);
+    setSize(1100, 700);
 }
+
+// ============================================================================
 
 MainComponent::~MainComponent()
 {
     stopTimer();
 
+    synthEngine.stop();
+
     shutdownAudio();
 }
 
+// ============================================================================
+// AudioAppComponent
+// ============================================================================
+
 void MainComponent::prepareToPlay(
-    int samplesPerBlockExpected,
+    int,
     double sampleRate)
 {
-    juce::ignoreUnused(samplesPerBlockExpected);
+    audioSampleRate = sampleRate;
 
-    synth_.setSampleRate(sampleRate);
+    synthEngine.setSampleRate(
+        sampleRate);
+
+    audioReady = true;
+
+    if (currentSong)
+        synthEngine.loadSong(
+            currentSong);
 }
+
+// ============================================================================
 
 void MainComponent::getNextAudioBlock(
     const juce::AudioSourceChannelInfo& bufferToFill)
 {
-    if (bufferToFill.buffer == nullptr)
+    if (bufferToFill.buffer == nullptr ||
+        bufferToFill.numSamples <= 0)
         return;
 
-    auto* buffer = bufferToFill.buffer;
+    const int numChannels =
+        bufferToFill.buffer->getNumChannels();
 
-    const int start =
-        bufferToFill.startSample;
-
-    const int numSamples =
-        bufferToFill.numSamples;
-
-    buffer->clear(
-        start,
-        numSamples);
-
-    float* outputs[2] =
+    for (int channel = 0;
+         channel < numChannels;
+         ++channel)
     {
-        buffer->getNumChannels() > 0
-            ? buffer->getWritePointer(0, start)
-            : nullptr,
+        bufferToFill.buffer->clear(
+            channel,
+            bufferToFill.startSample,
+            bufferToFill.numSamples);
+    }
 
-        buffer->getNumChannels() > 1
-            ? buffer->getWritePointer(1, start)
-            : nullptr
-    };
+    if (!audioReady ||
+        !currentSong ||
+        !isPlaying)
+        return;
 
-    synth_.render(
-        outputs,
-        std::min(2, buffer->getNumChannels()),
-        numSamples);
+    const int channelsToRender =
+        std::min(
+            numChannels,
+            2);
+
+    if (channelsToRender <= 0)
+        return;
+
+    float* output[2] = { nullptr, nullptr };
+
+    output[0] =
+        bufferToFill.buffer->getWritePointer(
+            0,
+            bufferToFill.startSample);
+
+    if (channelsToRender >= 2)
+    {
+        output[1] =
+            bufferToFill.buffer->getWritePointer(
+                1,
+                bufferToFill.startSample);
+    }
+    else
+    {
+        output[1] = output[0];
+    }
+
+    synthEngine.render(
+        output,
+        channelsToRender,
+        bufferToFill.numSamples);
+
+    if (!synthEngine.isPlaying())
+        isPlaying = false;
 }
+
+// ============================================================================
 
 void MainComponent::releaseResources()
 {
+    audioReady = false;
 }
 
-void MainComponent::paint(
-    juce::Graphics& g)
-{
-    g.fillAll(
-        juce::Colour::fromRGB(
-            20,
-            22,
-            27));
+// ============================================================================
+// Painting
+// ============================================================================
 
-    auto bounds =
-        getLocalBounds();
+void MainComponent::paint(juce::Graphics& g)
+{
+    g.fillAll(backgroundColour);
+
+    auto bounds = getLocalBounds();
 
     auto header =
         bounds.removeFromTop(76);
 
-    g.setColour(
-        juce::Colour::fromRGB(
-            28,
-            31,
-            38));
-
+    g.setColour(panelColour);
     g.fillRect(header);
 
-    auto main =
-        bounds.reduced(32);
+    g.setColour(
+        juce::Colour::fromRGB(65, 65, 65));
+
+    g.fillRect(
+        0,
+        header.getBottom() - 1,
+        getWidth(),
+        1);
+
+    auto player =
+        bounds.removeFromTop(205);
+
+    g.setColour(panelColour);
+    g.fillRect(player);
 
     g.setColour(
-        juce::Colour::fromRGB(
-            32,
-            35,
-            42));
+        juce::Colour::fromRGB(65, 65, 65));
 
-    g.fillRoundedRectangle(
-        main.toFloat(),
-        12.0f);
+    g.fillRect(
+        0,
+        player.getBottom() - 1,
+        getWidth(),
+        1);
 
-    auto centre =
-        main.reduced(28);
+    auto lists =
+        bounds.removeFromTop(215);
+
+    g.setColour(panelColour);
+    g.fillRect(lists);
 
     g.setColour(
-        juce::Colour::fromRGB(
-            42,
-            45,
-            52));
+        juce::Colour::fromRGB(65, 65, 65));
 
-    g.fillRoundedRectangle(
-        centre.toFloat(),
-        10.0f);
+    g.fillRect(
+        lists.getCentreX(),
+        lists.getY(),
+        1,
+        lists.getHeight());
+
+    g.setColour(backgroundColour);
+    g.fillRect(bounds);
 }
+
+// ============================================================================
+// Layout
+// ============================================================================
 
 void MainComponent::resized()
 {
-    auto area =
-        getLocalBounds();
+    auto bounds = getLocalBounds();
+
+    // -------------------------------------------------------------------------
+    // Header
+    // -------------------------------------------------------------------------
 
     auto header =
-        area.removeFromTop(76)
-            .reduced(24, 12);
+        bounds.removeFromTop(76).reduced(10);
 
-    titleLabel.setBounds(
-        header.removeFromLeft(180));
+    auto left =
+        header.removeFromLeft(155);
 
-    statusLabel.setBounds(
-        header.removeFromRight(180));
+    midiControlLabel.setBounds(
+        left.removeFromTop(18));
 
-    auto controls =
-        area.reduced(32);
+    midiControlBox.setBounds(
+        left.removeFromTop(28));
 
-    openMidiButton.setBounds(
-        controls.removeFromTop(40)
-            .removeFromLeft(120));
+    header.removeFromLeft(12);
 
-    controls.removeFromTop(12);
+    auto midiOutArea =
+        header.removeFromLeft(155);
 
-    soundFontButton.setBounds(
-        controls.removeFromTop(36)
-            .removeFromLeft(120));
+    midiOutLabel.setBounds(
+        midiOutArea.removeFromTop(18));
 
-    controls.removeFromTop(8);
+    midiOutBox.setBounds(
+        midiOutArea.removeFromTop(28));
 
-    settingsButton.setBounds(
-        controls.removeFromTop(36)
-            .removeFromLeft(160));
+    header.removeFromLeft(12);
 
-    controls.removeFromTop(35);
-
-    titleLabel.setBounds(
-        controls.removeFromTop(45));
-
-    positionLabel.setBounds(
-        controls.removeFromTop(55));
-
-    controls.removeFromTop(12);
-
-    positionSlider.setBounds(
-        controls.removeFromTop(28));
-
-    controls.removeFromTop(18);
-
-    auto transport =
-        controls.removeFromTop(55);
-
-    playButton.setBounds(
-        transport.removeFromLeft(80));
-
-    transport.removeFromLeft(10);
-
-    stopButton.setBounds(
-        transport.removeFromLeft(80));
-
-    controls.removeFromTop(20);
-
-    bpmLabel.setBounds(
-        controls.removeFromTop(30));
+    auto soundFontArea =
+        header.removeFromLeft(225);
 
     soundFontLabel.setBounds(
-        controls.removeFromTop(30));
-}
+        soundFontArea.removeFromTop(18));
 
-void MainComponent::timerCallback()
-{
-    updateTransport();
-}
+    auto soundFontRow =
+        soundFontArea.removeFromTop(28);
 
-void MainComponent::updateTransport()
-{
-    const auto position =
-        synth_.positionSamples();
+    soundFontButton.setBounds(
+        soundFontRow.removeFromLeft(190));
 
-    const auto length =
-        synth_.lengthSamples();
+    soundFontRow.removeFromLeft(5);
 
-    const double sampleRate =
-        48000.0;
+    settingsButton.setBounds(
+        soundFontRow);
 
-    const auto positionMs =
-        static_cast<std::int64_t>(
-            position / sampleRate * 1000.0);
+    auto familyArea = header;
 
-    const auto lengthMs =
-        static_cast<std::int64_t>(
-            length / sampleRate * 1000.0);
+    const int familyWidth =
+        juce::jmax(
+            70,
+            familyArea.getWidth() / 8);
 
-    positionLabel.setText(
-        formatTime(positionMs)
-        + " / "
-        + formatTime(lengthMs),
-        juce::dontSendNotification);
-
-    const bool playing =
-        synth_.isPlaying();
-
-    statusLabel.setText(
-        playing ? "Playing" : "Ready",
-        juce::dontSendNotification);
-
-    playButton.setButtonText(
-        playing ? "Ⅱ" : "▶");
-
-    if (length > 0)
+    for (auto& control : familyControls)
     {
-        positionSlider.setValue(
-            static_cast<double>(position)
-            / static_cast<double>(length),
-            juce::dontSendNotification);
+        auto area =
+            familyArea.removeFromLeft(
+                familyWidth);
+
+        control.label.setBounds(
+            area.removeFromTop(18));
+
+        control.slider.setBounds(
+            area.reduced(2, 3));
     }
 
-    const auto fontPath =
-        synth_.soundFontPath();
+    // -------------------------------------------------------------------------
+    // Player
+    // -------------------------------------------------------------------------
 
-    if (fontPath.empty())
-    {
-        soundFontLabel.setText(
-            "No SoundFont loaded",
-            juce::dontSendNotification);
-    }
-    else
-    {
-        soundFontLabel.setText(
-            juce::File(fontPath).getFileName(),
-            juce::dontSendNotification);
-    }
+    auto player =
+        bounds.removeFromTop(205).reduced(12);
+
+    auto titleArea =
+        player.removeFromTop(55);
+
+    songTitle.setBounds(titleArea);
+
+    nextSong.setBounds(
+        player.removeFromTop(25));
+
+    auto progressArea =
+        player.removeFromTop(38);
+
+    elapsedTime.setBounds(
+        progressArea.removeFromLeft(45));
+
+    totalTime.setBounds(
+        progressArea.removeFromRight(45));
+
+    positionSlider.setBounds(
+        progressArea.reduced(5, 8));
+
+    auto transport =
+        player.removeFromTop(42);
+
+    loadButton.setBounds(
+        transport.removeFromLeft(95));
+
+    transport.removeFromLeft(6);
+
+    playButton.setBounds(
+        transport.removeFromLeft(90));
+
+    transport.removeFromLeft(6);
+
+    stopButton.setBounds(
+        transport.removeFromLeft(85));
+
+    transport.removeFromLeft(6);
+
+    nextButton.setBounds(
+        transport.removeFromLeft(70));
+
+    transport.removeFromLeft(12);
+
+    transposeDownButton.setBounds(
+        transport.removeFromLeft(32));
+
+    transposeValue.setBounds(
+        transport.removeFromLeft(35));
+
+    transposeUpButton.setBounds(
+        transport.removeFromLeft(32));
+
+    transport.removeFromLeft(12);
+
+    panicButton.setBounds(
+        transport.removeFromLeft(65));
+
+    transport.removeFromLeft(6);
+
+    lyricsButton.setBounds(
+        transport.removeFromLeft(65));
+
+    transport.removeFromLeft(6);
+
+    channelsButton.setBounds(
+        transport.removeFromLeft(75));
+
+    // -------------------------------------------------------------------------
+    // Lists
+    // -------------------------------------------------------------------------
+
+    auto lists =
+        bounds.removeFromTop(215).reduced(10);
+
+    auto setlistArea =
+        lists.removeFromLeft(
+            juce::jmax(
+                250,
+                lists.getWidth() / 3));
+
+    auto songArea = lists;
+
+    setlistsTitle.setBounds(
+        setlistArea.removeFromTop(25));
+
+    auto setlistButtons =
+        setlistArea.removeFromBottom(30);
+
+    newSetlistButton.setBounds(
+        setlistButtons.removeFromLeft(85));
+
+    setlistButtons.removeFromLeft(5);
+
+    deleteSetlistButton.setBounds(
+        setlistButtons.removeFromLeft(95));
+
+    setlistBox.setBounds(
+        setlistArea);
+
+    songsTitle.setBounds(
+        songArea.removeFromTop(25));
+
+    auto songButtons =
+        songArea.removeFromBottom(30);
+
+    addButton.setBounds(
+        songButtons.removeFromLeft(35));
+
+    songButtons.removeFromLeft(5);
+
+    removeButton.setBounds(
+        songButtons.removeFromLeft(35));
+
+    songButtons.removeFromLeft(15);
+
+    doubleClickToggle.setBounds(
+        songButtons.removeFromLeft(120));
+
+    normalizeToggle.setBounds(
+        songButtons.removeFromLeft(95));
+
+    continuousToggle.setBounds(
+        songButtons.removeFromLeft(120));
+
+    songBox.setBounds(
+        songArea);
+
+    // -------------------------------------------------------------------------
+    // Channel table
+    // -------------------------------------------------------------------------
+
+    auto channelArea =
+        bounds.reduced(10);
+
+    channelTable.setBounds(
+        channelArea);
 }
 
-void MainComponent::openMidi()
+// ============================================================================
+// Load MIDI
+// ============================================================================
+
+void MainComponent::loadMidi()
 {
     auto chooser =
         std::make_shared<juce::FileChooser>(
-            "Open MIDI file",
-            juce::File{},
-            "*.mid;*.midi");
+            "Select MIDI file",
+            currentMidiFile.existsAsFile()
+                ? currentMidiFile.getParentDirectory()
+                : juce::File(),
+            "*.mid;*.midi;*.MID;*.MIDI;*.kar;*.KAR");
 
     chooser->launchAsync(
-        juce::FileBrowserComponent::openMode
-        | juce::FileBrowserComponent::canSelectFiles,
-
-        [this, chooser]
-        (const juce::FileChooser& fc)
+        juce::FileBrowserComponent::openMode |
+        juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser](const juce::FileChooser& fc)
         {
             const auto file =
                 fc.getResult();
@@ -404,61 +1177,66 @@ void MainComponent::openMidi()
 
             try
             {
-                auto song =
+                /*
+                    Read the MIDI at the current audio sample rate.
+
+                    If the audio device isn't available yet, use
+                    the same default rate as the engine.
+                */
+                const double sampleRate =
+                    audioReady
+                        ? audioSampleRate
+                        : 48000.0;
+
+                const Song song =
+                    midiReader.read(
+                        file.getFullPathName().toStdString(),
+                        sampleRate);
+
+                currentSong =
                     std::make_shared<Song>(
-                        MidiFileReader{}.read(
-                            file.getFullPathName()
-                                .toStdString()));
+                        std::move(song));
 
-                song_ = song;
+                currentMidiFile = file;
 
-                synth_.loadSong(song_);
+                isPlaying = false;
 
-                titleLabel.setText(
-                    file.getFileNameWithoutExtension(),
-                    juce::dontSendNotification);
+                synthEngine.stop();
+                synthEngine.setSampleRate(
+                    sampleRate);
+                synthEngine.loadSong(
+                    currentSong);
 
-                statusLabel.setText(
-                    "MIDI loaded",
-                    juce::dontSendNotification);
-
-                bpmLabel.setText(
-                    song_->tempoMap.empty()
-                        ? "BPM --"
-                        : "BPM "
-                          + juce::String(
-                              song_->tempoMap.front().bpm,
-                              1),
-                    juce::dontSendNotification);
-
-                positionSlider.setEnabled(true);
-
-                updateTransport();
+                updateSongDisplay();
             }
             catch (const std::exception& e)
             {
                 juce::AlertWindow::showMessageBoxAsync(
-                    juce::MessageBoxIconType::WarningIcon,
-                    "MIDI error",
+                    juce::AlertWindow::WarningIcon,
+                    "Could not load MIDI",
                     e.what());
             }
         });
 }
 
-void MainComponent::openSoundFont()
+// ============================================================================
+// SoundFont
+// ============================================================================
+
+void MainComponent::selectSoundFont()
 {
     auto chooser =
         std::make_shared<juce::FileChooser>(
             "Select SoundFont",
-            juce::File{},
+            currentSoundFont.existsAsFile()
+                ? currentSoundFont.getParentDirectory()
+                : juce::File(),
             "*.sf2;*.SF2");
 
     chooser->launchAsync(
-        juce::FileBrowserComponent::openMode
-        | juce::FileBrowserComponent::canSelectFiles,
-
-        [this, chooser]
-        (const juce::FileChooser& fc)
+        juce::FileBrowserComponent::openMode |
+        juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser](const juce::FileChooser& fc)
         {
             const auto file =
                 fc.getResult();
@@ -468,70 +1246,224 @@ void MainComponent::openSoundFont()
 
             std::string error;
 
-            if (!synth_.loadSoundFont(
+            if (!synthEngine.loadSoundFont(
                     file.getFullPathName().toStdString(),
                     error))
             {
                 juce::AlertWindow::showMessageBoxAsync(
-                    juce::MessageBoxIconType::WarningIcon,
-                    "SoundFont error",
-                    error);
+                    juce::AlertWindow::WarningIcon,
+                    "Could not load SoundFont",
+                    juce::String(error));
+                return;
             }
 
-            updateTransport();
+            currentSoundFont = file;
+
+            auto name =
+                currentSoundFont.getFileName();
+
+            if (name.length() > 27)
+                name =
+                    name.substring(0, 24) + "...";
+
+            soundFontButton.setButtonText(
+                name);
         });
 }
 
-void MainComponent::showAudioSettings()
+// ============================================================================
+// Play
+// ============================================================================
+
+void MainComponent::play()
 {
-    auto* selector =
-        new juce::AudioDeviceSelectorComponent(
-            deviceManager,
-            0,
-            0,
-            2,
-            2,
-            false,
-            false,
-            false,
-            false);
+    if (!currentSong)
+        return;
 
-    selector->setSize(
-        650,
-        420);
+    if (!audioReady)
+        return;
 
-    auto* window =
-        new juce::DialogWindow(
-            "Audio Settings",
-            juce::Colours::darkgrey,
-            true);
+    /*
+        The synth itself owns the exact sample position.
+        If the song reached its end, FluidSynthEngine::start()
+        automatically resets it to zero.
+    */
+    synthEngine.start();
 
-    window->setContentOwned(
-        selector,
-        true);
+    isPlaying =
+        synthEngine.isPlaying();
 
-    window->centreWithSize(
-        650,
-        420);
+    if (isPlaying)
+    {
+        playButton.setButtonText(
+            "▶  Playing");
 
-    window->setResizable(
-        true,
-        false);
-
-    window->setVisible(true);
+        playButton.setColour(
+            juce::TextButton::buttonColourId,
+            merikBlue);
+    }
 }
 
-juce::String MainComponent::formatTime(
-    std::int64_t milliseconds)
+// ============================================================================
+// Stop
+// ============================================================================
+
+void MainComponent::stop()
 {
-    const auto minutes =
-        milliseconds / 60000;
+    synthEngine.stop();
 
-    const auto seconds =
-        (milliseconds / 1000) % 60;
+    isPlaying = false;
 
-    return juce::String::formatted(
-        "%02lld:%02lld",
-        static_cast<long long>(minutes),
-        static_cast<long long>(seconds));
+    playButton.setButtonText(
+        "▶  Play");
+
+    playButton.setColour(
+        juce::TextButton::buttonColourId,
+        merikBlue);
+}
+
+// ============================================================================
+// Song display
+// ============================================================================
+
+void MainComponent::updateSongDisplay()
+{
+    if (!currentSong ||
+        !currentMidiFile.existsAsFile())
+        return;
+
+    auto name =
+        currentMidiFile.getFileNameWithoutExtension();
+
+    songTitle.setText(
+        name,
+        juce::dontSendNotification);
+
+    nextSong.setText(
+        "Next: -",
+        juce::dontSendNotification);
+
+    updateTransportDisplay();
+}
+
+// ============================================================================
+// Transport display
+// ============================================================================
+
+void MainComponent::updateTransportDisplay()
+{
+    if (!currentSong)
+    {
+        elapsedTime.setText(
+            "00:00",
+            juce::dontSendNotification);
+
+        totalTime.setText(
+            "00:00",
+            juce::dontSendNotification);
+
+        positionSlider.setValue(
+            0.0,
+            juce::dontSendNotification);
+
+        return;
+    }
+
+    const auto lengthSamples =
+        synthEngine.lengthSamples();
+
+    const auto positionSamples =
+        synthEngine.positionSamples();
+
+    const double sampleRate =
+        audioSampleRate > 0.0
+            ? audioSampleRate
+            : 48000.0;
+
+    const double positionSeconds =
+        static_cast<double>(
+            positionSamples)
+        / sampleRate;
+
+    const double lengthSeconds =
+        static_cast<double>(
+            lengthSamples)
+        / sampleRate;
+
+    elapsedTime.setText(
+        formatTime(positionSeconds),
+        juce::dontSendNotification);
+
+    totalTime.setText(
+        formatTime(lengthSeconds),
+        juce::dontSendNotification);
+
+    const double fraction =
+        lengthSamples > 0
+            ? static_cast<double>(
+                  positionSamples)
+              / static_cast<double>(
+                  lengthSamples)
+            : 0.0;
+
+    positionSlider.setValue(
+        juce::jlimit(
+            0.0,
+            1.0,
+            fraction),
+        juce::dontSendNotification);
+
+    const bool enginePlaying =
+        synthEngine.isPlaying();
+
+    if (!enginePlaying && isPlaying)
+    {
+        isPlaying = false;
+
+        playButton.setButtonText(
+            "▶  Play");
+
+        playButton.setColour(
+            juce::TextButton::buttonColourId,
+            merikBlue);
+    }
+}
+
+// ============================================================================
+// Timer
+// ============================================================================
+
+void MainComponent::timerCallback()
+{
+    updateTransportDisplay();
+}
+
+// ============================================================================
+// Time formatting
+// ============================================================================
+
+juce::String MainComponent::formatTime(
+    double seconds)
+{
+    if (!std::isfinite(seconds) ||
+        seconds < 0.0)
+    {
+        seconds = 0.0;
+    }
+
+    const auto totalSeconds =
+        static_cast<int>(
+            std::floor(seconds));
+
+    const int minutes =
+        totalSeconds / 60;
+
+    const int remainingSeconds =
+        totalSeconds % 60;
+
+    return juce::String(minutes)
+        + ":"
+        + juce::String(
+              remainingSeconds)
+              .paddedLeft('0', 2);
 }
