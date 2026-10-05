@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/merik.dir/src/main.cpp.o CMakeFiles/merik.dir/src/MidiParser.cpp.o -o merik 
