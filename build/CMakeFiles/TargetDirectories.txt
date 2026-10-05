@@ -1,0 +1,3 @@
+/workspaces/Merik2/build/CMakeFiles/merik.dir
+/workspaces/Merik2/build/CMakeFiles/edit_cache.dir
+/workspaces/Merik2/build/CMakeFiles/rebuild_cache.dir
