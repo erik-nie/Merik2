@@ -7,7 +7,7 @@ int main()
 
     MidiParser parser;
 
-    parser.load("test.mid");
+    parser.load("../test/midi/paradise.mid");
 
     return 0;
 }
