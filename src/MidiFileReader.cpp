@@ -45,15 +45,11 @@ Song MidiFileReader::read(const std::string& filename, double sampleRate) const
     for (const auto& segment : lyrics.segments)
     {
         std::cout
-            << segment.timeSeconds
-            << " line=" << segment.lineIndex
-            << " startsNewWord="
-            << segment.startsNewWord
-            << " startsNewLine="
-            << segment.startsNewLine
-            << " text=["
-            << segment.text
-            << "]\n";
+        << " startsNewWord=" << segment.startsNewWord
+        << " startsNewLine=" << segment.startsNewLine
+        << " endsWord=" << segment.endsWord
+        << " text=[" << segment.text << "]"
+        << '\n';
     }
 
 

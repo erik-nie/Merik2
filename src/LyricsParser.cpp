@@ -85,11 +85,14 @@ LyricsData LyricsParser::parse(
                 continue;
             }
 
-            // Belangrijk:
-            // Leading spaces worden hier bewust niet verwijderd.
+            // Leading en trailing whitespace worden hier
+            // bewust nog niet verwijderd.
             //
-            // " calls" betekent: nieuw woord.
-            // "no" betekent: vervolg van het huidige woord.
+            // Leading whitespace:
+            // " dis" betekent nieuw woord.
+            //
+            // Trailing whitespace:
+            // "e " betekent dat het woord na dit segment eindigt.
             std::string rawText =
                 sanitizeRawText(
                     decodeMetaText(event));
@@ -134,22 +137,24 @@ LyricsData LyricsParser::parse(
     std::stable_sort(
         selectedEvents.begin(),
         selectedEvents.end(),
-        [](const Candidate& left, const Candidate& right)
+        [](const Candidate& left,
+           const Candidate& right)
         {
-            if (left.event->tick != right.event->tick)
+            if (left.event->tick !=
+                right.event->tick)
             {
                 return left.event->tick <
-                    right.event->tick;
+                       right.event->tick;
             }
 
             if (left.track != right.track)
             {
                 return left.track <
-                    right.track;
+                       right.track;
             }
 
             return left.event->seq <
-                right.event->seq;
+                   right.event->seq;
         });
 
     int lineIndex = -1;
@@ -159,9 +164,8 @@ LyricsData LyricsParser::parse(
     // Voorbeeld:
     // [he][ calls][no][ where][\r][Is]
     //
-    // Het "\r"-event bevat zelf geen tekst.
-    // Het daaropvolgende "Is"-segment moet wel
-    // startsNewLine=true krijgen.
+    // Het "\r"-event bevat zelf geen zichtbare tekst.
+    // Het volgende segment krijgt startsNewLine=true.
     bool pendingNewLine = false;
 
     for (const auto& candidate : selectedEvents)
@@ -221,6 +225,9 @@ LyricsData LyricsParser::parse(
         segment.startsNewLine =
             parsed.startsNewLine;
 
+        segment.endsWord =
+            parsed.endsWord;
+
         segment.text =
             std::move(parsed.text);
 
@@ -273,8 +280,8 @@ std::string LyricsParser::decodeMetaText(
     //
     // FF <type> <VLV length> <payload>
     //
-    // De midifile-library bewaart ook de VLV-lengtebytes
-    // in het event. Daarom moeten we die hier eerst lezen.
+    // De midifile-library bewaart de VLV-lengtebytes
+    // in het event. Daarom lezen we deze eerst uit.
 
     std::size_t position = 2;
     std::size_t length = 0;
@@ -316,7 +323,7 @@ std::string LyricsParser::decodeMetaText(
         return {};
     }
 
-    // Defensief begrenzen wanneer een beschadigd bestand
+    // Defensief begrenzen als een beschadigd bestand
     // een te grote lengte opgeeft.
     length = std::min(
         length,
@@ -334,7 +341,7 @@ std::string LyricsParser::decodeMetaText(
 std::string LyricsParser::sanitizeRawText(
     std::string text)
 {
-    // NUL-bytes horen niet in zichtbare lyrics.
+    // NUL-bytes verwijderen.
     text.erase(
         std::remove(
             text.begin(),
@@ -342,10 +349,10 @@ std::string LyricsParser::sanitizeRawText(
             '\0'),
         text.end());
 
-    // Andere niet-afdrukbare tekens vervangen.
+    // Niet-afdrukbare tekens vervangen, behalve:
     //
-    // CR en LF blijven bewust behouden. Zij kunnen zelf
-    // een newline-marker zijn.
+    // CR/LF: newline-informatie
+    // TAB: mogelijke woordgrens
     for (char& character : text)
     {
         const auto value =
@@ -361,31 +368,18 @@ std::string LyricsParser::sanitizeRawText(
         }
     }
 
-    // Alleen trailing spaces/tabs verwijderen.
+    // Geen trim uitvoeren.
     //
-    // Leading spaces zijn semantisch belangrijk:
-    //
-    // " calls" = nieuw woord
-    // "no"     = vervolg van huidig woord
-    const auto lastNonWhitespace =
-        text.find_last_not_of(" \t");
-
-    if (lastNonWhitespace ==
-        std::string::npos)
-    {
-        return {};
-    }
-
-    text.erase(lastNonWhitespace + 1);
-
+    // Zowel leading als trailing whitespace heeft
+    // betekenis in karaoke-MIDI-bestanden.
     return text;
 }
 
 bool LyricsParser::isMetadataText(
     const std::string& text)
 {
-    // Voor metadataherkenning mogen we de karaoke-prefixen
-    // tijdelijk overslaan zonder de originele tekst te veranderen.
+    // Voor metadataherkenning mogen karaoke-prefixes
+    // tijdelijk worden overgeslagen.
     const auto contentPosition =
         text.find_first_not_of(
             " \t/\\\r\n");
@@ -393,7 +387,7 @@ bool LyricsParser::isMetadataText(
     if (contentPosition ==
         std::string::npos)
     {
-        // Een standalone newline-event is geen metadata.
+        // Standalone newline-event is geen metadata.
         return false;
     }
 
@@ -428,6 +422,10 @@ LyricsParser::parseKaraokeText(
 {
     ParsedText result;
 
+    // Eerst standalone newline-events herkennen.
+    //
+    // Dit kan een echte CR/LF-byte zijn of een
+    // letterlijk opgeslagen tekst "\r" of "\n".
     if (isStandaloneLineBreak(rawText))
     {
         result.type =
@@ -442,12 +440,12 @@ LyricsParser::parseKaraokeText(
     result.type =
         ParsedTextType::Text;
 
-    // Ondersteunde line-prefixen:
+    // Regelprefixen:
     //
-    // "\\In" -> nieuwe regel
+    // "\In"  -> nieuwe regel
     // "/Zat" -> nieuwe regel
     //
-    // Ook echte CR/LF aan het begin worden ondersteund.
+    // Echte CR/LF aan het begin wordt ook ondersteund.
     while (!rawText.empty())
     {
         const char first = rawText.front();
@@ -469,10 +467,15 @@ LyricsParser::parseKaraokeText(
         break;
     }
 
-    // Een voorloopspatie betekent een nieuw woord.
+    // Leading whitespace betekent dat dit segment
+    // een nieuw woord begint.
     //
-    // " calls" -> calls begint een nieuw woord
-    // "no"     -> no vervolgt het vorige woord
+    // Voorbeeld:
+    //
+    // [ dis][co][theek]
+    //
+    // "dis" begint een woord.
+    // "co" en "theek" vervolgen dat woord.
     if (!rawText.empty() &&
         (rawText.front() == ' ' ||
          rawText.front() == '\t'))
@@ -488,7 +491,31 @@ LyricsParser::parseKaraokeText(
         }
     }
 
-    result.text = std::move(rawText);
+    // Trailing whitespace betekent dat het woord
+    // na dit segment eindigt.
+    //
+    // Voorbeeld:
+    //
+    // [mooi][e ][vrouw ]
+    //
+    // "mooi" en "e" horen bij hetzelfde woord.
+    // Na "e " begint een nieuw woord.
+    if (!rawText.empty() &&
+        (rawText.back() == ' ' ||
+         rawText.back() == '\t'))
+    {
+        result.endsWord = true;
+
+        while (!rawText.empty() &&
+               (rawText.back() == ' ' ||
+                rawText.back() == '\t'))
+        {
+            rawText.pop_back();
+        }
+    }
+
+    result.text =
+        std::move(rawText);
 
     return result;
 }
@@ -504,7 +531,7 @@ bool LyricsParser::isStandaloneLineBreak(
         return true;
     }
 
-    // Letterlijke escaped tekst zoals Sekaiju deze mogelijk toont.
+    // Letterlijk opgeslagen escaped tekst.
     if (text == "\\r" ||
         text == "\\n" ||
         text == "\\r\\n")
@@ -519,12 +546,40 @@ void LyricsParser::appendSegmentToLine(
     LyricLine& line,
     const LyricSegment& segment)
 {
-    if (!line.text.empty() &&
-        segment.startsNewWord)
+    bool addSpace = false;
+
+    if (!line.text.empty())
+    {
+        // Variant 1: dit segment heeft leading whitespace.
+        //
+        // [ dis][co][theek]
+        //
+        // Voor "dis" moet een spatie komen.
+        if (segment.startsNewWord)
+        {
+            addSpace = true;
+        }
+
+        // Variant 2: het vorige segment had trailing whitespace.
+        //
+        // [jij ][bent ][een ][mooi][e ][vrouw ]
+        //
+        // Na "jij " moet vóór "bent" een spatie komen.
+        if (!line.segments.empty() &&
+            line.segments.back().endsWord)
+        {
+            addSpace = true;
+        }
+    }
+
+    if (addSpace &&
+        !line.text.empty() &&
+        line.text.back() != ' ')
     {
         line.text += ' ';
     }
 
     line.text += segment.text;
+
     line.segments.push_back(segment);
 }

@@ -14,20 +14,12 @@ struct LyricSegment
     int track = 0;
     int lineIndex = 0;
 
-    // True wanneer dit segment een nieuw woord begint.
-    //
-    // Voorbeelden:
-    // " calls" -> true
-    // "no"     -> false
     bool startsNewWord = false;
-
-    // True wanneer dit segment op een nieuwe lyricregel begint.
-    //
-    // Voorbeelden:
-    // "\\In" -> true
-    // "/Zat" -> true
-    // "Is" na een los "\r"-event -> true
     bool startsNewLine = false;
+
+    // TRUE wanneer de oorspronkelijke tekst eindigde
+    // op een spatie of tab.
+    bool endsWord = false;
 
     std::string text;
 };
@@ -63,10 +55,13 @@ private:
 
     struct ParsedText
     {
-        ParsedTextType type = ParsedTextType::Text;
+        ParsedTextType type =
+            ParsedTextType::Text;
 
         bool startsNewWord = false;
         bool startsNewLine = false;
+
+        bool endsWord = false;
 
         std::string text;
     };
