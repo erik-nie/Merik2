@@ -1,4 +1,5 @@
 #include "MidiFileReader.h"
+#include "LyricsParser.h"
 #include "TempoMap.h"
 
 #include "MidiFile.h"
@@ -26,6 +27,36 @@ Song MidiFileReader::read(const std::string& filename, double sampleRate) const
 
     midi.absoluteTicks();
     midi.sortTracks();
+
+    LyricsParser parser;
+    LyricsData lyrics = parser.parse(midi);
+
+    for (const auto& line : lyrics.lines)
+    {
+        std::cout
+            << line.startSeconds
+            << " : "
+            << line.text
+            << '\n';
+    }
+
+    std::cout << "\nSegments:\n";
+
+    for (const auto& segment : lyrics.segments)
+    {
+        std::cout
+            << segment.timeSeconds
+            << " line=" << segment.lineIndex
+            << " startsNewWord="
+            << segment.startsNewWord
+            << " startsNewLine="
+            << segment.startsNewLine
+            << " text=["
+            << segment.text
+            << "]\n";
+    }
+
+
 
     Song song;
     song.sourceFile = filename;

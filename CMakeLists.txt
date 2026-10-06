@@ -45,7 +45,20 @@ set(
     FORCE
 )
 
-add_subdirectory(external/midifile)
+add_library(midifile
+    src/midifile/src/Binasc.cpp
+    src/midifile/src/MidiEvent.cpp
+    src/midifile/src/MidiEventList.cpp
+    src/midifile/src/MidiFile.cpp
+    src/midifile/src/MidiMessage.cpp
+    src/midifile/src/Options.cpp
+)
+
+target_include_directories(
+    midifile
+    PUBLIC
+        src/midifile/include
+)
 
 # ---------------------------------------------------------------------------
 # Merik GUI application
@@ -64,6 +77,7 @@ target_sources(
         src/main.cpp
         src/MidiFileReader.cpp
         src/TempoMap.cpp
+        src/LyricsParser.cpp
         src/FluidSynthEngine.cpp
         src/MainComponent.cpp
         src/MainComponentAudio.cpp
@@ -74,7 +88,6 @@ target_include_directories(
     Merik
     PRIVATE
         include
-        external/midifile/include
 )
 
 target_link_libraries(
@@ -103,6 +116,7 @@ add_executable(
     src/cli_main.cpp
     src/MidiFileReader.cpp
     src/TempoMap.cpp
+    src/LyricsParser.cpp
     src/ConsoleEventSink.cpp
     src/MidiPlayer.cpp
     src/FluidSynthEventSink.cpp
@@ -112,7 +126,7 @@ target_include_directories(
     merik-cli
     PRIVATE
         include
-        external/midifile/include
+       
 )
 
 target_link_libraries(

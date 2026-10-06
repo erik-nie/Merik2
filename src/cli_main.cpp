@@ -1,4 +1,5 @@
-#include "FluidSynthEventSink.h"
+// #include "FluidSynthEventSink.h"
+#include "ConsoleEventSink.h"
 #include "MidiFileReader.h"
 #include "MidiPlayer.h"
 
@@ -11,52 +12,31 @@
 
 int main(int argc, char* argv[])
 {
-    if (argc < 3 || argc > 4)
+    if (argc < 2 || argc > 3)
     {
-        std::cerr
-            << "Usage: merik-cli "
-            << "<file.mid> "
-            << "<soundfont.sf2> "
-            << "[start-seconds]\n";
-
+        std::cerr << "Usage: merik <file.mid>  [start-seconds]\n";
         return 2;
     }
 
     try
     {
-        const auto song =
-            std::make_shared<Song>(
-                MidiFileReader{}.read(argv[1]));
+        const auto song = std::make_shared<Song>(MidiFileReader{}.read(argv[1]));
 
-        std::cout
-            << "Loaded: "
-            << song->sourceFile
-            << '\n'
-            << "Events: "
-            << song->playbackEvents.size()
-            << '\n'
-            << "Lyrics: "
-            << song->lyrics.size()
-            << '\n'
-            << "Sample rate: "
-            << song->sampleRate
-            << " Hz\n"
-            << "SoundFont: "
-            << argv[2]
-            << "\n\n";
+        std::cout << "Loaded: " << song->sourceFile << '\n'
+                  << "Events: " << song->playbackEvents.size() << '\n'
+                  << "Lyrics: " << song->lyrics.size() << '\n'
+                  << "Sample rate: " << song->sampleRate << " Hz\n\n";
 
-        FluidSynthEventSink sink(
-            argv[2],
-            song->sampleRate);
-
+        ConsoleEventSink sink;
         MidiPlayer player(sink);
-
         player.load(song);
 
-        if (argc == 4)
+
+
+        if (argc == 3)
         {
             const auto seconds =
-                std::stod(argv[3]);
+                std::stod(argv[2]);
 
             player.seek(
                 std::chrono::milliseconds{
