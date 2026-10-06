@@ -1,5 +1,5 @@
 #include "MainComponent.h"
-#include "MainComponent.h"
+#include "WebServer.h"
 
 #include <array>
 #include <chrono>
@@ -735,7 +735,7 @@ void MainComponent::timerCallback()
 {
     updateTransportDisplay();
     channelTable.repaint();
-    //updateChannelActivity();
+    webServer.setPositionSamples(synthEngine.positionSamples());
 }
 // ============================================================================
 // MainComponent
@@ -746,7 +746,7 @@ MainComponent::MainComponent()
     setOpaque(true);
     setLookAndFeel(&merikLookAndFeel);
 
-
+    webServer.start(8080);
 
     // -------------------------------------------------------------------------
     // MIDI Control

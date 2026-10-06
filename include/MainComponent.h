@@ -2,6 +2,7 @@
 
 #include "FluidSynthEngine.h"
 #include "MidiFileReader.h"
+#include "WebServer.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -36,6 +37,8 @@ private:
         juce::Label label;
         juce::Slider slider;
     };
+
+    WebServer webServer;
 
     using Clock = std::chrono::steady_clock;
     std::array<std::uint64_t, 16> channelEventCounters {};

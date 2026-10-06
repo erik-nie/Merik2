@@ -46,6 +46,8 @@ void MainComponent::loadMidi()
 
                 currentMidiFile = file;
 
+                webServer.setSong(currentSong);
+
                 isPlaying = false;
 
                 synthEngine.stop();

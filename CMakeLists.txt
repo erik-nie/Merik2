@@ -84,6 +84,7 @@ target_sources(
         src/ChordParser.cpp
         src/FluidSynthEngine.cpp
         src/MidiTransformer.cpp
+        src/WebServer.cpp
         src/MainComponent.cpp
         src/MainComponentAudio.cpp
         src/MainComponentPlayback.cpp
@@ -127,6 +128,7 @@ add_executable(
     src/MidiPlayer.cpp
     src/FluidSynthEventSink.cpp
     src/MidiTransformer.cpp
+    src/WebServer.cpp
 )
 
 target_include_directories(
