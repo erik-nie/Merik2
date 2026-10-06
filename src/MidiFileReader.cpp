@@ -7,18 +7,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <stdexcept>
-
-namespace
-{
-std::string cleanLyric(std::string text)
-{
-    // Rudimentary only: preserve the original text but remove CR/LF separators.
-    std::replace(text.begin(), text.end(), '\r', ' ');
-    std::replace(text.begin(), text.end(), '\n', ' ');
-    return text;
-}
-}
 
 double getSongLengthSeconds(smf::MidiFile& midi)
 {
@@ -41,18 +31,36 @@ double getSongLengthSeconds(smf::MidiFile& midi)
     return result;
 }
 
-Song MidiFileReader::read(const std::string& filename, double sampleRate) const
+Song MidiFileReader::read(
+    const std::string& filename,
+    double sampleRate) const
 {
     smf::MidiFile midi;
+
     if (!midi.read(filename))
-        throw std::runtime_error("Cannot read MIDI file: " + filename);
+        throw std::runtime_error(
+            "Cannot read MIDI file: " + filename);
 
     midi.absoluteTicks();
     midi.sortTracks();
 
-    LyricsParser parser;
-    LyricsData lyrics = parser.parse(midi);
+    // ------------------------------------------------------------------------
+    // Lyrics
+    //
+    // LyricsParser bevat de volledige karaoke-informatie:
+    //
+    // - regelnummer
+    // - woordgrenzen
+    // - lettergrepen
+    // - regelovergangen
+    // ------------------------------------------------------------------------
 
+    LyricsParser parser;
+
+    LyricsData lyrics =
+        parser.parse(midi);
+
+    // Debug: regels
     for (const auto& line : lyrics.lines)
     {
         std::cout
@@ -62,14 +70,18 @@ Song MidiFileReader::read(const std::string& filename, double sampleRate) const
             << '\n';
     }
 
+    // Debug: eerste segmenten
     std::cout << "\nSegments:\n";
 
-    int i=20;
+    int debugCount = 20;
 
     for (const auto& segment : lyrics.segments)
     {
         std::cout
-            << "startsNewWord="
+            << "line="
+            << segment.lineIndex
+
+            << " startsNewWord="
             << segment.startsNewWord
 
             << " startsNewLine="
@@ -84,17 +96,21 @@ Song MidiFileReader::read(const std::string& filename, double sampleRate) const
             << " text=["
             << segment.text
             << "]\n";
-        if (i-- == 0)
-            break;
-    }   
 
+        if (debugCount-- == 0)
+            break;
+    }
+
+    // ------------------------------------------------------------------------
+    // Chords
+    // ------------------------------------------------------------------------
 
     ChordParser chordParser;
 
     ChordData chordData =
         chordParser.parse(
             midi,
-            getSongLengthSeconds(midi) );
+            getSongLengthSeconds(midi));
 
     for (const auto& chord : chordData.chords)
     {
@@ -110,66 +126,174 @@ Song MidiFileReader::read(const std::string& filename, double sampleRate) const
             << std::endl;
     }
 
+    // ------------------------------------------------------------------------
+    // Song
+    // ------------------------------------------------------------------------
 
     Song song;
+
     song.sourceFile = filename;
     song.sampleRate = sampleRate;
-    song.ticksPerQuarterNote = midi.getTicksPerQuarterNote();
+    song.ticksPerQuarterNote =
+        midi.getTicksPerQuarterNote();
 
-    TempoMap tempoMap(song.ticksPerQuarterNote);
+    // ------------------------------------------------------------------------
+    // Tempo map
+    // ------------------------------------------------------------------------
 
-    // Pass 1: collect tempo events from every track.
-    for (int track = 0; track < midi.getTrackCount(); ++track)
+    TempoMap tempoMap(
+        song.ticksPerQuarterNote);
+
+    for (int track = 0;
+         track < midi.getTrackCount();
+         ++track)
     {
-        for (int index = 0; index < midi[track].getSize(); ++index)
+        for (int index = 0;
+             index < midi[track].getSize();
+             ++index)
         {
-            const auto& event = midi[track][index];
+            const auto& event =
+                midi[track][index];
+
             if (event.isTempo())
-                tempoMap.addTempo(event.tick, event.getTempoBPM());
-        }
-    }
-    tempoMap.finalise();
-    song.tempoMap = tempoMap.points();
-
-    // Pass 2: create immutable playback and lyric timelines.
-    for (int track = 0; track < midi.getTrackCount(); ++track)
-    {
-        for (int index = 0; index < midi[track].getSize(); ++index)
-        {
-            const auto& event = midi[track][index];
-            const auto seconds = tempoMap.tickToSeconds(event.tick);
-            const auto sample = tempoMap.tickToSample(event.tick, sampleRate);
-
-            RawMidiEvent output;
-            output.tick = event.tick;
-            output.seconds = seconds;
-            output.samplePosition = sample;
-            output.sourceTrack = track;
-            output.bytes.assign(event.begin(), event.end());
-            song.playbackEvents.push_back(std::move(output));
-
-            // Rudimentary lyrics: only Standard MIDI Lyric meta-events (0x05).
-            if (event.isLyricText())
             {
-                LyricEvent lyric;
-                lyric.tick = event.tick;
-                lyric.seconds = seconds;
-                lyric.samplePosition = sample;
-                lyric.sourceTrack = track;
-                lyric.text = cleanLyric(event.getMetaContent());
-                song.lyrics.push_back(std::move(lyric));
+                tempoMap.addTempo(
+                    event.tick,
+                    event.getTempoBPM());
             }
         }
     }
 
-    const auto eventOrder = [](const auto& a, const auto& b)
-    {
-        if (a.samplePosition != b.samplePosition)
-            return a.samplePosition < b.samplePosition;
-        return a.sourceTrack < b.sourceTrack;
-    };
+    tempoMap.finalise();
 
-    std::stable_sort(song.playbackEvents.begin(), song.playbackEvents.end(), eventOrder);
-    std::stable_sort(song.lyrics.begin(), song.lyrics.end(), eventOrder);
+    song.tempoMap =
+        tempoMap.points();
+
+    // ------------------------------------------------------------------------
+    // Playback events
+    // ------------------------------------------------------------------------
+
+    for (int track = 0;
+         track < midi.getTrackCount();
+         ++track)
+    {
+        for (int index = 0;
+             index < midi[track].getSize();
+             ++index)
+        {
+            const auto& event =
+                midi[track][index];
+
+            const auto seconds =
+                tempoMap.tickToSeconds(
+                    event.tick);
+
+            const auto sample =
+                tempoMap.tickToSample(
+                    event.tick,
+                    sampleRate);
+
+            RawMidiEvent output;
+
+            output.tick =
+                event.tick;
+
+            output.seconds =
+                seconds;
+
+            output.samplePosition =
+                sample;
+
+            output.sourceTrack =
+                track;
+
+            output.bytes.assign(
+                event.begin(),
+                event.end());
+
+            song.playbackEvents.push_back(
+                std::move(output));
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Lyrics
+    //
+    // BELANGRIJK:
+    //
+    // Gebruik hier de resultaten van LyricsParser.
+    //
+    // Niet opnieuw event.getMetaContent() uitlezen.
+    // Anders verliezen we lineIndex / word boundaries.
+    // ------------------------------------------------------------------------
+
+    for (const auto& segment : lyrics.segments)
+    {
+        LyricEvent lyric;
+
+        lyric.tick =
+            segment.tick;
+
+        lyric.seconds =
+            segment.timeSeconds;
+
+        lyric.samplePosition =
+            tempoMap.tickToSample(
+                segment.tick,
+                sampleRate);
+
+        lyric.sourceTrack =
+            segment.track;
+
+        lyric.lineIndex =
+            segment.lineIndex;
+
+        lyric.startsNewWord =
+            segment.startsNewWord;
+
+        lyric.startsNewLine =
+            segment.startsNewLine;
+
+        lyric.endsWord =
+            segment.endsWord;
+
+        lyric.endsLine =
+            segment.endsLine;
+
+        lyric.text =
+            segment.text;
+
+        song.lyrics.push_back(
+            std::move(lyric));
+    }
+
+    // ------------------------------------------------------------------------
+    // Sorteren
+    // ------------------------------------------------------------------------
+
+    const auto eventOrder =
+        [](const auto& a, const auto& b)
+        {
+            if (a.samplePosition !=
+                b.samplePosition)
+            {
+                return a.samplePosition <
+                       b.samplePosition;
+            }
+
+            return a.sourceTrack <
+                   b.sourceTrack;
+        };
+
+    std::stable_sort(
+        song.playbackEvents.begin(),
+        song.playbackEvents.end(),
+        eventOrder);
+
+    std::stable_sort(
+        song.lyrics.begin(),
+        song.lyrics.end(),
+        eventOrder);
+
     return song;
 }

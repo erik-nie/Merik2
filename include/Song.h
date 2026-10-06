@@ -19,6 +19,15 @@ struct LyricEvent
     double seconds = 0.0;
     std::int64_t samplePosition = 0;
     int sourceTrack = 0;
+
+    // Informatie uit LyricsParser.
+    int lineIndex = 0;
+
+    bool startsNewWord = false;
+    bool startsNewLine = false;
+    bool endsWord = false;
+    bool endsLine = false;
+
     std::string text;
 };
 
@@ -34,7 +43,10 @@ struct Song
     std::string sourceFile;
     int ticksPerQuarterNote = 480;
     double sampleRate = 48000.0;
+
     std::vector<TempoPoint> tempoMap;
+
     std::vector<RawMidiEvent> playbackEvents;
+
     std::vector<LyricEvent> lyrics;
 };

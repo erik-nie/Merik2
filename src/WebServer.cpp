@@ -1,9 +1,8 @@
 #include "WebServer.h"
 
-//#include <juce_core/juce_core.h>
-
 #include <algorithm>
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -97,8 +96,8 @@ bool WebServer::start(int port)
     sockaddr_in address {};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_ANY);
-    address.sin_port = htons(
-        static_cast<std::uint16_t>(port_));
+    address.sin_port =
+        htons(static_cast<std::uint16_t>(port_));
 
     if (::bind(
             serverSocket_,
@@ -140,7 +139,8 @@ void WebServer::stop()
             serverSocket_,
             SHUT_RDWR);
 
-        ::close(serverSocket_);
+        ::close(
+            serverSocket_);
 
         serverSocket_ = -1;
     }
@@ -287,32 +287,55 @@ std::string WebServer::createJson() const
     std::string json;
 
     json += "{";
+
+    // ------------------------------------------------------------------------
+    // Song title
+    // ------------------------------------------------------------------------
+
     json += "\"song\":\"";
-    std::string title;
 
-    const auto& path = song->sourceFile;
+    const auto& path =
+        song->sourceFile;
 
-    const auto slash = path.find_last_of("/\\");
+    const auto slash =
+        path.find_last_of("/\\");
+
     const auto start =
         slash == std::string::npos
             ? 0
             : slash + 1;
 
-    const auto dot = path.find_last_of('.');
+    const auto dot =
+        path.find_last_of('.');
 
     const auto end =
-        (dot != std::string::npos && dot > start)
+        (dot != std::string::npos &&
+         dot > start)
             ? dot
             : path.length();
 
-    title = path.substr(start, end - start);
+    const std::string title =
+        path.substr(
+            start,
+            end - start);
 
     json += escapeJson(title);
     json += "\",";
 
+    // ------------------------------------------------------------------------
+    // Position
+    // ------------------------------------------------------------------------
+
     json += "\"position\":";
     json += std::to_string(positionSeconds);
     json += ",";
+
+    // ------------------------------------------------------------------------
+    // Lyrics
+    //
+    // Each MIDI lyric event remains a separate timed item.
+    // The browser combines them visually into readable lines.
+    // ------------------------------------------------------------------------
 
     json += "\"lyrics\":[";
 
@@ -327,22 +350,47 @@ std::string WebServer::createJson() const
             song->lyrics[i];
 
         json += "{";
+
         json += "\"time\":";
-        json += std::to_string(
-            lyric.seconds);
+        json += std::to_string(lyric.seconds);
+
+        json += ",";
+
+        json += "\"line\":";
+        json += std::to_string(lyric.lineIndex);
+
+        json += ",";
+
+        json += "\"startsNewWord\":";
+        json += lyric.startsNewWord ? "true" : "false";
+
+        json += ",";
+
+        json += "\"endsWord\":";
+        json += lyric.endsWord ? "true" : "false";
+
+        json += ",";
+
+        json += "\"startsNewLine\":";
+        json += lyric.startsNewLine ? "true" : "false";
+
+        json += ",";
+
+        json += "\"endsLine\":";
+        json += lyric.endsLine ? "true" : "false";
+
         json += ",";
 
         json += "\"text\":\"";
-        json += escapeJson(
-            lyric.text);
+        json += escapeJson(lyric.text);
         json += "\"";
+
         json += "}";
     }
 
     json += "],";
 
     // Chords are intentionally empty for now.
-    // Song will receive a dedicated chord timeline later.
     json += "\"chords\":[]";
 
     json += "}";
@@ -360,7 +408,9 @@ std::string WebServer::createHtml() const
 <!DOCTYPE html>
 <html lang="en">
 <head>
+
 <meta charset="utf-8">
+
 <meta name="viewport"
       content="width=device-width,initial-scale=1">
 
@@ -376,124 +426,358 @@ std::string WebServer::createHtml() const
     box-sizing: border-box;
 }
 
+html,
 body {
     margin: 0;
-    background: #191919;
-    color: #ffffff;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+body {
+    background: #111;
+    color: #fff;
+
     font-family:
         -apple-system,
         BlinkMacSystemFont,
+        "SF Pro Display",
         "SF Pro Text",
         "Segoe UI",
         sans-serif;
+
+    overflow: hidden;
 }
 
+/* --------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+
 header {
-    padding: 24px 30px 16px;
-    border-bottom: 1px solid #333;
+    position: fixed;
+
+    top: 0;
+    left: 0;
+    right: 0;
+
+    z-index: 10;
+
+    padding: 18px 30px 14px;
+
+    background:
+        linear-gradient(
+            to bottom,
+            rgba(17,17,17,0.98),
+            rgba(17,17,17,0.90),
+            rgba(17,17,17,0)
+        );
+
+    pointer-events: none;
 }
 
 #song {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 600;
+    letter-spacing: 0.01em;
 }
 
 #time {
-    margin-top: 6px;
-    color: #aaa;
-    font-size: 15px;
+    margin-top: 4px;
+
+    color: #888;
+
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
 }
+
+/* --------------------------------------------------------------------------
+   Main lyrics area
+   -------------------------------------------------------------------------- */
 
 main {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 30px;
+    position: absolute;
+
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    overflow: hidden;
+
+    display: flex;
+    justify-content: center;
 }
 
-#chord {
-    min-height: 70px;
-    color: #2e9afe;
-    font-size: 34px;
-    font-weight: 700;
+#lyricsViewport {
+    width: 100%;
+    max-width: 1100px;
+    height: 100%;
+
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    scrollbar-width: none;
+
+    padding:
+        120px 35px
+        45vh 35px;
 }
+
+#lyricsViewport::-webkit-scrollbar {
+    display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Lyrics
+   -------------------------------------------------------------------------- */
 
 #lyrics {
-    margin-top: 20px;
-    font-size: 30px;
-    line-height: 1.55;
+    width: 100%;
+    font-size: clamp(38px, 4.3vw, 64px);
+    line-height: 1.22;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    text-align: center;
 }
 
-.lyric {
-    color: #666;
-    transition:
-        color 150ms ease,
-        transform 150ms ease;
+.lyric-line {
+    width: 100%;
+    margin: 0 auto 0.42em;
+    padding: 0.08em 0;
 }
 
-.lyric.current {
+.lyric-part {
+    display: inline;
+}
+
+.lyric-part.past {
+    color: #ffd800;
+}
+
+.lyric-part.current {
     color: #ffffff;
+}
+
+.lyric-part.future {
+    color: #ff3030;
+}
+
+.current-line {
     transform: scale(1.02);
 }
+/* --------------------------------------------------------------------------
+   Chord
+   -------------------------------------------------------------------------- */
 
-@media (max-width: 600px) {
+#chord {
+    position: fixed;
 
+    left: 50%;
+    bottom: 22px;
+
+    transform:
+        translateX(-50%);
+
+    z-index: 20;
+
+    color: #2e9afe;
+
+    font-size: 32px;
+
+    font-weight: 700;
+
+    text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   Small screens
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 600px)
+{
     header {
-        padding: 18px;
-    }
-
-    main {
-        padding: 20px;
+        padding:
+            15px 18px 10px;
     }
 
     #song {
-        font-size: 22px;
+        font-size: 21px;
+    }
+
+    #time {
+        font-size: 13px;
+    }
+
+    #lyricsViewport {
+        padding:
+            100px 18px
+            45vh 18px;
     }
 
     #lyrics {
-        font-size: 25px;
+        font-size:
+            clamp(32px, 9vw, 48px);
     }
 
     #chord {
-        font-size: 30px;
+        font-size: 27px;
+        bottom: 15px;
     }
 }
 
 </style>
+
 </head>
 
 <body>
 
 <header>
-    <div id="song">Merik</div>
-    <div id="time">00:00</div>
+
+    <div id="song">
+        Merik
+    </div>
+
+    <div id="time">
+        00:00
+    </div>
+
 </header>
 
 <main>
 
-    <div id="chord"></div>
+    <div id="lyricsViewport">
 
-    <div id="lyrics"></div>
+        <div id="lyrics"></div>
+
+    </div>
 
 </main>
+
+<div id="chord"></div>
 
 <script>
 
 let songData = null;
 
+let lastCurrentIndex = -1;
+
+
+/* ==========================================================================
+   Time
+   ========================================================================== */
+
 function formatTime(seconds)
 {
     seconds = Math.max(0, seconds || 0);
 
-    const minutes =
-        Math.floor(seconds / 60);
-
-    const secs =
-        Math.floor(seconds % 60);
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
 
     return String(minutes).padStart(2, "0")
         + ":"
         + String(secs).padStart(2, "0");
 }
+
+
+/* ==========================================================================
+   Lyric text
+   ========================================================================== */
+
+function cleanText(text)
+{
+    if (!text)
+        return "";
+
+    return text.trim();
+}
+
+
+/*
+ * MIDI karaoke convention:
+ *
+ *     ver-
+ *     liefd
+ *
+ * means that "ver" and "liefd" belong to the same word.
+ */
+function joinsPrevious(text)
+{
+    if (!text)
+        return false;
+
+    return text.trim().startsWith("-");
+}
+
+
+/*
+ * More common MIDI convention:
+ *
+ *     ver-
+ *     liefd
+ *
+ * Here the '-' is at the END of the previous event.
+ */
+function previousJoinsNext(text)
+{
+    if (!text)
+        return false;
+
+    return text.trim().endsWith("-");
+}
+
+
+/*
+ * Remove the continuation marker from what is displayed.
+ */
+function displayText(text)
+{
+    text = cleanText(text);
+
+    if (text.endsWith("-"))
+        text = text.substring(0, text.length - 1);
+
+    if (text.startsWith("-"))
+        text = text.substring(1);
+
+    return text;
+}
+
+
+/* ==========================================================================
+   Build lines
+   ========================================================================== */
+function buildLines(lyrics)
+{
+    const lines = new Map();
+
+    for (let i = 0; i < lyrics.length; ++i)
+    {
+        const lyric = {
+            ...lyrics[i],
+            originalIndex: i
+        };
+
+        const lineIndex =
+            Number(lyric.line ?? 0);
+
+        if (!lines.has(lineIndex))
+            lines.set(lineIndex, []);
+
+        lines.get(lineIndex).push(lyric);
+    }
+
+    return [...lines.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([lineIndex, segments]) => ({
+            lineIndex,
+            segments
+        }));
+}
+
+
+/* ==========================================================================
+   Render
+   ========================================================================== */
 
 function renderLyrics()
 {
@@ -504,44 +788,166 @@ function renderLyrics()
         songData.lyrics || [];
 
     const position =
-        songData.position || 0;
-
-    let current = -1;
-
-    for (let i = 0; i < lyrics.length; ++i)
-    {
-        if (lyrics[i].time <= position)
-            current = i;
-        else
-            break;
-    }
+        Number(songData.position || 0);
 
     const container =
         document.getElementById("lyrics");
 
-    container.innerHTML = "";
+    const viewport =
+        document.getElementById(
+            "lyricsViewport");
+
+    if (!lyrics.length)
+    {
+        container.innerHTML = "";
+        viewport.scrollTo(0, 0);
+        lastCurrentIndex = -1;
+        return;
+    }
+
+    /*
+     * Find current lyric event.
+     */
+    let currentIndex = -1;
 
     for (let i = 0; i < lyrics.length; ++i)
     {
-        const div =
-            document.createElement("div");
+        const time =
+            Number(lyrics[i].time);
 
-        div.className = "lyric";
-
-        if (i === current)
-            div.classList.add("current");
-
-        div.textContent =
-            lyrics[i].text;
-
-        container.appendChild(div);
+        if (time <= position)
+            currentIndex = i;
+        else
+            break;
     }
 
-    const currentChord =
-        document.getElementById("chord");
+    /*
+     * Don't rebuild the complete HTML 10 times per second
+     * if the current lyric hasn't changed.
+     *
+     * This is also important for smooth scrolling.
+     */
+    const currentChanged =
+        currentIndex !== lastCurrentIndex;
 
-    currentChord.textContent = "";
+    if (!currentChanged)
+        return;
+
+    lastCurrentIndex =
+        currentIndex;
+
+    const lines =
+        buildLines(lyrics);
+
+    container.innerHTML = "";
+
+    let currentElement = null;
+
+    for (const line of lines)
+    {
+        const lineElement =
+            document.createElement("div");
+
+        lineElement.className =
+            "lyric-line";
+
+        let lineIsCurrent = false;
+
+        for (const lyric of line.segments)
+        {
+            const span =
+                document.createElement("span");
+
+            span.className =
+                "lyric-part";
+
+            /*
+            * Kleur gebaseerd op het oorspronkelijke
+            * MIDI-event.
+            */
+            if (lyric.originalIndex < currentIndex)
+            {
+                span.classList.add("past");
+            }
+            else if (lyric.originalIndex === currentIndex)
+            {
+                span.classList.add("current");
+                lineIsCurrent = true;
+            }
+            else
+            {
+                span.classList.add("future");
+            }
+
+            span.textContent =
+                lyric.text || "";
+
+            lineElement.appendChild(span);
+
+            /*
+            * Een spatie wordt alleen toegevoegd wanneer
+            * de LyricsParser zegt dat hier een woord eindigt.
+            *
+            * Dus:
+            *
+            * "dro" + "men"   -> dromen
+            * "zoek" + "naar" -> zoek naar
+            */
+            if (lyric.endsWord)
+            {
+                lineElement.appendChild(
+                    document.createTextNode(" ")
+                );
+            }
+        }
+
+        if (lineIsCurrent)
+        {
+            lineElement.classList.add(
+                "current-line");
+
+            currentElement =
+                lineElement;
+        }
+
+        container.appendChild(
+            lineElement);
+    }
+
+
+
+
+    /* ----------------------------------------------------------------------
+       Automatic scrolling
+       ---------------------------------------------------------------------- */
+
+    if (currentElement)
+    {
+        /*
+         * The current line is now in the DOM.
+         *
+         * scrollIntoView() is much more reliable than manually
+         * calculating transforms.
+         */
+        currentElement.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+            inline: "nearest"
+        });
+    }
+
+
+    /*
+     * Chord support later.
+     */
+    document.getElementById("chord")
+        .textContent = "";
 }
+
+
+/* ==========================================================================
+   Update
+   ========================================================================== */
 
 async function update()
 {
@@ -550,18 +956,25 @@ async function update()
         const response =
             await fetch(
                 "/api/song",
-                { cache: "no-store" });
+                {
+                    cache: "no-store"
+                });
+
+        if (!response.ok)
+            return;
 
         songData =
             await response.json();
 
         document.getElementById("song")
             .textContent =
-                songData.song || "Merik";
+                songData.song ||
+                "Merik";
 
         document.getElementById("time")
             .textContent =
-                formatTime(songData.position);
+                formatTime(
+                    songData.position);
 
         renderLyrics();
     }
@@ -571,11 +984,12 @@ async function update()
     }
 }
 
+
 update();
 
 setInterval(
     update,
-    250);
+    100);
 
 </script>
 
@@ -667,6 +1081,7 @@ std::string WebServer::escapeJson(
                 if (character < 0x20)
                 {
                     char buffer[7] {};
+
                     std::snprintf(
                         buffer,
                         sizeof(buffer),
