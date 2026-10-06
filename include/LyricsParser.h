@@ -16,10 +16,8 @@ struct LyricSegment
 
     bool startsNewWord = false;
     bool startsNewLine = false;
-
-    // TRUE wanneer de oorspronkelijke tekst eindigde
-    // op een spatie of tab.
     bool endsWord = false;
+    bool endsLine = false;
 
     std::string text;
 };
@@ -60,8 +58,8 @@ private:
 
         bool startsNewWord = false;
         bool startsNewLine = false;
-
         bool endsWord = false;
+        bool endsLine = false;
 
         std::string text;
     };

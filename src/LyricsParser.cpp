@@ -228,6 +228,9 @@ LyricsData LyricsParser::parse(
         segment.endsWord =
             parsed.endsWord;
 
+        segment.endsLine =
+            parsed.endsLine;
+
         segment.text =
             std::move(parsed.text);
 
@@ -248,8 +251,19 @@ LyricsData LyricsParser::parse(
             result.lines.back(),
             segment);
 
+        // Bewaar dit voordat segment wordt verplaatst.
+        const bool segmentEndsLine =
+            segment.endsLine;
+
         result.segments.push_back(
             std::move(segment));
+
+        // Een newline achter de tekst geldt voor het
+        // eerstvolgende zichtbare lyricsegment.
+        if (segmentEndsLine)
+        {
+            pendingNewLine = true;
+        }
     }
 
     return result;
@@ -422,10 +436,7 @@ LyricsParser::parseKaraokeText(
 {
     ParsedText result;
 
-    // Eerst standalone newline-events herkennen.
-    //
-    // Dit kan een echte CR/LF-byte zijn of een
-    // letterlijk opgeslagen tekst "\r" of "\n".
+    // Een volledig los line-break-event.
     if (isStandaloneLineBreak(rawText))
     {
         result.type =
@@ -433,6 +444,7 @@ LyricsParser::parseKaraokeText(
 
         result.startsNewLine = true;
         result.startsNewWord = true;
+        result.endsLine = true;
 
         return result;
     }
@@ -440,15 +452,21 @@ LyricsParser::parseKaraokeText(
     result.type =
         ParsedTextType::Text;
 
-    // Regelprefixen:
+    // ---------------------------------------------------------
+    // Line-break aan het begin
+    // ---------------------------------------------------------
     //
-    // "\In"  -> nieuwe regel
-    // "/Zat" -> nieuwe regel
+    // Ondersteunt:
     //
-    // Echte CR/LF aan het begin wordt ook ondersteund.
+    // "\In"
+    // "/Zat"
+    // CR + "Is"
+    // LF + "Is"
+    //
     while (!rawText.empty())
     {
-        const char first = rawText.front();
+        const char first =
+            rawText.front();
 
         if (first == '/' ||
             first == '\\' ||
@@ -467,15 +485,32 @@ LyricsParser::parseKaraokeText(
         break;
     }
 
-    // Leading whitespace betekent dat dit segment
-    // een nieuw woord begint.
+    // Ook letterlijke escaped prefixen ondersteunen:
     //
-    // Voorbeeld:
+    // "\rIs"
+    // "\nIs"
+    while (rawText.size() >= 2 &&
+           rawText[0] == '\\' &&
+           (rawText[1] == 'r' ||
+            rawText[1] == 'n'))
+    {
+        result.startsNewLine = true;
+        result.startsNewWord = true;
+
+        rawText.erase(0, 2);
+    }
+
+    // ---------------------------------------------------------
+    // Word boundary aan het begin
+    // ---------------------------------------------------------
+    //
+    // Leading whitespace:
     //
     // [ dis][co][theek]
     //
-    // "dis" begint een woord.
-    // "co" en "theek" vervolgen dat woord.
+    // => "dis" begint nieuw woord
+    // => "co" en "theek" vervolgen dat woord
+    //
     if (!rawText.empty() &&
         (rawText.front() == ' ' ||
          rawText.front() == '\t'))
@@ -491,15 +526,65 @@ LyricsParser::parseKaraokeText(
         }
     }
 
-    // Trailing whitespace betekent dat het woord
-    // na dit segment eindigt.
+    // ---------------------------------------------------------
+    // Line-break aan het einde
+    // ---------------------------------------------------------
     //
-    // Voorbeeld:
+    // Dit moet vóór trailing-space-detectie gebeuren.
     //
-    // [mooi][e ][vrouw ]
+    // Ondersteunt:
     //
-    // "mooi" en "e" horen bij hetzelfde woord.
-    // Na "e " begint een nieuw woord.
+    // "men\r"
+    // "vloog\n"
+    // "tekst\r\n"
+    //
+    while (!rawText.empty() &&
+           (rawText.back() == '\r' ||
+            rawText.back() == '\n'))
+    {
+        result.endsLine = true;
+        rawText.pop_back();
+    }
+
+    // Letterlijk opgeslagen escaped suffixen:
+    //
+    // "tekst\\r"
+    // "tekst\\n"
+    // "tekst\\r\\n"
+    //
+    bool removedEscapedLineBreak = true;
+
+    while (removedEscapedLineBreak)
+    {
+        removedEscapedLineBreak = false;
+
+        if (rawText.size() >= 2)
+        {
+            const std::size_t size =
+                rawText.size();
+
+            if (rawText[size - 2] == '\\' &&
+                (rawText[size - 1] == 'r' ||
+                 rawText[size - 1] == 'n'))
+            {
+                result.endsLine = true;
+                rawText.erase(size - 2);
+                removedEscapedLineBreak = true;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Word boundary aan het einde
+    // ---------------------------------------------------------
+    //
+    // Trailing whitespace:
+    //
+    // [jij ][bent ][een ][mooi][e ][vrouw ]
+    //
+    // => "mooi" + "e" = "mooie"
+    // => na "e " begint het volgende woord
+    //
     if (!rawText.empty() &&
         (rawText.back() == ' ' ||
          rawText.back() == '\t'))
@@ -514,12 +599,22 @@ LyricsParser::parseKaraokeText(
         }
     }
 
+    // Een lege tekst na het verwijderen van markers
+    // functioneert alleen als line break.
+    if (rawText.empty() &&
+        result.endsLine)
+    {
+        result.type =
+            ParsedTextType::LineBreak;
+
+        return result;
+    }
+
     result.text =
         std::move(rawText);
 
     return result;
 }
-
 bool LyricsParser::isStandaloneLineBreak(
     const std::string& text)
 {

@@ -20,7 +20,18 @@ int main(int argc, char* argv[])
 
     try
     {
-        const auto song = std::make_shared<Song>(MidiFileReader{}.read(argv[1]));
+        auto song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/badgirls.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/corrie.MID"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/dolly.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/paradise.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/relightmyfire.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/superstition.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/terug.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/thelastdance.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/valerie.mid"));
+        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/verliefd.mid"));
+        
+        song = std::make_shared<Song>(MidiFileReader{}.read(argv[1]));
 
         std::cout << "Loaded: " << song->sourceFile << '\n'
                   << "Events: " << song->playbackEvents.size() << '\n'

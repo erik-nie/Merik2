@@ -1,5 +1,6 @@
 #include "MidiFileReader.h"
 #include "LyricsParser.h"
+#include "ChordParser.h"
 #include "TempoMap.h"
 
 #include "MidiFile.h"
@@ -17,6 +18,27 @@ std::string cleanLyric(std::string text)
     std::replace(text.begin(), text.end(), '\n', ' ');
     return text;
 }
+}
+
+double getSongLengthSeconds(smf::MidiFile& midi)
+{
+    double result = 0.0;
+
+    for (int track = 0;
+         track < midi.getTrackCount();
+         ++track)
+    {
+        for (int i = 0;
+             i < midi.getEventCount(track);
+             ++i)
+        {
+            result = std::max(
+                result,
+                midi[track][i].seconds);
+        }
+    }
+
+    return result;
 }
 
 Song MidiFileReader::read(const std::string& filename, double sampleRate) const
@@ -42,16 +64,51 @@ Song MidiFileReader::read(const std::string& filename, double sampleRate) const
 
     std::cout << "\nSegments:\n";
 
+    int i=20;
+
     for (const auto& segment : lyrics.segments)
     {
         std::cout
-        << " startsNewWord=" << segment.startsNewWord
-        << " startsNewLine=" << segment.startsNewLine
-        << " endsWord=" << segment.endsWord
-        << " text=[" << segment.text << "]"
-        << '\n';
-    }
+            << "startsNewWord="
+            << segment.startsNewWord
 
+            << " startsNewLine="
+            << segment.startsNewLine
+
+            << " endsWord="
+            << segment.endsWord
+
+            << " endsLine="
+            << segment.endsLine
+
+            << " text=["
+            << segment.text
+            << "]\n";
+        if (i-- == 0)
+            break;
+    }   
+
+
+    ChordParser chordParser;
+
+    ChordData chordData =
+        chordParser.parse(
+            midi,
+            getSongLengthSeconds(midi) );
+
+    for (const auto& chord : chordData.chords)
+    {
+        std::cout
+            << chord.startSeconds
+            << " "
+            << chord.label
+            << " source="
+            << ChordParser::sourceName(chord.source)
+            << " raw=["
+            << chord.rawText
+            << "]"
+            << std::endl;
+    }
 
 
     Song song;

@@ -78,6 +78,7 @@ target_sources(
         src/MidiFileReader.cpp
         src/TempoMap.cpp
         src/LyricsParser.cpp
+        src/ChordParser.cpp
         src/FluidSynthEngine.cpp
         src/MainComponent.cpp
         src/MainComponentAudio.cpp
@@ -117,6 +118,7 @@ add_executable(
     src/MidiFileReader.cpp
     src/TempoMap.cpp
     src/LyricsParser.cpp
+    src/ChordParser.cpp
     src/ConsoleEventSink.cpp
     src/MidiPlayer.cpp
     src/FluidSynthEventSink.cpp
