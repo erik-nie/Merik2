@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(Merik2 VERSION 0.1.0)
+project(Merik2 VERSION 0.0.0)
+
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -71,6 +72,8 @@ juce_add_gui_app(
     BUNDLE_ID "nl.eriknieuwlands.merik"
 )
 
+
+
 target_sources(
     Merik
     PRIVATE
@@ -80,6 +83,7 @@ target_sources(
         src/LyricsParser.cpp
         src/ChordParser.cpp
         src/FluidSynthEngine.cpp
+        src/MidiTransformer.cpp
         src/MainComponent.cpp
         src/MainComponentAudio.cpp
         src/MainComponentPlayback.cpp
@@ -122,6 +126,7 @@ add_executable(
     src/ConsoleEventSink.cpp
     src/MidiPlayer.cpp
     src/FluidSynthEventSink.cpp
+    src/MidiTransformer.cpp
 )
 
 target_include_directories(

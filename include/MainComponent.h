@@ -9,6 +9,7 @@
 
 #include <array>
 #include <memory>
+#include <chrono>
 
 class MainComponent final
     : public juce::AudioAppComponent,
@@ -35,6 +36,10 @@ private:
         juce::Label label;
         juce::Slider slider;
     };
+
+    using Clock = std::chrono::steady_clock;
+    std::array<std::uint64_t, 16> channelEventCounters {};
+    std::array<Clock::time_point, 16> channelEventTimes {};  
 
     // -------------------------------------------------------------------------
     // Audio / playback
@@ -144,6 +149,7 @@ private:
 
     void updateSongDisplay();
     void updateTransportDisplay();
+    void updateChannelModel();
 
     void timerCallback() override;
 

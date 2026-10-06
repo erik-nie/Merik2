@@ -13,6 +13,13 @@ void checkPointer(const void* pointer, const char* message)
 }
 }
 
+MidiChannelState FluidSynthEngine::getChannelState(int channel) const
+{
+    const std::scoped_lock lock(mutex_);
+
+    return midiTransformer_.getChannelState(channel);
+}
+
 FluidSynthEngine::FluidSynthEngine()
 {
     createSynth();
@@ -286,6 +293,8 @@ std::int64_t FluidSynthEngine::eventSamplePosition(
 
 void FluidSynthEngine::resetSynth()
 {
+    midiTransformer_.reset();
+    
     if (!synth_)
         return;
 
@@ -298,7 +307,20 @@ void FluidSynthEngine::sendMidiEvent(
     if (!synth_ || event.bytes.empty())
         return;
 
-    const auto status = event.bytes[0];
+    // Every MIDI event goes through the transformer first.
+    //
+    // Program Changes update the channel/family state.
+    // CC7 and CC11 are transformed according to the
+    // current family volume factor.
+    const RawMidiEvent transformedEvent =
+        midiTransformer_.transform(event);
+
+    const auto& bytes = transformedEvent.bytes;
+
+    if (bytes.empty())
+        return;
+
+    const auto status = bytes[0];
 
     /*
         Meta events and system events aren't sent to
@@ -307,7 +329,7 @@ void FluidSynthEngine::sendMidiEvent(
     if (status >= 0xF0)
         return;
 
-    if (event.bytes.size() < 2)
+    if (bytes.size() < 2)
         return;
 
     const int channel =
@@ -318,7 +340,7 @@ void FluidSynthEngine::sendMidiEvent(
 
     const int data1 =
         std::clamp(
-            static_cast<int>(event.bytes[1]),
+            static_cast<int>(bytes[1]),
             0,
             127);
 
@@ -326,23 +348,24 @@ void FluidSynthEngine::sendMidiEvent(
     {
         case 0x80:
         {
-            if (event.bytes.size() >= 3)
+            if (bytes.size() >= 3)
             {
                 fluid_synth_noteoff(
                     synth_,
                     channel,
                     data1);
             }
+
             break;
         }
 
         case 0x90:
         {
-            if (event.bytes.size() >= 3)
+            if (bytes.size() >= 3)
             {
                 const int velocity =
                     std::clamp(
-                        static_cast<int>(event.bytes[2]),
+                        static_cast<int>(bytes[2]),
                         0,
                         127);
 
@@ -352,16 +375,17 @@ void FluidSynthEngine::sendMidiEvent(
                     data1,
                     velocity);
             }
+
             break;
         }
 
         case 0xA0:
         {
-            if (event.bytes.size() >= 3)
+            if (bytes.size() >= 3)
             {
                 const int value =
                     std::clamp(
-                        static_cast<int>(event.bytes[2]),
+                        static_cast<int>(bytes[2]),
                         0,
                         127);
 
@@ -371,16 +395,17 @@ void FluidSynthEngine::sendMidiEvent(
                     data1,
                     value);
             }
+
             break;
         }
 
         case 0xB0:
         {
-            if (event.bytes.size() >= 3)
+            if (bytes.size() >= 3)
             {
                 const int value =
                     std::clamp(
-                        static_cast<int>(event.bytes[2]),
+                        static_cast<int>(bytes[2]),
                         0,
                         127);
 
@@ -390,6 +415,7 @@ void FluidSynthEngine::sendMidiEvent(
                     data1,
                     value);
             }
+
             break;
         }
 
@@ -415,17 +441,17 @@ void FluidSynthEngine::sendMidiEvent(
 
         case 0xE0:
         {
-            if (event.bytes.size() >= 3)
+            if (bytes.size() >= 3)
             {
                 const int lsb =
                     std::clamp(
-                        static_cast<int>(event.bytes[1]),
+                        static_cast<int>(bytes[1]),
                         0,
                         127);
 
                 const int msb =
                     std::clamp(
-                        static_cast<int>(event.bytes[2]),
+                        static_cast<int>(bytes[2]),
                         0,
                         127);
 

@@ -3,7 +3,7 @@
 #include "Song.h"
 
 #include <fluidsynth.h>
-
+#include "MidiTransformer.h"
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -32,6 +32,7 @@ public:
     void seekSamples(std::int64_t samplePosition);
 
     [[nodiscard]] bool isPlaying() const;
+    [[nodiscard]] MidiChannelState getChannelState(int channel) const;
 
     [[nodiscard]] std::int64_t positionSamples() const;
 
@@ -51,7 +52,7 @@ private:
     void sendMidiEvent(const RawMidiEvent& event);
 
     void resetSynth();
-
+    MidiTransformer midiTransformer_;
     std::int64_t eventSamplePosition(
         const RawMidiEvent& event) const;
 

@@ -1,5 +1,7 @@
 #include "FluidSynthEventSink.h"
 
+
+
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -103,7 +105,8 @@ void FluidSynthEventSink::onLyric(const LyricEvent& lyric)
 
 void FluidSynthEventSink::onMidiEvent(const RawMidiEvent& event)
 {
-    sendMidiBytes(event.bytes);
+    const auto transformedEvent = midiTransformer_.transform(event);
+    sendMidiBytes(transformedEvent.bytes);
 }
 
 void FluidSynthEventSink::sendMidiBytes(const std::vector<std::uint8_t>& bytes)

@@ -56,6 +56,8 @@ void MainComponent::loadMidi()
                 synthEngine.loadSong(
                     currentSong);
 
+                updateChannelModel();
+
                 updateSongDisplay();
             }
             catch (const std::exception& e)
@@ -287,14 +289,7 @@ void MainComponent::updateTransportDisplay()
     }
 }
 
-// ============================================================================
-// Timer
-// ============================================================================
 
-void MainComponent::timerCallback()
-{
-    updateTransportDisplay();
-}
 
 // ============================================================================
 // Time formatting

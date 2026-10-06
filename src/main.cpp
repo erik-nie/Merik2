@@ -1,6 +1,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "MainComponent.h"
 
+
 class MerikApplication : public juce::JUCEApplication
 {
 public:
@@ -13,7 +14,7 @@ public:
 
     const juce::String getApplicationVersion() override
     {
-        return "0.1.0";
+        return "0.1.1";
     }
 
     bool moreThanOneInstanceAllowed() override
@@ -21,10 +22,23 @@ public:
         return true;
     }
 
+    juce::String getBuildDateTime()
+    {
+        const juce::String date(__DATE__); // "Oct  6 2026"
+        const juce::String time(__TIME__); // "19:10:32"
+
+        const auto month = date.substring(0, 3);
+        const auto day = date.substring(4, 6).trimStart();
+        const auto year = date.substring(7);
+
+        return day + " " + month + " " + year + " " + time;
+    }
+
     void initialise(const juce::String&) override
     {
+
         mainWindow = std::make_unique<MainWindow>(
-            getApplicationName(),
+            getApplicationName() + "    v:" + getApplicationVersion() + "    build:" + getBuildDateTime(),
             *this
         );
     }

@@ -1,4 +1,8 @@
 #include "MainComponent.h"
+#include "MainComponent.h"
+
+#include <array>
+#include <chrono>
 
 namespace
 {
@@ -12,14 +16,13 @@ namespace
         juce::Colour::fromRGB(48, 48, 48);
 
     const juce::Colour merikBlue =
-        juce::Colour::fromRGB(0, 164, 235);
+        juce::Colour::fromRGB(0x2e, 0x9a, 0xfe);
 
     const juce::Colour textColour =
         juce::Colours::white;
 
     const juce::Colour secondaryTextColour =
         juce::Colour::fromRGB(190, 190, 190);
-
 
 }
 
@@ -217,7 +220,7 @@ public:
     SongModel()
         : BasicListModel(
         {
-            "It's Not Unusual       Tom Jones",
+            "It's Not XXXXXXX       Tom Jones",
             "Delilah                Tom Jones",
             "Sex Bomb               Tom Jones",
             "Africa                 Toto",
@@ -239,13 +242,80 @@ public:
 // ChannelModel
 // ============================================================================
 
+// ============================================================================
+// ChannelModel
+// ============================================================================
 class MainComponent::ChannelModel
     : public juce::TableListBoxModel
 {
 public:
+    ChannelModel()
+    {
+        lastProgram.fill(-1);
+        lastEventCounter.fill(0);
+        eventTimes.fill(Clock::now());
+    }
+
     int getNumRows() override
     {
         return 16;
+    }
+
+    void setSong(std::shared_ptr<const Song> newSong)
+    {
+        song = std::move(newSong);
+
+        lastProgram.fill(-1);
+
+        if (!song)
+            return;
+
+        int programChangeCount = 0;
+
+        for (const auto& event : song->playbackEvents)
+        {
+            if (event.bytes.size() < 2)
+                continue;
+
+            const auto status = event.bytes[0];
+
+            // MIDI Program Change = 0xCn
+            if ((status & 0xF0) != 0xC0)
+                continue;
+
+            const int channel = status & 0x0F;
+            const int program = event.bytes[1] & 0x7F;
+
+            if (channel >= 0 && channel < 16)
+            {
+                lastProgram[
+                    static_cast<std::size_t>(channel)] =
+                    program;
+
+                ++programChangeCount;
+
+                DBG("Program Change: channel "
+                    + juce::String(channel + 1)
+                    + " program "
+                    + juce::String(program)
+                    + " = "
+                    + juce::String(getGMProgramName(program)));
+            }
+        }
+
+        DBG("Total Program Changes: "
+            + juce::String(programChangeCount));
+
+        lastEventCounter.fill(0);
+        eventTimes.fill(Clock::now());
+    }
+
+    void setSynthEngine(FluidSynthEngine* engine)
+    {
+        synthEngine = engine;
+
+        lastEventCounter.fill(0);
+        eventTimes.fill(Clock::now());
     }
 
     void paintRowBackground(
@@ -255,13 +325,69 @@ public:
         int height,
         bool rowIsSelected) override
     {
-        if (rowIsSelected)
-            g.setColour(merikBlue);
-        else if (rowNumber % 2 == 0)
-            g.setColour(juce::Colour::fromRGB(47, 47, 47));
-        else
-            g.setColour(juce::Colour::fromRGB(39, 39, 39));
+        if (rowNumber < 0 || rowNumber >= 16)
+            return;
 
+        const auto index =
+            static_cast<std::size_t>(rowNumber);
+
+        // ------------------------------------------------------------
+        // Kijk of er sinds de vorige repaint een MIDI-event is geweest.
+        // ------------------------------------------------------------
+
+        if (synthEngine != nullptr)
+        {
+            const auto state =
+                synthEngine->getChannelState(rowNumber);
+
+            if (state.eventCounter != lastEventCounter[index])
+            {
+                lastEventCounter[index] =
+                    state.eventCounter;
+
+                eventTimes[index] = Clock::now();
+            }
+        }
+
+        // ------------------------------------------------------------
+        // Normale achtergrondkleur
+        // ------------------------------------------------------------
+
+        const juce::Colour originalColour =
+            rowIsSelected
+                ? merikBlue
+                : (rowNumber % 2 == 0
+                    ? juce::Colour::fromRGB(47, 47, 47)
+                    : juce::Colour::fromRGB(39, 39, 39));
+
+        juce::Colour colour = originalColour;
+
+        // ------------------------------------------------------------
+        // 2 seconden blauw terugfaden
+        // ------------------------------------------------------------
+
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                Clock::now() - eventTimes[index]);
+
+        constexpr auto fadeDuration =
+            std::chrono::milliseconds { 2000 };
+
+        if (elapsed.count() >= 0 &&
+            elapsed < fadeDuration)
+        {
+            const float remaining =
+                1.0f -
+                static_cast<float>(elapsed.count()) /
+                    static_cast<float>(fadeDuration.count());
+
+            colour =
+                originalColour.interpolatedWith(
+                    merikBlue,
+                    remaining);
+        }
+
+        g.setColour(colour);
         g.fillRect(0, 0, width, height);
     }
 
@@ -273,33 +399,137 @@ public:
         int height,
         bool rowIsSelected) override
     {
+        if (rowNumber < 0 || rowNumber >= 16)
+            return;
+
         juce::String value;
 
         switch (columnId)
         {
+            // --------------------------------------------------------
+            // Active
+            // --------------------------------------------------------
+
             case 1:
                 value = "✓";
                 break;
+
+            // --------------------------------------------------------
+            // Channel
+            // --------------------------------------------------------
 
             case 2:
                 value = juce::String(rowNumber + 1);
                 break;
 
+            // --------------------------------------------------------
+            // CC7
+            // --------------------------------------------------------
+
             case 3:
-                value = "120 → 127";
+            {
+                if (synthEngine != nullptr)
+                {
+                    const auto state =
+                        synthEngine->getChannelState(rowNumber);
+
+                    value = juce::String(state.cc7);
+                }
+                else
+                {
+                    value = "-";
+                }
+
                 break;
+            }
+
+            // --------------------------------------------------------
+            // CC11
+            // --------------------------------------------------------
 
             case 4:
-                value = "127";
+            {
+                if (synthEngine != nullptr)
+                {
+                    const auto state =
+                        synthEngine->getChannelState(rowNumber);
+
+                    value = juce::String(state.cc11);
+                }
+                else
+                {
+                    value = "-";
+                }
+
                 break;
+            }
+
+            // --------------------------------------------------------
+            // Program
+            // --------------------------------------------------------
 
             case 5:
-                value = "Piano";
+            {
+                int program = -1;
+
+                if (synthEngine != nullptr)
+                {
+                    const auto state =
+                        synthEngine->getChannelState(rowNumber);
+
+                    program = state.program;
+                }
+
+                if (program < 0)
+                {
+                    program =
+                        lastProgram[
+                            static_cast<std::size_t>(rowNumber)];
+                }
+
+                if (program >= 0 && program < 128)
+                {
+                    value =
+                        juce::String(program + 1)
+                        + " "
+                        + getGMProgramName(program);
+                }
+                else
+                {
+                    value = "-";
+                }
+
                 break;
+            }
+
+            // --------------------------------------------------------
+            // Family
+            // --------------------------------------------------------
 
             case 6:
-                value = "Keys";
+            {
+                if (synthEngine != nullptr)
+                {
+                    const auto state =
+                        synthEngine->getChannelState(rowNumber);
+
+                    if (state.family >= 0)
+                    {
+                        value =
+                            juce::String(state.family + 1);
+                    }
+                    else
+                    {
+                        value = "-";
+                    }
+                }
+                else
+                {
+                    value = "-";
+                }
+
                 break;
+            }
 
             default:
                 return;
@@ -310,7 +540,8 @@ public:
                 ? juce::Colours::white
                 : juce::Colour::fromRGB(210, 210, 210));
 
-        g.setFont(juce::FontOptions(12.0f));
+        g.setFont(
+            juce::FontOptions(12.0f));
 
         g.drawText(
             value,
@@ -318,10 +549,194 @@ public:
             0,
             width - 12,
             height,
-            juce::Justification::centredLeft);
+            juce::Justification::centredLeft,
+            true);
+    }
+
+private:
+    using Clock = std::chrono::steady_clock;
+
+    std::shared_ptr<const Song> song;
+
+    std::array<int, 16> lastProgram {};
+
+    FluidSynthEngine* synthEngine = nullptr;
+
+    std::array<std::uint64_t, 16> lastEventCounter {};
+    std::array<Clock::time_point, 16> eventTimes {};
+
+    static const char* getGMProgramName(int program)
+    {
+        static constexpr const char* names[128] =
+        {
+            "Acoustic Grand Piano",
+            "Bright Acoustic Piano",
+            "Electric Grand Piano",
+            "Honky-tonk Piano",
+            "Electric Piano 1",
+            "Electric Piano 2",
+            "Harpsichord",
+            "Clavinet",
+            "Celesta",
+            "Glockenspiel",
+            "Music Box",
+            "Vibraphone",
+            "Marimba",
+            "Xylophone",
+            "Tubular Bells",
+            "Dulcimer",
+
+            "Drawbar Organ",
+            "Percussive Organ",
+            "Rock Organ",
+            "Church Organ",
+            "Reed Organ",
+            "Accordion",
+            "Harmonica",
+            "Tango Accordion",
+
+            "Acoustic Guitar (nylon)",
+            "Acoustic Guitar (steel)",
+            "Electric Guitar (jazz)",
+            "Electric Guitar (clean)",
+            "Electric Guitar (muted)",
+            "Overdriven Guitar",
+            "Distortion Guitar",
+            "Guitar Harmonics",
+
+            "Acoustic Bass",
+            "Electric Bass (finger)",
+            "Electric Bass (pick)",
+            "Fretless Bass",
+            "Slap Bass 1",
+            "Slap Bass 2",
+            "Synth Bass 1",
+            "Synth Bass 2",
+
+            "Violin",
+            "Viola",
+            "Cello",
+            "Contrabass",
+            "Tremolo Strings",
+            "Pizzicato Strings",
+            "Orchestral Harp",
+            "Timpani",
+
+            "String Ensemble 1",
+            "String Ensemble 2",
+            "Synth Strings 1",
+            "Synth Strings 2",
+            "Choir Aahs",
+            "Voice Oohs",
+            "Synth Choir",
+            "Orchestra Hit",
+
+            "Trumpet",
+            "Trombone",
+            "Tuba",
+            "Muted Trumpet",
+            "French Horn",
+            "Brass Section",
+            "Synth Brass 1",
+            "Synth Brass 2",
+
+            "Soprano Sax",
+            "Alto Sax",
+            "Tenor Sax",
+            "Baritone Sax",
+            "Oboe",
+            "English Horn",
+            "Bassoon",
+            "Clarinet",
+
+            "Piccolo",
+            "Flute",
+            "Recorder",
+            "Pan Flute",
+            "Blown Bottle",
+            "Shakuhachi",
+            "Whistle",
+            "Ocarina",
+
+            "Lead 1 (square)",
+            "Lead 2 (sawtooth)",
+            "Lead 3 (calliope)",
+            "Lead 4 (chiff)",
+            "Lead 5 (charang)",
+            "Lead 6 (voice)",
+            "Lead 7 (fifths)",
+            "Lead 8 (bass + lead)",
+
+            "Pad 1 (new age)",
+            "Pad 2 (warm)",
+            "Pad 3 (polysynth)",
+            "Pad 4 (warm)",
+            "Pad 5 (bowed)",
+            "Pad 6 (metallic)",
+            "Pad 7 (halo)",
+            "Pad 8 (sweep)",
+
+            "FX 1 (rain)",
+            "FX 2 (soundtrack)",
+            "FX 3 (crystal)",
+            "FX 4 (atmosphere)",
+            "FX 5 (brightness)",
+            "FX 6 (goblins)",
+            "FX 7 (echoes)",
+            "FX 8 (sci-fi)",
+
+            "Sitar",
+            "Banjo",
+            "Shamisen",
+            "Koto",
+            "Kalimba",
+            "Bagpipe",
+            "Fiddle",
+            "Shanai",
+
+            "Tinkle Bell",
+            "Agogo",
+            "Steel Drums",
+            "Woodblock",
+            "Taiko Drum",
+            "Melodic Tom",
+            "Synth Drum",
+            "Reverse Cymbal",
+
+            "Guitar Fret Noise",
+            "Breath Noise",
+            "Seashore",
+            "Bird Tweet",
+            "Telephone Ring",
+            "Helicopter",
+            "Applause",
+            "Gunshot"
+        };
+
+        if (program < 0 || program >= 128)
+            return "";
+
+        return names[program];
     }
 };
 
+void MainComponent::updateChannelModel()
+{
+    if (channelModel != nullptr)
+        channelModel->setSong(currentSong);
+
+    channelTable.updateContent();
+}
+
+
+
+
+void MainComponent::timerCallback()
+{
+    updateTransportDisplay();
+    channelTable.repaint();
+    //updateChannelActivity();
+}
 // ============================================================================
 // MainComponent
 // ============================================================================
@@ -330,6 +745,8 @@ MainComponent::MainComponent()
 {
     setOpaque(true);
     setLookAndFeel(&merikLookAndFeel);
+
+
 
     // -------------------------------------------------------------------------
     // MIDI Control
@@ -603,7 +1020,7 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(loadButton);
 
-    playButton.setButtonText("▶  Play");
+    playButton.setButtonText("Play");
 
     playButton.setColour(
         juce::TextButton::buttonColourId,
@@ -620,7 +1037,7 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(playButton);
 
-    stopButton.setButtonText("■  Stop");
+    stopButton.setButtonText("Stop");
 
     stopButton.setColour(
         juce::TextButton::buttonColourId,
@@ -649,7 +1066,7 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(nextButton);
 
-    transposeDownButton.setButtonText("−");
+    transposeDownButton.setButtonText("-");
 
     transposeDownButton.setColour(
         juce::TextButton::buttonColourId,
@@ -858,6 +1275,7 @@ MainComponent::MainComponent()
 
     channelModel =
         std::make_unique<ChannelModel>();
+    channelModel->setSynthEngine(&synthEngine);
 
     channelTable.setModel(
         channelModel.get());
@@ -875,10 +1293,10 @@ MainComponent::MainComponent()
         "CC11 Expression", 4, 125);
 
     channelTable.getHeader().addColumn(
-        "Program", 5, 110);
+        "Program", 5, 210);
 
     channelTable.getHeader().addColumn(
-        "Family", 6, 110);
+        "Family 11", 6, 110);
 
     channelTable.setColour(
         juce::ListBox::backgroundColourId,

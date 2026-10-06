@@ -2,6 +2,8 @@
 
 #include "PlaybackInterfaces.h"
 
+#include "MidiTransformer.h"
+
 #include <fluidsynth.h>
 #include <string>
 
@@ -21,6 +23,7 @@ public:
 
 private:
     void sendMidiBytes(const std::vector<std::uint8_t>& bytes);
+    MidiTransformer midiTransformer_;
 
     static std::string formatTime(std::chrono::milliseconds position,
                                   bool includeMilliseconds);
