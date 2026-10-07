@@ -24,8 +24,8 @@ std::string ConsoleEventSink::formatTime(std::chrono::milliseconds position,
 
 void ConsoleEventSink::onSecond(std::chrono::milliseconds position)
 {
-    const std::scoped_lock lock(outputMutex);
-    std::cout << formatTime(position, false) << ":\n";
+    // const std::scoped_lock lock(outputMutex);
+    // std::cout << formatTime(position, false) << ":\n";
 }
 
 void ConsoleEventSink::onLyric(const LyricEvent& lyric)
@@ -34,20 +34,20 @@ void ConsoleEventSink::onLyric(const LyricEvent& lyric)
         static_cast<std::int64_t>(lyric.seconds * 1000.0 + 0.5)
     };
 
-    const std::scoped_lock lock(outputMutex);
-    std::cout
-        << formatTime(time, true)
-        << ": ";
-        if (!currentChord.empty())
-        {
-        std::cout
-        << "["
-        << currentChord
-        << "] ";
-        }
-        std::cout
-        << lyric.text
-        << '\n';
+    // const std::scoped_lock lock(outputMutex);
+    // std::cout
+    //     << formatTime(time, true)
+    //     << ": ";
+    //     if (!currentChord.empty())
+    //     {
+    //     std::cout
+    //     << "["
+    //     << currentChord
+    //     << "] ";
+    //     }
+    //     std::cout
+    //     << lyric.text
+    //     << '\n';
 }
 void ConsoleEventSink::onChord(
     const SongChordEvent& chord)
@@ -62,11 +62,11 @@ void ConsoleEventSink::onChord(
 
     currentChord = chord.label;
 
-    std::cout
-        << formatTime(time, true)
-        << ": ["
-        << chord.label
-        << "]\n";
+    // std::cout
+    //     << formatTime(time, true)
+    //     << ": ["
+    //     << chord.label
+    //     << "]\n";
 }
 
 void ConsoleEventSink::setCurrentChord(
@@ -100,9 +100,9 @@ void ConsoleEventSink::onMidiEvent(const RawMidiEvent& event)
     const auto value = static_cast<int>(event.bytes[2]);
     const auto channel = static_cast<int>(status & 0x0F) + 1;
 
-    const std::scoped_lock lock(outputMutex);
-    std::cout << formatTime(time, true)
-              << ": ch" << channel
-              << " cc" << controller
-              << ": " << value << '\n';
+//     const std::scoped_lock lock(outputMutex);
+//     std::cout << formatTime(time, true)
+//               << ": ch" << channel
+//               << " cc" << controller
+//               << ": " << value << '\n';
 }

@@ -174,7 +174,7 @@ std::string WebServer::createJson() const
     const std::string title = path.substr(start, end - start);
 
     std::string json = "{";
-    json += "\"song\":\"" + escapeJson(title + " " + song->info) + "\",";
+    json += "\"song\":\"" + escapeJson(title) + "\",";
     json += "\"position\":" + std::to_string(positionSeconds) + ",";
     json += "\"duration\":" + std::to_string(durationSeconds) + ",";
 
@@ -294,6 +294,34 @@ footer {
     width: 100%;background: #2e9afe;border-radius: 999px;
     transition:width 100ms linear;
 }
+#lyricCountdown
+{
+    position: fixed;
+
+    top: 20px;
+    right: 25px;
+
+    z-index: 100;
+
+    padding: 18px 18px;
+
+    border-radius: 999px;
+
+    background: rgb(255, 217, 0);
+
+    xxborder: 2px solid #ffd800;
+
+    color: #111;
+
+    font-weight: 700;
+
+    font-size: 50px;
+
+    opacity: 0;
+
+    transition:
+        opacity 1s ease;
+}
 .future-progress {
     align-self: center;
 
@@ -318,6 +346,7 @@ footer {
 </head>
 <body>
 <header><div id="song">Merik</div><div id="time">00:00 / 00:00</div></header>
+<div id="lyricCountdown"></div>
 <main><div id="lyricsViewport"><div id="lyrics"></div></div></main>
 <footer>
 
@@ -796,6 +825,104 @@ function renderChords()
     renderChordProgress(
         chords[currentIndex]);
 }
+
+let countdownActive = false;
+let countdownTargetTime = null;
+
+function renderCountdown()
+{
+    if (!songData)
+        return;
+
+    const pill =
+        document.getElementById(
+            "lyricCountdown");
+
+    const lyrics =
+        songData.lyrics || [];
+
+    const position =
+        Number(songData.position || 0);
+
+    /*
+     * Zoek eerstvolgende lyric.
+     */
+    let nextLyric = null;
+
+    for (const lyric of lyrics)
+    {
+        if (Number(lyric.time) > position)
+        {
+            nextLyric = lyric;
+            break;
+        }
+    }
+
+    if (!nextLyric)
+    {
+        countdownActive = false;
+        pill.style.opacity = "0";
+        return;
+    }
+
+    const remaining =
+        nextLyric.time - position;
+
+    /*
+     * Timer starten.
+     */
+    if (!countdownActive &&
+        remaining > 6)
+    {
+        countdownActive = true;
+
+        countdownTargetTime =
+            nextLyric.time;
+    }
+
+    /*
+     * Geen actieve timer.
+     */
+    if (!countdownActive)
+    {
+        pill.style.opacity = "0";
+        return;
+    }
+
+    /*
+     * Timer loopt.
+     */
+    const countdownRemaining =
+        countdownTargetTime -
+        position;
+
+    if (countdownRemaining <= 0)
+    {
+        countdownActive = false;
+        pill.style.opacity = "0";
+        return;
+    }
+
+    /*
+     * Fade laatste seconde.
+     */
+    if (countdownRemaining < 1)
+    {
+        pill.style.opacity =
+            countdownRemaining;
+    }
+    else
+    {
+        pill.style.opacity = "1";
+    }
+
+    pill.textContent =
+        Math.ceil(
+            countdownRemaining)
+        + " sec";
+}
+
+
 async function update() {
     try {
         const response=await fetch("/api/song",{cache:"no-store"});
@@ -805,6 +932,7 @@ async function update() {
         document.getElementById("time").textContent=formatTime(songData.position)+" / "+formatTime(songData.duration);
         renderLyrics();
         renderChords();
+        renderCountdown();
     } catch(error) { console.log(error); }
 }
 update();
