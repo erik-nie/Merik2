@@ -319,7 +319,7 @@ std::string WebServer::createJson() const
             start,
             end - start);
 
-    json += escapeJson(title);
+    json += escapeJson(title + " " + song->info);
     json += "\",";
 
     // ------------------------------------------------------------------------
@@ -421,6 +421,11 @@ std::string WebServer::createJson() const
         json += "\"time\":";
         json += std::to_string(
             chord.seconds);
+
+        json += ",";
+
+        json += "\"end\":";
+        json += std::to_string(chord.endSeconds);
 
         json += ",";
 
@@ -654,6 +659,29 @@ main {
 
     transform: scale(1.1);
 }
+#chordProgress
+{
+    width: 320px;
+    height: 8px;
+
+    margin: 10px auto 0;
+
+    background: #404040;
+
+    border-radius: 999px;
+
+    overflow: hidden;
+}
+#chordRemaining
+{
+    width: 100%;
+    height: 100%;
+
+    background: #2e9afe;
+
+    transition:
+        width 0.1s linear;
+}
 
 footer {
     position: fixed;
@@ -744,24 +772,35 @@ footer {
 
     <div id="chords">
 
-        <span id="currentChord" class="chord current">
+        <span id="currentChord"
+              class="chord current">
             Am
         </span>
-        <span id="next1" class="chord">
+
+        <span id="next1"
+              class="chord">
             F
         </span>
 
-        <span id="next2" class="chord">
+        <span id="next2"
+              class="chord">
             C
         </span>
 
-        <span id="next3" class="chord">
+        <span id="next3"
+              class="chord">
             G
         </span>
 
-        <span id="next4" class="chord">
+        <span id="next4"
+              class="chord">
             Em
         </span>
+
+    </div>
+
+    <div id="chordProgress">
+        <div id="chordRemaining"></div>
     </div>
 
 </footer>
@@ -1064,16 +1103,14 @@ function renderLyrics()
     }
 
 
-    /*
-     * Chord support later.
-     */
-    document.getElementById("chord")
-        .textContent = "";
+
 }
+
+
+// ######################## CHORDS ###############################
 
 function renderChords()
 {
-
     if (!songData)
         return;
 
@@ -1083,15 +1120,55 @@ function renderChords()
     const position =
         Number(songData.position || 0);
 
-    let current = -1;
+    const currentChordElement =
+        document.getElementById(
+            "currentChord");
 
-    for (let i = 0;
-         i < chords.length;
-         ++i)
+    const next1Element =
+        document.getElementById(
+            "next1");
+
+    const next2Element =
+        document.getElementById(
+            "next2");
+
+    const next3Element =
+        document.getElementById(
+            "next3");
+
+    const next4Element =
+        document.getElementById(
+            "next4");
+
+    const progressElement =
+        document.getElementById(
+            "chordRemaining");
+
+    if (!chords.length)
     {
-        if (Number(chords[i].time) <= position)
+        currentChordElement.textContent = "";
+        next1Element.textContent = "";
+        next2Element.textContent = "";
+        next3Element.textContent = "";
+        next4Element.textContent = "";
+
+        progressElement.style.width = "0%";
+
+        return;
+    }
+
+    let currentIndex = -1;
+
+    for (let index = 0;
+         index < chords.length;
+         ++index)
+    {
+        const chordStart =
+            Number(chords[index].time || 0);
+
+        if (chordStart <= position)
         {
-            current = i;
+            currentIndex = index;
         }
         else
         {
@@ -1099,39 +1176,109 @@ function renderChords()
         }
     }
 
-    if (current < 0)
+    /*
+     * Nog vóór het eerste akkoord.
+     */
+    if (currentIndex < 0)
     {
+        currentChordElement.textContent = "";
+
+        next1Element.textContent =
+            chords[0]?.label || "";
+
+        next2Element.textContent =
+            chords[1]?.label || "";
+
+        next3Element.textContent =
+            chords[2]?.label || "";
+
+        next4Element.textContent =
+            chords[3]?.label || "";
+
+        progressElement.style.width = "0%";
+
         return;
     }
 
-    document.getElementById(
-        "currentChord")
-        .textContent =
-            chords[current].label;
+    const currentChord =
+        chords[currentIndex];
 
-    document.getElementById(
-        "next1")
-        .textContent =
-            chords[current + 1]?.label || "";
+    currentChordElement.textContent =
+        currentChord.label || "";
 
-    document.getElementById(
-        "next2")
-        .textContent =
-            chords[current + 2]?.label || "";
+    next1Element.textContent =
+        chords[currentIndex + 1]?.label || "";
 
-    document.getElementById(
-        "next3")
-        .textContent =
-            chords[current + 3]?.label || "";
+    next2Element.textContent =
+        chords[currentIndex + 2]?.label || "";
 
-    document.getElementById(
-        "next4")
-        .textContent =
-            chords[current + 4]?.label || "";
+    next3Element.textContent =
+        chords[currentIndex + 3]?.label || "";
+
+    next4Element.textContent =
+        chords[currentIndex + 4]?.label || "";
+
+    renderChordProgress(
+        currentChord);
+}
+
+function renderChordProgress(
+    currentChord)
+{
+    const progressElement =
+        document.getElementById(
+            "chordRemaining");
+
+    if (!currentChord ||
+        !songData)
+    {
+        progressElement.style.width =
+            "0%";
+
+        return;
+    }
+
+    const position =
+        Number(
+            songData.position || 0);
+
+    const start =
+        Number(
+            currentChord.time || 0);
+
+    const end =
+        Number(
+            currentChord.end || 0);
+
+    const duration =
+        end - start;
+
+    if (duration <= 0)
+    {
+        progressElement.style.width =
+            "0%";
+
+        return;
+    }
+
+    const elapsed =
+        Math.max(
+            0,
+            Math.min(
+                duration,
+                position - start));
+
+    const percentage =
+        elapsed /
+        duration *
+        100;
+
+    progressElement.style.width =
+        percentage + "%";
 }
 
 /* ==========================================================================
-   Update 2
+   Update 
    ========================================================================== */
 
 async function update()
