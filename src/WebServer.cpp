@@ -323,11 +323,23 @@ std::string WebServer::createJson() const
     json += "\",";
 
     // ------------------------------------------------------------------------
-    // Position
+    // Position and length
     // ------------------------------------------------------------------------
 
     json += "\"position\":";
     json += std::to_string(positionSeconds);
+    json += ",";
+
+    double durationSeconds = 0.0;
+
+    if (!song->playbackEvents.empty())
+    {
+        durationSeconds =
+            song->playbackEvents.back().seconds;
+    }
+
+    json += "\"duration\":";
+    json += std::to_string(durationSeconds);
     json += ",";
 
     // ------------------------------------------------------------------------
@@ -390,8 +402,38 @@ std::string WebServer::createJson() const
 
     json += "],";
 
-    // Chords are intentionally empty for now.
-    json += "\"chords\":[]";
+    json += "\"chords\":[";
+
+    for (std::size_t i = 0;
+        i < song->chords.size();
+        ++i)
+    {
+        if (i != 0)
+        {
+            json += ",";
+        }
+
+        const auto& chord =
+            song->chords[i];
+
+        json += "{";
+
+        json += "\"time\":";
+        json += std::to_string(
+            chord.seconds);
+
+        json += ",";
+
+        json += "\"label\":\"";
+        json += escapeJson(
+            chord.label);
+
+        json += "\"";
+
+        json += "}";
+    }
+
+    json += "]";
 
     json += "}";
 
@@ -588,6 +630,53 @@ main {
 
     text-align: center;
 }
+#chords
+{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 40px;
+}
+.chord
+{
+    color: #2e9afe;
+    font-size: 54px;
+    font-weight: 600;
+    transition:
+        transform 0.2s ease,
+        color 0.2s ease;
+}
+.chord.current
+{
+    color: #2e9afe;
+    font-size: 54px;
+    font-weight: 800;
+
+    transform: scale(1.1);
+}
+
+footer {
+    position: fixed;
+
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    z-index: 10;
+
+    padding: 50px 30px 25px;
+
+    background:
+        linear-gradient(
+            to top,
+            rgba(0,0,0,0.98),
+            rgba(0,0,0,0.95),
+            rgba(0,0,0,0.90),
+            rgba(0,0,0,0.0)
+        );
+
+    text-align: center;
+}
 
 /* --------------------------------------------------------------------------
    Small screens
@@ -619,10 +708,8 @@ main {
             clamp(32px, 9vw, 48px);
     }
 
-    #chord {
-        font-size: 27px;
-        bottom: 15px;
-    }
+
+
 }
 
 </style>
@@ -653,7 +740,31 @@ main {
 
 </main>
 
-<div id="chord"></div>
+<footer>
+
+    <div id="chords">
+
+        <span id="currentChord" class="chord current">
+            Am
+        </span>
+        <span id="next1" class="chord">
+            F
+        </span>
+
+        <span id="next2" class="chord">
+            C
+        </span>
+
+        <span id="next3" class="chord">
+            G
+        </span>
+
+        <span id="next4" class="chord">
+            Em
+        </span>
+    </div>
+
+</footer>
 
 <script>
 
@@ -960,9 +1071,67 @@ function renderLyrics()
         .textContent = "";
 }
 
+function renderChords()
+{
+
+    if (!songData)
+        return;
+
+    const chords =
+        songData.chords || [];
+
+    const position =
+        Number(songData.position || 0);
+
+    let current = -1;
+
+    for (let i = 0;
+         i < chords.length;
+         ++i)
+    {
+        if (Number(chords[i].time) <= position)
+        {
+            current = i;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (current < 0)
+    {
+        return;
+    }
+
+    document.getElementById(
+        "currentChord")
+        .textContent =
+            chords[current].label;
+
+    document.getElementById(
+        "next1")
+        .textContent =
+            chords[current + 1]?.label || "";
+
+    document.getElementById(
+        "next2")
+        .textContent =
+            chords[current + 2]?.label || "";
+
+    document.getElementById(
+        "next3")
+        .textContent =
+            chords[current + 3]?.label || "";
+
+    document.getElementById(
+        "next4")
+        .textContent =
+            chords[current + 4]?.label || "";
+}
 
 /* ==========================================================================
-   Update
+   Update 2
    ========================================================================== */
 
 async function update()
@@ -989,10 +1158,10 @@ async function update()
 
         document.getElementById("time")
             .textContent =
-                formatTime(
-                    songData.position);
+                formatTime( songData.position)+ " / " + formatTime(songData.duration);
 
         renderLyrics();
+        renderChords();
     }
     catch (error)
     {

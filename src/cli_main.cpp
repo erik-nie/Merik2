@@ -56,6 +56,11 @@ int main(int argc, char* argv[])
             << "Chords: " << song->chords.size() << '\n'
             << "Sample rate: " << song->sampleRate << " Hz\n\n";
 
+        song->info =
+            "Lyrics: " +
+            std::to_string(song->lyrics.size()) +
+            ", Chords: " +
+            std::to_string(song->chords.size());
         ConsoleEventSink sink;
         MidiPlayer player(sink);
         player.load(song);

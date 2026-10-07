@@ -51,6 +51,7 @@ struct TempoPoint
 struct Song
 {
     std::string sourceFile;
+    std::string info;
     int ticksPerQuarterNote = 480;
     double sampleRate = 48000.0;
 
