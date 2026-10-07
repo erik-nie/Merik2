@@ -229,16 +229,16 @@ header {
     background:linear-gradient(to bottom,rgba(17,17,17,.99),rgba(17,17,17,.9),transparent);
     pointer-events:none;
 }
-#song { font-size:36px; font-weight:600; }
-#time { margin-top:4px; color:#bbb; font-size:24px; font-variant-numeric:tabular-nums; }
+#song { font-size:26px; font-weight:600; }
+#time { margin-top:4px; color:#888; font-size:14px; font-variant-numeric:tabular-nums; }
 main { position:absolute; inset:0; display:flex; justify-content:center; overflow:hidden; }
 #lyricsViewport {
     width:100%; max-width:1100px; height:100%; overflow-y:auto; overflow-x:hidden;
     scrollbar-width:none; padding:120px 35px 260px;
 }
 #lyricsViewport::-webkit-scrollbar { display:none; }
-#lyrics { width:100%; font-size:clamp(38px,4.3vw,64px); line-height:1.10; font-weight:650; text-align:center; }
-.lyric-line { width:100%; margin:0 auto .15em; padding:.08em 0; }
+#lyrics { width:100%; font-size:clamp(38px,4.3vw,64px); line-height:1.22; font-weight:650; text-align:center; }
+.lyric-line { width:100%; margin:0 auto .42em; padding:.08em 0; }
 .lyric-part { display:inline; }
 .lyric-part.past { color:#ffd800; }
 .lyric-part.current { color:#fff; }
@@ -259,48 +259,29 @@ footer {
     gap: 22px;
     width: 100%;
     will-change: transform, opacity;
-}
+}    
 .chord-slot {
     min-width:0; display:flex; flex-direction:column; align-items:center;
-    justify-content:flex-end; gap:14px; opacity:1;
+    justify-content:flex-end; gap:11px; opacity:.58;
     transition:transform 180ms ease,opacity 180ms ease;
 }
 .chord-slot.current { opacity:1; }
 .chord {
-    width:100%;
-
-    white-space:nowrap;
-
-    color:#999;
-    font-size:clamp(20px,3.8vw,45px);
-    font-weight:700;
-
-    line-height:1.25;
-
-    text-align:center;
-
-    overflow:visible;
+    width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    color:#939393; font-size:clamp(24px,3vw,38px); font-weight:650;
+    line-height:1; text-align:center;
 }
-
 .chord-slot.current .chord {
-    color: #2e9afe;  font-weight:800;
+    color:#2e9afe; font-size:clamp(34px,4.2vw,54px); font-weight:800;
 }
 .chord-progress {
     position:relative; width:100%; height:8px; overflow:hidden;
-    background: #555; border-radius:999px;
+    background:#3d3d3d; border-radius:999px;
 }
-.chord-progress-fill{
-    position: absolute; top: 0; right: 0; bottom: 0;
-    width: 100%;background: #2e9afe;border-radius: 999px;
-    transition:width 100ms linear;
+.chord-progress-fill {
+    position:absolute; inset:0 auto 0 0; width:100%;
+    background:#2e9afe; border-radius:999px; transition:width 100ms linear;
 }
-.future-progress {
-    align-self: center;
-
-    transition:
-        width 180ms ease,
-        opacity 180ms ease;
-}    
 @media (max-width:600px) {
     header { padding:15px 18px 40px; }
     #song { font-size:21px; }
@@ -311,7 +292,7 @@ footer {
     #chords { gap:7px; }
     .chord-slot { gap:7px; }
     .chord { font-size:20px; }
-    .chord-slot.current .chord { font-size:20px; }
+    .chord-slot.current .chord { font-size:31px; }
     .chord-progress { height:6px; }
 }
 </style>
@@ -320,89 +301,15 @@ footer {
 <header><div id="song">Merik</div><div id="time">00:00 / 00:00</div></header>
 <main><div id="lyricsViewport"><div id="lyrics"></div></div></main>
 <footer>
-
   <div id="chordViewport">
-
     <div id="chords">
-
-      <!-- Current chord -->
-
-      <div class="chord-slot current">
-
-        <span id="currentChord"
-              class="chord">
-        </span>
-
-        <div id="currentProgress" class="chord-progress">
-
-          <div id="chordRemaining"
-               class="chord-progress-fill">
-          </div>
-
-        </div>
-
-      </div>
-
-      <!-- Next chord 1 -->
-
-      <div class="chord-slot">
-
-        <span id="next1"
-              class="chord">
-        </span>
-
-        <div id="nextProgress1"
-             class="chord-progress" future-progress">
-        </div>
-
-      </div>
-
-      <!-- Next chord 2 -->
-
-      <div class="chord-slot">
-
-        <span id="next2"
-              class="chord">
-        </span>
-
-        <div id="nextProgress2"
-             class="chord-progress future-progress">
-        </div>
-
-      </div>
-
-      <!-- Next chord 3 -->
-
-      <div class="chord-slot">
-
-        <span id="next3"
-              class="chord">
-        </span>
-
-        <div id="nextProgress3"
-             class="chord-progress future-progress">
-        </div>
-
-      </div>
-
-      <!-- Next chord 4 -->
-
-      <div class="chord-slot">
-
-        <span id="next4"
-              class="chord">
-        </span>
-
-        <div id="nextProgress4"
-             class="chord-progress future-progress">
-        </div>
-
-      </div>
-
+      <div class="chord-slot current"><span id="currentChord" class="chord"></span><div class="chord-progress"><div id="chordRemaining" class="chord-progress-fill"></div></div></div>
+      <div class="chord-slot"><span id="next1" class="chord"></span><div class="chord-progress"></div></div>
+      <div class="chord-slot"><span id="next2" class="chord"></span><div class="chord-progress"></div></div>
+      <div class="chord-slot"><span id="next3" class="chord"></span><div class="chord-progress"></div></div>
+      <div class="chord-slot"><span id="next4" class="chord"></span><div class="chord-progress"></div></div>
     </div>
-
   </div>
-
 </footer>
 <script>
 let songData = null;
@@ -410,6 +317,7 @@ let songData = null;
 let lastCurrentIndex = -1;
 let lastChordIndex = -2;
 let chordAnimation = null;
+`
 
 function formatTime(seconds) {
     seconds = Math.max(0, Number(seconds || 0));
@@ -464,82 +372,18 @@ function renderLyrics() {
     }
     if(currentElement) currentElement.scrollIntoView({behavior:"smooth",block:"center",inline:"nearest"});
 }
-function renderChordProgress(currentChord)
-{
-    const progressContainer =
-        document.getElementById(
-            "currentProgress");
-
-    const progressElement =
-        document.getElementById(
-            "chordRemaining");
-
-    if (!progressContainer ||
-        !progressElement)
-    {
-        return;
-    }
-
-    if (!currentChord ||
-        !songData)
-    {
-        progressContainer.style.width =
-            "10%";
-
-        progressElement.style.width =
-            "0%";
-
-        return;
-    }
-
-    const totalWidth =
-        chordDurationWidth(
-            currentChord);
-
-    progressContainer.style.width =
-        totalWidth + "%";
-
-    const position =
-        Number(
-            songData.position || 0);
-
-    const start =
-        Number(
-            currentChord.time || 0);
-
-    const end =
-        Number(
-            currentChord.end || 0);
-
-    const duration =
-        end - start;
-
-    if (duration <= 0)
-    {
-        progressElement.style.width =
-            "0%";
-
-        return;
-    }
-
-    const remaining =
-        Math.max(
-            0,
-            Math.min(
-                duration,
-                end - position));
-
-    const remainingPercentage =
-        remaining /
-        duration *
-        100;
-
-    progressElement.style.width =
-        remainingPercentage + "%";
+function renderChordProgress(currentChord) {
+    const element=document.getElementById("chordRemaining");
+    if(!currentChord||!songData){element.style.width="0%";return;}
+    const position=Number(songData.position||0);
+    const start=Number(currentChord.time||0);
+    const end=Number(currentChord.end||0);
+    const duration=end-start;
+    if(duration<=0){element.style.width="0%";return;}
+    const remaining=Math.max(0,Math.min(duration,end-position));
+    element.style.width=(remaining/duration*100)+"%";
 }
-
-
-function animateChordChange()
+    function animateChordChange()
 {
     const chordRow =
         document.getElementById("chords");
@@ -573,7 +417,7 @@ function animateChordChange()
                 }
             ],
             {
-                duration: 1500,
+                duration: 220,
 
                 easing:
                     "cubic-bezier(0.22, 1, 0.36, 1)",
@@ -594,73 +438,6 @@ function animateChordChange()
             chordAnimation = null;
         };
 }
-
-
-function chordDurationWidth(chord)
-{
-    if (!chord)
-        return 0;
-
-    const start =
-        Number(chord.time || 0);
-
-    const end =
-        Number(chord.end || start);
-
-    const duration =
-        Math.max(
-            0,
-            end - start);
-
-    /*
-     * 0 seconden   => 10%
-     * 1 seconde  => 55%
-     * 2+ seconde   => 100%
-     */
-    const normalized =
-        Math.min(
-            4,
-            duration);
-
-    return 10 +
-           90 * normalized/4;
-}
-
-function renderFutureChord(
-    chordIndex,
-    chord)
-{
-    const labelElement =
-        document.getElementById(
-            "next" + chordIndex);
-
-    const progressElement =
-        document.getElementById(
-            "nextProgress" + chordIndex);
-
-    if (!chord)
-    {
-        labelElement.textContent = "";
-
-        progressElement.style.width =
-            "0%";
-
-        progressElement.style.opacity =
-            "0";
-
-        return;
-    }
-
-    labelElement.textContent =
-        chord.label || "";
-
-    progressElement.style.width =
-        chordDurationWidth(chord) + "%";
-
-    progressElement.style.opacity =
-        "1";
-}
-
 function renderChords()
 {
     if (!songData)
@@ -686,16 +463,15 @@ function renderChords()
      */
     if (!chords.length)
     {
-        document.getElementById(
-            "currentChord")
-            .textContent = "";
-
-        renderFutureChord(1, null);
-        renderFutureChord(2, null);
-        renderFutureChord(3, null);
-        renderFutureChord(4, null);
+        for (const id of ids)
+        {
+            document.getElementById(id)
+                .textContent = "";
+        }
 
         renderChordProgress(null);
+
+        lastChordIndex = -2;
 
         return;
     }
@@ -728,25 +504,29 @@ function renderChords()
      */
     if (currentIndex < 0)
     {
-        document.getElementById(
-            "currentChord")
-            .textContent = "";
+        /*
+         * Alleen opnieuw vullen als de getoonde
+         * akkoordset werkelijk veranderd is.
+         */
+        if (lastChordIndex !== -1)
+        {
+            document.getElementById(
+                "currentChord")
+                .textContent = "";
 
-        renderFutureChord(
-            1,
-            chords[0]);
+            for (let index = 1;
+                 index < ids.length;
+                 ++index)
+            {
+                document.getElementById(
+                    ids[index])
+                    .textContent =
+                        chords[index - 1]
+                            ?.label || "";
+            }
 
-        renderFutureChord(
-            2,
-            chords[1]);
-
-        renderFutureChord(
-            3,
-            chords[2]);
-
-        renderFutureChord(
-            4,
-            chords[3]);
+            lastChordIndex = -1;
+        }
 
         renderChordProgress(null);
 
@@ -765,27 +545,16 @@ function renderChords()
 
     if (chordChanged)
     {
-        document.getElementById(
-            "currentChord")
-            .textContent =
-                chords[currentIndex]
-                    ?.label || "";
-
-        renderFutureChord(
-            1,
-            chords[currentIndex + 1]);
-
-        renderFutureChord(
-            2,
-            chords[currentIndex + 2]);
-
-        renderFutureChord(
-            3,
-            chords[currentIndex + 3]);
-
-        renderFutureChord(
-            4,
-            chords[currentIndex + 4]);
+        for (let index = 0;
+             index < ids.length;
+             ++index)
+        {
+            document.getElementById(
+                ids[index])
+                .textContent =
+                    chords[currentIndex + index]
+                        ?.label || "";
+        }
 
         lastChordIndex =
             currentIndex;
