@@ -120,6 +120,8 @@ std::chrono::milliseconds MidiPlayer::songLengthLocked() const
         endSeconds = std::max(endSeconds, currentSong->playbackEvents.back().seconds);
     if (!currentSong->lyrics.empty())
         endSeconds = std::max(endSeconds, currentSong->lyrics.back().seconds);
+    if (!currentSong->chords.empty())
+        endSeconds = std::max( endSeconds,  currentSong->chords.back().endSeconds);
 
     return std::chrono::milliseconds {
         static_cast<std::int64_t>(std::ceil(endSeconds * 1000.0))
@@ -148,6 +150,12 @@ void MidiPlayer::resynchroniseLocked()
         [](const LyricEvent& event, double seconds) { return event.seconds < seconds; })
         - currentSong->lyrics.begin());
 
+    nextChord = static_cast<std::size_t>(std::lower_bound(
+        currentSong->chords.begin(), currentSong->chords.end(), positionSeconds,
+        [](const SongChordEvent& event, double seconds) { return event.seconds < seconds; })
+        - currentSong->chords.begin());
+
+
     nextSecond = storedPosition.count() / 1000;
     if ((storedPosition.count() % 1000) != 0)
         ++nextSecond;
@@ -171,6 +179,7 @@ void MidiPlayer::run()
 
         std::vector<RawMidiEvent> midiDue;
         std::vector<LyricEvent> lyricsDue;
+        std::vector<SongChordEvent> chordsDue;
         std::vector<std::chrono::milliseconds> secondsDue;
 
         while (nextSecond <= currentSecond)
@@ -179,6 +188,16 @@ void MidiPlayer::run()
         while (nextMidiEvent < currentSong->playbackEvents.size()
                && currentSong->playbackEvents[nextMidiEvent].seconds <= nowSeconds)
             midiDue.push_back(currentSong->playbackEvents[nextMidiEvent++]);
+
+        while (nextChord <
+            currentSong->chords.size() &&
+            currentSong
+            ->chords[nextChord]
+            .seconds <= nowSeconds)
+            {
+            chordsDue.push_back(
+            currentSong->chords[nextChord++]);
+            }
 
         while (nextLyric < currentSong->lyrics.size()
                && currentSong->lyrics[nextLyric].seconds <= nowSeconds)
@@ -191,12 +210,30 @@ void MidiPlayer::run()
         }
 
         lock.unlock();
+
         for (const auto second : secondsDue)
+        {
             sink.onSecond(second);
+        }
+
+        // Eerst akkoorden verwerken.
+        // Wanneer akkoord en lyric vrijwel tegelijk liggen,
+        // ziet onLyric() meteen het actuele akkoord.
+        for (const auto& chord : chordsDue)
+        {
+            sink.onChord(chord);
+        }
+
         for (const auto& lyric : lyricsDue)
+        {
             sink.onLyric(lyric);
+        }
+
         for (const auto& event : midiDue)
+        {
             sink.onMidiEvent(event);
+        }
+
         lock.lock();
 
         if (shutdownRequested)

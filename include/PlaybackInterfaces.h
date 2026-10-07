@@ -20,6 +20,9 @@ public:
     virtual void onSecond(std::chrono::milliseconds position) = 0;
     virtual void onLyric(const LyricEvent& lyric) = 0;
     virtual void onMidiEvent(const RawMidiEvent& event) = 0;
+    // Standaard no-op, omdat niet iedere sink
+    // iets met akkoorden hoeft te doen.
+    virtual void onChord( const SongChordEvent& chord) { (void) chord; }
 };
 
 class IMidiPlayer

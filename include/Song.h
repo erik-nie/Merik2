@@ -31,6 +31,16 @@ struct LyricEvent
     std::string text;
 };
 
+struct SongChordEvent
+{
+    std::int64_t tick = 0;
+    double seconds = 0.0;
+    double endSeconds = 0.0;
+    std::int64_t samplePosition = 0;
+    int sourceTrack = 0;
+    std::string label;
+};
+
 struct TempoPoint
 {
     std::int64_t tick = 0;
@@ -49,4 +59,5 @@ struct Song
     std::vector<RawMidiEvent> playbackEvents;
 
     std::vector<LyricEvent> lyrics;
+    std::vector<SongChordEvent> chords;
 };

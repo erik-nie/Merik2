@@ -268,6 +268,39 @@ Song MidiFileReader::read(
     }
 
     // ------------------------------------------------------------------------
+    // Chords
+    //
+    // Kopieer de uniforme ChordParser-resultaten naar Song.
+    // ------------------------------------------------------------------------
+
+    for (const auto& parsedChord : chordData.chords)
+    {
+        SongChordEvent chord;
+
+        chord.tick =
+            parsedChord.tick;
+
+        chord.seconds =
+            parsedChord.startSeconds;
+
+        chord.endSeconds =
+            parsedChord.endSeconds;
+
+        chord.samplePosition =
+            tempoMap.tickToSample(
+                parsedChord.tick,
+                sampleRate);
+
+        chord.sourceTrack =
+            parsedChord.track;
+
+        chord.label =
+            parsedChord.label;
+
+        song.chords.push_back(
+            std::move(chord));
+    }
+    // ------------------------------------------------------------------------
     // Sorteren
     // ------------------------------------------------------------------------
 
@@ -293,6 +326,11 @@ Song MidiFileReader::read(
     std::stable_sort(
         song.lyrics.begin(),
         song.lyrics.end(),
+        eventOrder);
+
+    std::stable_sort(
+        song.chords.begin(),
+        song.chords.end(),
         eventOrder);
 
     return song;

@@ -2,6 +2,7 @@
 #include "ConsoleEventSink.h"
 #include "MidiFileReader.h"
 #include "MidiPlayer.h"
+#include "WebServer.h"
 
 #include <chrono>
 #include <exception>
@@ -20,23 +21,40 @@ int main(int argc, char* argv[])
 
     try
     {
-        auto song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/badgirls.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/corrie.MID"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/dolly.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/paradise.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/relightmyfire.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/superstition.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/terug.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/thelastdance.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/valerie.mid"));
-        song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/verliefd.mid"));
+        // auto song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/badgirls.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/corrie.MID"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/dolly.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/paradise.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/relightmyfire.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/superstition.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/terug.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/thelastdance.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/valerie.mid"));
+        // song = std::make_shared<Song>(MidiFileReader{}.read("../test/midi/verliefd.mid"));
         
-        song = std::make_shared<Song>(MidiFileReader{}.read(argv[1]));
+        auto song = std::make_shared<Song>(MidiFileReader{}.read(argv[1]));
 
-        std::cout << "Loaded: " << song->sourceFile << '\n'
-                  << "Events: " << song->playbackEvents.size() << '\n'
-                  << "Lyrics: " << song->lyrics.size() << '\n'
-                  << "Sample rate: " << song->sampleRate << " Hz\n\n";
+        WebServer webServer;
+
+        webServer.setSong(song);
+
+        if (webServer.start(8080))
+        {
+            std::cout
+                << "Web server started on port 8080\n";
+        }
+        else
+        {
+            std::cout
+                << "Failed to start web server\n";
+        }
+
+        std::cout
+            << "Loaded: " << song->sourceFile << '\n'
+            << "Events: " << song->playbackEvents.size() << '\n'
+            << "Lyrics: " << song->lyrics.size() << '\n'
+            << "Chords: " << song->chords.size() << '\n'
+            << "Sample rate: " << song->sampleRate << " Hz\n\n";
 
         ConsoleEventSink sink;
         MidiPlayer player(sink);
@@ -60,6 +78,18 @@ int main(int argc, char* argv[])
 
         while (player.isPlaying())
         {
+            const auto position =
+                player.position();
+
+            const auto samples =
+                static_cast<std::int64_t>(
+                    position.count()
+                    * song->sampleRate
+                    / 1000.0);
+
+            webServer.setPositionSamples(
+                samples);
+
             std::this_thread::sleep_for(
                 std::chrono::milliseconds{50});
         }

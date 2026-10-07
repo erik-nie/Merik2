@@ -39,6 +39,7 @@ private:
     Clock::time_point playStartedAt {};
     std::size_t nextMidiEvent = 0;
     std::size_t nextLyric = 0;
+    std::size_t nextChord = 0;
     std::int64_t nextSecond = 0;
     std::uint64_t revision = 0;
 };

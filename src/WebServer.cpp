@@ -893,11 +893,27 @@ function renderLyrics()
             * "dro" + "men"   -> dromen
             * "zoek" + "naar" -> zoek naar
             */
-            if (lyric.endsWord)
+            // if (lyric.endsWord)
+            // {
+            //     lineElement.appendChild(
+            //         document.createTextNode(" ")
+            //     );
+            // }
+            const nextIndex =
+                line.segments.indexOf(lyric) + 1;
+
+            if (nextIndex < line.segments.length)
             {
-                lineElement.appendChild(
-                    document.createTextNode(" ")
-                );
+                const nextLyric =
+                    line.segments[nextIndex];
+
+                if (nextLyric.startsNewWord ||
+                    lyric.endsWord)
+                {
+                    lineElement.appendChild(
+                        document.createTextNode(" ")
+                    );
+                }
             }
         }
 

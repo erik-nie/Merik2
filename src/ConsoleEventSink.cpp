@@ -35,7 +35,47 @@ void ConsoleEventSink::onLyric(const LyricEvent& lyric)
     };
 
     const std::scoped_lock lock(outputMutex);
-    std::cout << formatTime(time, true) << ": \"" << lyric.text << "\"\n";
+    std::cout
+        << formatTime(time, true)
+        << ": ";
+        if (!currentChord.empty())
+        {
+        std::cout
+        << "["
+        << currentChord
+        << "] ";
+        }
+        std::cout
+        << lyric.text
+        << '\n';
+}
+void ConsoleEventSink::onChord(
+    const SongChordEvent& chord)
+{
+    const auto time =
+        std::chrono::milliseconds{
+            static_cast<std::int64_t>(
+                chord.seconds * 1000.0 + 0.5)
+        };
+
+    const std::scoped_lock lock(outputMutex);
+
+    currentChord = chord.label;
+
+    std::cout
+        << formatTime(time, true)
+        << ": ["
+        << chord.label
+        << "]\n";
+}
+
+void ConsoleEventSink::setCurrentChord(
+    const std::string& chord)
+{
+    const std::scoped_lock lock(
+        outputMutex);
+
+    currentChord = chord;
 }
 
 void ConsoleEventSink::onMidiEvent(const RawMidiEvent& event)
