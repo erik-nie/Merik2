@@ -1179,7 +1179,7 @@ MainComponent::MainComponent()
     // Transport
     // -------------------------------------------------------------------------
 
-    loadButton.setButtonText("Load MIDI");
+    loadButton.setButtonText("Load");
 
     loadButton.setColour(
         juce::TextButton::buttonColourId,
@@ -1321,6 +1321,11 @@ MainComponent::MainComponent()
         juce::TextButton::textColourOffId,
         textColour);
 
+    lyricsButton.onClick = []
+    {
+        juce::URL("http://localhost:8080").launchInDefaultBrowser();
+    };
+
     addAndMakeVisible(lyricsButton);
 
     channelsButton.setButtonText("Channels");
@@ -1368,7 +1373,15 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         textColour);
 
-    setlistsTitle.setFont(makeNotoFont(15.0f));
+    setlistsTitle.setFont(
+        merikLookAndFeel.getMediumFont(25.0f));
+
+    setlistsTitle.setColour(
+        juce::Label::backgroundColourId,
+        juce::Colour::fromRGB(75, 75, 75));
+
+    setlistsTitle.setJustificationType(
+        juce::Justification::centredLeft);
 
     addAndMakeVisible(setlistsTitle);
 
@@ -1380,7 +1393,15 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         textColour);
 
-    songsTitle.setFont(makeNotoFont(15.0f));
+    songsTitle.setFont(
+        merikLookAndFeel.getMediumFont(25.0f));
+
+    songsTitle.setColour(
+        juce::Label::backgroundColourId,
+        juce::Colour::fromRGB(75, 75, 75));
+
+    songsTitle.setJustificationType(
+        juce::Justification::centredLeft);
 
     addAndMakeVisible(songsTitle);
 
@@ -1412,10 +1433,10 @@ MainComponent::MainComponent()
     addAndMakeVisible(songBox);
 
     newSetlistButton.setButtonText("+ Setlist");
-    deleteSetlistButton.setButtonText("− Setlist");
+    deleteSetlistButton.setButtonText("- Setlist");
 
     addButton.setButtonText("+");
-    removeButton.setButtonText("−");
+    removeButton.setButtonText("-");
 
     for (auto* button :
          {
@@ -1627,15 +1648,6 @@ void MainComponent::paint(juce::Graphics& g)
     g.setColour(panelColour);
     g.fillRect(lists);
 
-    g.setColour(
-        juce::Colour::fromRGB(65, 65, 65));
-
-    g.fillRect(
-        lists.getCentreX(),
-        lists.getY(),
-        1,
-        lists.getHeight());
-
     g.setColour(backgroundColour);
     g.fillRect(bounds);
 }
@@ -1761,52 +1773,85 @@ void MainComponent::resized()
         progressArea.reduced(5, 8));
 
     auto transport =
-        player.removeFromTop(42);
+        player.removeFromTop(38);
+
+    constexpr int buttonHeight = 30;
+
+    // ------------------------------------------------------------
+    // Links: Load / Play / Stop / Next / Transpose
+    // ------------------------------------------------------------
 
     loadButton.setBounds(
-        transport.removeFromLeft(95));
+        transport.removeFromLeft(70)
+            .withHeight(buttonHeight));
 
     transport.removeFromLeft(6);
 
     playButton.setBounds(
-        transport.removeFromLeft(90));
+        transport.removeFromLeft(70)
+            .withHeight(buttonHeight));
 
     transport.removeFromLeft(6);
 
     stopButton.setBounds(
-        transport.removeFromLeft(85));
+        transport.removeFromLeft(70)
+            .withHeight(buttonHeight));
 
     transport.removeFromLeft(6);
 
     nextButton.setBounds(
-        transport.removeFromLeft(70));
+        transport.removeFromLeft(70)
+            .withHeight(buttonHeight));
 
     transport.removeFromLeft(12);
 
     transposeDownButton.setBounds(
-        transport.removeFromLeft(32));
+        transport.removeFromLeft(32)
+            .withHeight(buttonHeight));
 
     transposeValue.setBounds(
-        transport.removeFromLeft(35));
+        transport.removeFromLeft(35)
+            .withHeight(buttonHeight));
 
     transposeUpButton.setBounds(
-        transport.removeFromLeft(32));
+        transport.removeFromLeft(32)
+            .withHeight(buttonHeight));
 
-    transport.removeFromLeft(12);
+
+    // ------------------------------------------------------------
+    // Rechts: Panic / Lyrics / Channels
+    // ------------------------------------------------------------
+
+    constexpr int rightButtonGap = 6;
+    constexpr int channelsWidth = 80;
+    constexpr int lyricsWidth = 80;
+    constexpr int panicWidth = 80;
+
+    const int rightGroupWidth =
+        panicWidth
+        + rightButtonGap
+        + lyricsWidth
+        + rightButtonGap
+        + channelsWidth;
+
+    auto rightGroup =
+        transport.removeFromRight(rightGroupWidth);
 
     panicButton.setBounds(
-        transport.removeFromLeft(65));
+        rightGroup.removeFromLeft(panicWidth)
+            .withHeight(buttonHeight));
 
-    transport.removeFromLeft(6);
+    rightGroup.removeFromLeft(rightButtonGap);
 
     lyricsButton.setBounds(
-        transport.removeFromLeft(65));
+        rightGroup.removeFromLeft(lyricsWidth)
+            .withHeight(buttonHeight));
 
-    transport.removeFromLeft(6);
+    rightGroup.removeFromLeft(rightButtonGap);
 
     channelsButton.setBounds(
-        transport.removeFromLeft(75));
-
+        rightGroup.removeFromLeft(channelsWidth)
+            .withHeight(buttonHeight));
     // -------------------------------------------------------------------------
     // Lists
     // -------------------------------------------------------------------------
@@ -1814,16 +1859,21 @@ void MainComponent::resized()
     auto lists =
         bounds.removeFromTop(215).reduced(10);
 
-    auto setlistArea =
-        lists.removeFromLeft(
-            juce::jmax(
-                250,
-                lists.getWidth() / 3));
+    constexpr int listGap = 10;
+    const int listWidth =
+        (lists.getWidth() - listGap) / 2;
 
-    auto songArea = lists;
+    // -------------------------------------------------------------------------
+    // Setlists - linker helft
+    // -------------------------------------------------------------------------
+
+    auto setlistArea =
+        lists.removeFromLeft(listWidth);
+
+    lists.removeFromLeft(listGap);
 
     setlistsTitle.setBounds(
-        setlistArea.removeFromTop(25));
+        setlistArea.removeFromTop(24));
 
     auto setlistButtons =
         setlistArea.removeFromBottom(30);
@@ -1839,8 +1889,14 @@ void MainComponent::resized()
     setlistBox.setBounds(
         setlistArea);
 
+    // -------------------------------------------------------------------------
+    // Songs - rechter helft
+    // -------------------------------------------------------------------------
+
+    auto songArea = lists;
+
     songsTitle.setBounds(
-        songArea.removeFromTop(25));
+        songArea.removeFromTop(24));
 
     auto songButtons =
         songArea.removeFromBottom(30);
