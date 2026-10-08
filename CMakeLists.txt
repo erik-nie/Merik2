@@ -33,7 +33,16 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
+
 FetchContent_MakeAvailable(JUCE)
+
+juce_add_binary_data(MerikAssets
+    SOURCES
+        assets/fonts/NotoSans-Regular.ttf
+        assets/fonts/NotoSans-Medium.ttf
+        assets/fonts/NotoSans-SemiBold.ttf
+)
+
 
 # ---------------------------------------------------------------------------
 # MIDI library
@@ -99,6 +108,7 @@ target_include_directories(
 target_link_libraries(
     Merik
     PRIVATE
+        MerikAssets
         midifile
         PkgConfig::FLUIDSYNTH
 

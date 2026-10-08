@@ -30,6 +30,8 @@ public:
 
     [[nodiscard]] float getFamilyVolumeFactor(int family) const;
 
+    [[nodiscard]] int getAdjustedChannelVolume(int channel) const;
+
     [[nodiscard]] const MidiChannelState& getChannelState(
         int channel) const;
 

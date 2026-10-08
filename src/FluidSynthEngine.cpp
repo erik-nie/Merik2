@@ -20,6 +20,12 @@ MidiChannelState FluidSynthEngine::getChannelState(int channel) const
     return midiTransformer_.getChannelState(channel);
 }
 
+int FluidSynthEngine::getAdjustedChannelVolume(int channel) const
+{
+    const std::scoped_lock lock(mutex_);
+    return midiTransformer_.getAdjustedChannelVolume(channel);
+}
+
 FluidSynthEngine::FluidSynthEngine()
 {
     createSynth();
@@ -245,6 +251,43 @@ void FluidSynthEngine::seekSamples(
         That will be added when the transport seek bar is implemented.
         Starting from zero is fully sample accurate.
     */
+}
+
+void FluidSynthEngine::setFamilyVolumeFactor(
+    int family,
+    float factor)
+{
+    std::scoped_lock lock(mutex_);
+
+    if (family < 0 || family >= 16)
+        return;
+
+    midiTransformer_.setFamilyVolumeFactor(
+        family,
+        factor);
+
+    if (!synth_)
+        return;
+
+    // Pas de nieuwe family-volume direct toe op alle
+    // kanalen die momenteel bij deze family horen.
+    for (int channel = 0; channel < 16; ++channel)
+    {
+        const auto& state =
+            midiTransformer_.getChannelState(channel);
+
+        if (state.family != family)
+            continue;
+
+        const int adjustedVolume =
+            midiTransformer_.getAdjustedChannelVolume(channel);
+
+        fluid_synth_cc(
+            synth_,
+            channel,
+            7,
+            adjustedVolume);
+    }
 }
 
 bool FluidSynthEngine::isPlaying() const

@@ -31,9 +31,11 @@ public:
 
     void seekSamples(std::int64_t samplePosition);
 
+    void setFamilyVolumeFactor(int family, float factor);
+
     [[nodiscard]] bool isPlaying() const;
     [[nodiscard]] MidiChannelState getChannelState(int channel) const;
-
+    [[nodiscard]] int getAdjustedChannelVolume(int channel) const;
     [[nodiscard]] std::int64_t positionSamples() const;
 
     [[nodiscard]] std::int64_t lengthSamples() const;
@@ -52,7 +54,9 @@ private:
     void sendMidiEvent(const RawMidiEvent& event);
 
     void resetSynth();
+
     MidiTransformer midiTransformer_;
+
     std::int64_t eventSamplePosition(
         const RawMidiEvent& event) const;
 

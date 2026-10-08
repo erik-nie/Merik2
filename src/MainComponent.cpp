@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "WebServer.h"
+#include "BinaryData.h"
 
 #include <array>
 #include <chrono>
@@ -37,6 +38,15 @@ class MerikLookAndFeel final : public juce::LookAndFeel_V4
 public:
     MerikLookAndFeel()
     {
+        notoSansTypeface =
+            juce::Typeface::createSystemTypefaceFor(
+                BinaryData::NotoSansRegular_ttf,
+                BinaryData::NotoSansRegular_ttfSize);
+        notoSansMediumTypeface =
+            juce::Typeface::createSystemTypefaceFor(
+                BinaryData::NotoSansMedium_ttf,
+                BinaryData::NotoSansMedium_ttfSize);
+
         setColour(
             juce::TextButton::buttonColourId,
             panelLightColour);
@@ -61,13 +71,9 @@ public:
 
     juce::Font getTextButtonFont(
         juce::TextButton&,
-        int buttonHeight) override
+        int) override
     {
-        return makeFont(
-            juce::jlimit(
-                13.0f,
-                16.0f,
-                buttonHeight * 0.45f));
+        return getMediumFont(20.0f);
     }
 
     juce::Font getComboBoxFont(
@@ -81,90 +87,93 @@ public:
         return makeFont(14.0f);
     }
 
-    // -------------------------------------------------------------------------
-    // Custom Merik slider
-    // -------------------------------------------------------------------------
-
-    void drawLinearSlider(
+    void drawTableHeaderColumn(
         juce::Graphics& g,
-        int x,
-        int y,
+        juce::TableHeaderComponent& header,
+        const juce::String& columnName,
+        int columnId,
         int width,
         int height,
-        float sliderPos,
-        float minSliderPos,
-        float maxSliderPos,
-        juce::Slider::SliderStyle sliderStyle,
-        juce::Slider& slider) override
+        bool isMouseOver,
+        bool isMouseDown,
+        int columnFlags) override
     {
         juce::ignoreUnused(
-            minSliderPos,
-            maxSliderPos,
-            sliderStyle);
+            header,
+            columnId,
+            isMouseOver,
+            isMouseDown,
+            columnFlags);
 
-        const float centreY =
-            static_cast<float>(y) +
-            static_cast<float>(height) * 0.5f;
+        g.setColour(juce::Colour::fromRGB(75, 75, 75));
+        g.fillRect(0, 0, width, height);
 
-        const float left =
-            static_cast<float>(x);
+        g.setColour(juce::Colour::fromRGB(110, 110, 110));
+        g.fillRect(width - 1, 0, 1, height);
 
-        const float right =
-            static_cast<float>(x + width);
+        g.setColour(juce::Colours::white);
+        g.setFont(getMediumFont(17.0f));
 
-        // -------------------------------------------------------------
-        // Background track
-        // -------------------------------------------------------------
-
-        g.setColour(
-            juce::Colour::fromRGB(70, 70, 70));
-
-        g.fillRoundedRectangle(
-            left,
-            centreY - 3.0f,
-            right - left,
-            6.0f,
-            3.0f);
-
-        // -------------------------------------------------------------
-        // Active track
-        // -------------------------------------------------------------
-
-        g.setColour(merikBlue);
-
-        g.fillRoundedRectangle(
-            left,
-            centreY - 3.0f,
-            sliderPos - left,
-            6.0f,
-            3.0f);
-
-        // -------------------------------------------------------------
-        // Thumb
-        // -------------------------------------------------------------
-
-        g.setColour(
-            juce::Colours::white);
-
-        g.fillEllipse(
-            sliderPos - 8.0f,
-            centreY - 8.0f,
-            16.0f,
-            16.0f);
+        g.drawText(
+            columnName,
+            6,
+            0,
+            width - 12,
+            height,
+            juce::Justification::centredLeft,
+            true);
     }
 
-private:
-    static juce::Font makeFont(float height)
+    void drawTableHeaderBackground(
+        juce::Graphics& g,
+        juce::TableHeaderComponent& header) override
+    {
+        juce::ignoreUnused(header);
+
+        g.setColour(juce::Colour::fromRGB(75, 75, 75));
+        g.fillAll();
+    }
+
+
+    juce::Typeface::Ptr getNotoSansTypeface() const
+    {
+        return notoSansTypeface;
+    }
+
+    juce::Font getMediumFont(float height) const
     {
         return juce::Font(
-            juce::FontOptions{}
-                .withName("SF Pro Text")
+            juce::FontOptions(notoSansMediumTypeface)
                 .withHeight(height));
     }
+
+    juce::Font getMerikFont(float height)
+    {
+        return makeFont(height);
+    }
+
+    private:
+        juce::Typeface::Ptr notoSansTypeface;
+        juce::Typeface::Ptr notoSansMediumTypeface;
+
+        juce::Font makeFont(float height) const
+        {
+            return juce::Font(
+                juce::FontOptions(notoSansTypeface)
+                    .withHeight(height));
+        }
 };
 
-
 MerikLookAndFeel merikLookAndFeel;
+
+static juce::Font makeNotoFont(float height)
+{
+    return juce::Font(
+        juce::FontOptions(
+            merikLookAndFeel.getNotoSansTypeface())
+            .withHeight(height));
+}
+
 
 // ============================================================================
 // Basic list model
@@ -206,7 +215,7 @@ public:
         g.fillRect(0, 0, width, height);
 
         g.setColour(textColour);
-        g.setFont(juce::FontOptions(13.0f));
+        g.setFont(makeNotoFont(13.0f));
 
         g.drawText(
             values[static_cast<size_t>(rowNumber)],
@@ -316,10 +325,27 @@ public:
     {
     }
 };
+namespace
+{
+juce::String familyName(int family)
+{
+    static const std::array<juce::String, 8> names =
+    {
+        "1 Drums",
+        "2 Bass",
+        "3 Guitars",
+        "4 Keys",
+        "5 Strings",
+        "6 Winds",
+        "7 FX",
+        "8 Other"
+    };
 
-// ============================================================================
-// ChannelModel
-// ============================================================================
+    return family >= 0 && family < static_cast<int>(names.size())
+        ? names[static_cast<std::size_t>(family)]
+        : "-";
+}
+}
 
 // ============================================================================
 // ChannelModel
@@ -512,7 +538,12 @@ public:
                     const auto state =
                         synthEngine->getChannelState(rowNumber);
 
-                    value = juce::String(state.cc7);
+                    const int adjustedValue =
+                        synthEngine->getAdjustedChannelVolume(rowNumber);
+
+                    value = juce::String(state.cc7)
+                        + " → "
+                        + juce::String(adjustedValue);;
                 }
                 else
                 {
@@ -595,7 +626,8 @@ public:
                     if (state.family >= 0)
                     {
                         value =
-                            juce::String(state.family + 1);
+                            familyName(state.family);
+                            //juce::String(state.family + 1);
                     }
                     else
                     {
@@ -619,9 +651,8 @@ public:
                 ? juce::Colours::white
                 : juce::Colour::fromRGB(210, 210, 210));
 
-        g.setFont(
-            juce::FontOptions(12.0f));
-
+        g.setFont(makeNotoFont(14.0f));
+        
         g.drawText(
             value,
             6,
@@ -818,7 +849,7 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
         g.drawRoundedRectangle(
             r.toFloat(),
             1.0f, // radius
-            4.0f);
+            4.0f); // width
     }
 }
 
@@ -847,8 +878,6 @@ MainComponent::MainComponent()
 
     appProperties.setStorageParameters(options);
 
-    setOpaque(true);
-    setLookAndFeel(&merikLookAndFeel);
 
     webServer.start(8080);
 
@@ -863,8 +892,6 @@ MainComponent::MainComponent()
     midiControlLabel.setColour(
         juce::Label::textColourId,
         secondaryTextColour);
-
-    addAndMakeVisible(midiControlLabel);
 
     midiControlBox.addItem("Default", 1);
     midiControlBox.addItem("None", 2);
@@ -999,15 +1026,14 @@ MainComponent::MainComponent()
 
         // Numerical value
         control.valueLabel.setText(
-            "100",
+            "127",
             juce::dontSendNotification);
 
         control.valueLabel.setColour(
             juce::Label::textColourId,
             secondaryTextColour);
 
-        control.valueLabel.setFont(
-            juce::FontOptions(11.0f));
+        control.valueLabel.setFont(makeNotoFont(12.0f));
 
         control.valueLabel.setJustificationType(
             juce::Justification::centred);
@@ -1028,7 +1054,7 @@ MainComponent::MainComponent()
         control.slider.setRange(0.0, 127.0, 1.0);
 
         control.slider.setValue(
-            100.0,
+            127.0,
             juce::dontSendNotification);
 
         control.slider.setColour(
@@ -1047,11 +1073,20 @@ MainComponent::MainComponent()
         {
             auto& family = familyControls[i];
 
+            const int value =
+                juce::roundToInt(
+                    family.slider.getValue());
+
             family.valueLabel.setText(
-                juce::String(
-                    juce::roundToInt(
-                        family.slider.getValue())),
+                juce::String(value),
                 juce::dontSendNotification);
+
+            const float factor =
+                static_cast<float>(value) / 127.0f;
+
+            synthEngine.setFamilyVolumeFactor(
+                static_cast<int>(i),
+                factor);
         };
 
         addAndMakeVisible(control.slider);
@@ -1069,11 +1104,7 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         textColour);
 
-    songTitle.setFont(
-        juce::Font(
-            juce::FontOptions{}
-                .withName("SF Pro Display")
-                .withHeight(47.0f)));
+    songTitle.setFont(makeNotoFont(60.0f));
 
     songTitle.setJustificationType(
         juce::Justification::centred);
@@ -1088,8 +1119,7 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         secondaryTextColour);
 
-    nextSong.setFont(
-        juce::FontOptions(14.0f));
+    nextSong.setFont(makeNotoFont(15.0f));
 
     nextSong.setJustificationType(
         juce::Justification::centred);
@@ -1104,8 +1134,7 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         secondaryTextColour);
 
-    elapsedTime.setFont(
-        juce::FontOptions(12.0f));
+    elapsedTime.setFont(makeNotoFont(14.0f));
 
     addAndMakeVisible(elapsedTime);
 
@@ -1242,8 +1271,7 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         textColour);
 
-    transposeValue.setFont(
-        juce::FontOptions(14.0f));
+    transposeValue.setFont(makeNotoFont(16.0f));
 
     transposeValue.setJustificationType(
         juce::Justification::centred);
@@ -1302,8 +1330,29 @@ MainComponent::MainComponent()
         panelLightColour);
 
     channelsButton.setColour(
+        juce::TextButton::buttonOnColourId,
+        merikBlue);
+
+    channelsButton.setColour(
         juce::TextButton::textColourOffId,
         textColour);
+
+    channelsButton.setColour(
+        juce::TextButton::textColourOnId,
+        juce::Colours::white);
+
+    channelsButton.setClickingTogglesState(true);
+    channelsButton.setToggleState(
+        true,
+        juce::dontSendNotification);
+
+    channelsButton.onClick = [this]
+    {
+        channelTable.setVisible(
+            channelsButton.getToggleState());
+
+        resized();
+    };
 
     addAndMakeVisible(channelsButton);
 
@@ -1319,8 +1368,7 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         textColour);
 
-    setlistsTitle.setFont(
-        juce::FontOptions(14.0f));
+    setlistsTitle.setFont(makeNotoFont(15.0f));
 
     addAndMakeVisible(setlistsTitle);
 
@@ -1332,8 +1380,7 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         textColour);
 
-    songsTitle.setFont(
-        juce::FontOptions(14.0f));
+    songsTitle.setFont(makeNotoFont(15.0f));
 
     addAndMakeVisible(songsTitle);
 
@@ -1434,7 +1481,7 @@ MainComponent::MainComponent()
         "CH", 2, 45);
 
     channelTable.getHeader().addColumn(
-        "CC7 Volume", 3, 110);
+        "CC7 " + juce::String::charToString(0x2192) + " New", 3, 110);
 
     channelTable.getHeader().addColumn(
         "CC11 Expression", 4, 125);
@@ -1443,7 +1490,7 @@ MainComponent::MainComponent()
         "Program", 5, 210);
 
     channelTable.getHeader().addColumn(
-        "Family 11", 6, 110);
+        "Family", 6, 110);
 
     channelTable.setColour(
         juce::ListBox::backgroundColourId,
@@ -1453,7 +1500,19 @@ MainComponent::MainComponent()
         juce::ListBox::outlineColourId,
         juce::Colour::fromRGB(65, 65, 65));
 
-    channelTable.setRowHeight(18);
+    channelTable.getHeader().setColour(
+        juce::TableHeaderComponent::backgroundColourId,
+        juce::Colour::fromRGB(75, 75, 75));
+
+    channelTable.getHeader().setColour(
+        juce::TableHeaderComponent::textColourId,
+        juce::Colours::white);
+
+    channelTable.getHeader().setColour(
+        juce::TableHeaderComponent::outlineColourId,
+        juce::Colour::fromRGB(110, 110, 110));
+    
+    channelTable.setRowHeight(14);
 
     addAndMakeVisible(channelTable);
 
@@ -1502,7 +1561,7 @@ MainComponent::MainComponent()
 
     startTimerHz(20);
 
-    setSize(1100, 700);
+    setSize(1200, 850);
 }
 
 // ============================================================================
@@ -1812,9 +1871,16 @@ void MainComponent::resized()
     // Channel table
     // -------------------------------------------------------------------------
 
-    auto channelArea =
-        bounds.reduced(0);
+    auto channelArea = bounds;
 
-    channelTable.setBounds(
-        channelArea);
+    if (channelsButton.getToggleState())
+    {
+        channelTable.setBounds(channelArea);
+        channelTable.setVisible(true);
+    }
+    else
+    {
+        channelTable.setBounds({});
+        channelTable.setVisible(false);
+    }
 }

@@ -155,7 +155,7 @@ void MainComponent::play()
     if (isPlaying)
     {
         playButton.setButtonText(
-            "▶  Playing");
+            "Playing");
 
         playButton.setColour(
             juce::TextButton::buttonColourId,
@@ -177,7 +177,7 @@ void MainComponent::stop()
     isPlaying = false;
 
     playButton.setButtonText(
-        "▶  Play");
+        "Play");
 
     playButton.setColour(
         juce::TextButton::buttonColourId,
@@ -288,7 +288,7 @@ void MainComponent::updateTransportDisplay()
         isPlaying = false;
 
         playButton.setButtonText(
-            "▶  Play");
+            "Play");
 
         playButton.setColour(
             juce::TextButton::buttonColourId,
