@@ -113,6 +113,15 @@ void MainComponent::selectSoundFont()
 
             currentSoundFont = file;
 
+            if (auto* properties = appProperties.getUserSettings())
+            {
+                properties->setValue(
+                    "soundFontPath",
+                    currentSoundFont.getFullPathName());
+
+                properties->saveIfNeeded();
+            }
+
             auto name =
                 currentSoundFont.getFileName();
 
@@ -122,8 +131,7 @@ void MainComponent::selectSoundFont()
                     name.substring(0, 24) + "...";
             }
 
-            soundFontButton.setButtonText(
-                name);
+            soundFontButton.setButtonText(name);
         });
 }
 

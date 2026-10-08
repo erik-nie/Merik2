@@ -746,6 +746,18 @@ MainComponent::MainComponent()
     setOpaque(true);
     setLookAndFeel(&merikLookAndFeel);
 
+    juce::PropertiesFile::Options options;
+    options.applicationName     = "Merik2";
+    options.filenameSuffix      = ".settings";
+    options.osxLibrarySubFolder = "Application Support";
+    options.folderName          = "Merik2";
+    options.storageFormat       = juce::PropertiesFile::storeAsXML;
+
+    appProperties.setStorageParameters(options);
+
+    setOpaque(true);
+    setLookAndFeel(&merikLookAndFeel);
+
     webServer.start(8080);
 
     // -------------------------------------------------------------------------
@@ -1313,6 +1325,43 @@ MainComponent::MainComponent()
     // -------------------------------------------------------------------------
 
     setAudioChannels(0, 2);
+
+    // Restore last SoundFont
+    if (auto* properties = appProperties.getUserSettings())
+    {
+        const auto path =
+            properties->getValue("soundFontPath");
+
+        if (path.isNotEmpty())
+        {
+            const juce::File file(path);
+
+            if (file.existsAsFile())
+            {
+                std::string error;
+
+                if (synthEngine.loadSoundFont(
+                        file.getFullPathName().toStdString(),
+                        error))
+                {
+                    currentSoundFont = file;
+
+                    auto name =
+                        currentSoundFont.getFileName();
+
+                    if (name.length() > 27)
+                        name = name.substring(0, 24) + "...";
+
+                    soundFontButton.setButtonText(name);
+                }
+                else
+                {
+                    DBG("Could not restore SoundFont: "
+                        + juce::String(error));
+                }
+            }
+        }
+    }
 
     startTimerHz(20);
 

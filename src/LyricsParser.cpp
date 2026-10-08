@@ -10,6 +10,8 @@ namespace
 
 constexpr std::uint8_t META_TEXT = 0x01;
 constexpr std::uint8_t META_LYRIC = 0x05;
+constexpr std::uint8_t SYSEX_START = 0xF0;
+constexpr std::uint8_t SYSEX_END   = 0xF7;
 
 bool startsWith(
     const std::string& value,
@@ -27,6 +29,110 @@ bool containsText(
     std::string_view token)
 {
     return value.find(token) != std::string::npos;
+}
+
+bool isMidisoftSysEx(const smf::MidiEvent& event)
+{
+    if (event.size() < 8)
+        return false;
+
+    if (event[0] != SYSEX_START)
+        return false;
+
+    // Midisoft signature:
+    //
+    // F0 xx 00 20 24 00 <line>
+    //
+    // xx is de SysEx length byte in de representatie
+    // die Midifile hier gebruikt.
+    //
+    // Zoek bewust naar de signature zodat we niet
+    // afhankelijk zijn van de precieze lengtecodering.
+
+    for (std::size_t i = 1; i + 4 < event.size(); ++i)
+    {
+        if (event[i]     == 0x00 &&
+            event[i + 1] == 0x20 &&
+            event[i + 2] == 0x24 &&
+            event[i + 3] == 0x00)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+std::string decodeMidisoftSysEx(
+    const smf::MidiEvent& event)
+{
+    if (!isMidisoftSysEx(event))
+        return {};
+
+    std::size_t signaturePosition = 0;
+
+    for (std::size_t i = 1; i + 4 < event.size(); ++i)
+    {
+        if (event[i]     == 0x00 &&
+            event[i + 1] == 0x20 &&
+            event[i + 2] == 0x24 &&
+            event[i + 3] == 0x00)
+        {
+            signaturePosition = i;
+            break;
+        }
+    }
+
+    if (signaturePosition == 0)
+        return {};
+
+    // Na de signature:
+    //
+    // 00 20 24 00 <line> <tekst> 0A F7
+    //
+    const std::size_t textStart =
+        signaturePosition + 4 + 1;
+
+    if (textStart >= event.size())
+        return {};
+
+    std::size_t textEnd = event.size();
+
+    for (std::size_t i = textStart;
+         i < event.size();
+         ++i)
+    {
+        if (event[i] == 0x0A ||
+            event[i] == SYSEX_END)
+        {
+            textEnd = i;
+            break;
+        }
+    }
+
+    if (textEnd <= textStart)
+        return {};
+
+    std::string text;
+
+    for (std::size_t i = textStart;
+         i < textEnd;
+         ++i)
+    {
+        const auto value =
+            static_cast<unsigned char>(event[i]);
+
+        if (value >= 0x20 &&
+            value <= 0x7E)
+        {
+            text.push_back(
+                static_cast<char>(value));
+        }
+    }
+
+    std::cout << "Midisoft lyric: " << text << '\n';
+
+    return text;
 }
 
 } // namespace
@@ -51,78 +157,82 @@ LyricsData LyricsParser::parse(
         std::uint8_t type = 0;
 
         std::string rawText;
+
+        bool isMidisoft = false;
     };
 
     std::vector<Candidate> lyricEvents;
     std::vector<Candidate> textEvents;
+    std::vector<Candidate> midisoftEvents;
 
-    for (int track = 0;
-         track < midi.getTrackCount();
-         ++track)
+    for (int track = 0; track < midi.getTrackCount(); ++track)
     {
-        for (int index = 0;
-             index < midi.getEventCount(track);
-             ++index)
+        auto& trackData = midi[track];
+
+        for (int eventIndex = 0; eventIndex < trackData.size(); ++eventIndex)
         {
-            const auto& event = midi[track][index];
+            auto& event = trackData[eventIndex];
 
             if (event.size() < 3)
-            {
                 continue;
-            }
-
-            if (event[0] != 0xff)
-            {
-                continue;
-            }
-
-            const auto type =
-                static_cast<std::uint8_t>(event[1]);
-
-            if (!isLyricMetaType(type) &&
-                !isTextMetaType(type))
-            {
-                continue;
-            }
-
-            // Leading en trailing whitespace worden hier
-            // bewust nog niet verwijderd.
-            //
-            // Leading whitespace:
-            // " dis" betekent nieuw woord.
-            //
-            // Trailing whitespace:
-            // "e " betekent dat het woord na dit segment eindigt.
-            std::string rawText =
-                sanitizeRawText(
-                    decodeMetaText(event));
-
-            if (rawText.empty())
-            {
-                continue;
-            }
-
-            if (isMetadataText(rawText))
-            {
-                continue;
-            }
 
             Candidate candidate;
-
             candidate.event = &event;
             candidate.track = track;
-            candidate.type = type;
-            candidate.rawText = std::move(rawText);
 
-            if (isLyricMetaType(type))
+            // ------------------------------------------------------------
+            // Standard MIDI meta events
+            // FF 01 = Text
+            // FF 05 = Lyric
+            // ------------------------------------------------------------
+            if (event[0] == 0xff)
             {
-                lyricEvents.push_back(
-                    std::move(candidate));
+                const auto type =
+                    static_cast<std::uint8_t>(event[1]);
+
+                if (!isLyricMetaType(type) &&
+                    !isTextMetaType(type))
+                {
+                    continue;
+                }
+
+                std::string rawText =
+                    sanitizeRawText(decodeMetaText(event));
+
+                if (rawText.empty())
+                    continue;
+
+                if (isMetadataText(rawText))
+                    continue;
+
+                candidate.type = type;
+                candidate.rawText = std::move(rawText);
+
+                if (isLyricMetaType(type))
+                    lyricEvents.push_back(std::move(candidate));
+                else
+                    textEvents.push_back(std::move(candidate));
+
+                continue;
             }
-            else
+
+            // ------------------------------------------------------------
+            // Midisoft SysEx lyrics
+            // F0 ... 00 20 24 00 <line> <text> 0A F7
+            // ------------------------------------------------------------
+            if (event[0] == SYSEX_START &&
+                isMidisoftSysEx(event))
             {
-                textEvents.push_back(
-                    std::move(candidate));
+                auto rawText = decodeMidisoftSysEx(event);
+
+                if (rawText.empty())
+                    continue;
+
+                candidate.type = SYSEX_START;
+                candidate.rawText = std::move(rawText);
+                candidate.isMidisoft = true;
+
+                midisoftEvents.push_back(std::move(candidate));
             }
         }
     }
@@ -130,9 +240,11 @@ LyricsData LyricsParser::parse(
     // Gebruik echte Lyric-events wanneer die aanwezig zijn.
     // Gebruik Text-events alleen als fallback.
     auto& selectedEvents =
-        lyricEvents.empty()
-            ? textEvents
-            : lyricEvents;
+        !lyricEvents.empty()
+            ? lyricEvents
+            : (!midisoftEvents.empty()
+                ? midisoftEvents
+                : textEvents);
 
     std::stable_sort(
         selectedEvents.begin(),
@@ -173,8 +285,20 @@ LyricsData LyricsParser::parse(
         ParsedText parsed =
             parseKaraokeText(candidate.rawText);
 
+        // Een Midisoft SysEx-record representeert
+        // altijd één nieuwe lyricregel.
+        //
+        // De volgende SysEx moet dus op een nieuwe
+        // regel beginnen, ook als de tekst zelf geen
+        // CR/LF bevat.
+        if (candidate.isMidisoft)
+        {
+            parsed.startsNewLine = true;
+            parsed.startsNewWord = true;
+        }
+
         if (parsed.type ==
-            ParsedTextType::LineBreak)
+        ParsedTextType::LineBreak)
         {
             pendingNewLine = true;
             continue;

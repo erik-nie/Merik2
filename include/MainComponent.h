@@ -133,7 +133,8 @@ private:
     // -------------------------------------------------------------------------
     // Current files / state
     // -------------------------------------------------------------------------
-
+    juce::ApplicationProperties appProperties;
+    
     juce::File currentMidiFile;
     juce::File currentSoundFont;
 

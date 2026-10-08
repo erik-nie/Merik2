@@ -61,45 +61,45 @@ Song MidiFileReader::read(
         parser.parse(midi);
 
     // Debug: regels
-    // for (const auto& line : lyrics.lines)
-    // {
-    //     std::cout
-    //         << line.startSeconds
-    //         << " : "
-    //         << line.text
-    //         << '\n';
-    // }
+    for (const auto& line : lyrics.lines)
+    {
+        std::cout
+            << line.startSeconds
+            << " : "
+            << line.text
+            << '\n';
+    }
 
-    // // Debug: eerste segmenten
-    // std::cout << "\nSegments:\n";
+    // Debug: eerste segmenten
+    std::cout << "\nSegments:\n";
 
-    // int debugCount = 5;
+    int debugCount = 5;
 
-    // for (const auto& segment : lyrics.segments)
-    // {
-    //     std::cout
-    //         << "line="
-    //         << segment.lineIndex
+    for (const auto& segment : lyrics.segments)
+    {
+        std::cout
+            << "line="
+            << segment.lineIndex
 
-    //         << " startsNewWord="
-    //         << segment.startsNewWord
+            << " startsNewWord="
+            << segment.startsNewWord
 
-    //         << " startsNewLine="
-    //         << segment.startsNewLine
+            << " startsNewLine="
+            << segment.startsNewLine
 
-    //         << " endsWord="
-    //         << segment.endsWord
+            << " endsWord="
+            << segment.endsWord
 
-    //         << " endsLine="
-    //         << segment.endsLine
+            << " endsLine="
+            << segment.endsLine
 
-    //         << " text=["
-    //         << segment.text
-    //         << "]\n";
+            << " text=["
+            << segment.text
+            << "]\n";
 
-    //     if (debugCount-- == 0)
-    //         break;
-    // }
+        if (debugCount-- == 0)
+            break;
+    }
 
     // ------------------------------------------------------------------------
     // Chords

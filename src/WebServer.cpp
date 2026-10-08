@@ -221,12 +221,12 @@ std::string WebServer::createHtml() const
 * { box-sizing: border-box; }
 html, body { margin:0; width:100%; height:100%; }
 body {
-    background:#111; color:#fff; overflow:hidden;
+    background:#002; color:#fff; overflow:hidden;
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;
 }
 header {
     position:fixed; inset:0 0 auto 0; z-index:10; padding:18px 30px 50px;
-    background:linear-gradient(to bottom,rgba(17,17,17,.99),rgba(17,17,17,.9),transparent);
+    background:linear-gradient(to bottom,rgba(0,0,0,.99),rgba(0,0,0,.9),transparent);
     pointer-events:none;
 }
 #song { font-size:36px; font-weight:600; }
@@ -240,12 +240,12 @@ main { position:absolute; inset:0; display:flex; justify-content:center; overflo
 #lyrics { width:100%; font-size:clamp(38px,4.3vw,64px); line-height:1.10; font-weight:650; text-align:center; }
 .lyric-line { width:100%; margin:0 auto .15em; padding:.08em 0; }
 .lyric-part { display:inline; }
-.lyric-part.past { color:#ffd800; }
-.lyric-part.current { color:#fff; }
-.lyric-part.future { color:#ff3030; }
+.lyric-part.past { color: #ff4a4a; }
+.lyric-part.current { color: #ff4a4a; }
+.lyric-part.future { color: #fff; }
 .current-line { transform:scale(1.02); }
 footer {
-    position:fixed; inset:auto 0 0 0; z-index:20; padding:82px 28px 24px;
+    position:fixed; inset:auto 0 0 0; z-index:20; padding:62px 10px 10px;
     background:linear-gradient(to top,rgba(0,0,0,1) 0%,rgba(0,0,0,.98) 42%,rgba(0,0,0,.86) 70%,transparent 100%);
     pointer-events:none;
 }
@@ -262,28 +262,23 @@ footer {
 }
 .chord-slot {
     min-width:0; display:flex; flex-direction:column; align-items:center;
-    justify-content:flex-end; gap:14px; opacity:1;
+    justify-content:flex-end; gap:1px; opacity:1;
     transition:transform 180ms ease,opacity 180ms ease;
 }
 .chord-slot.current { opacity:1; }
 .chord {
     width:100%;
-
     white-space:nowrap;
-
-    color:#999;
-    font-size:clamp(20px,3.8vw,45px);
+    color:#fff;
+    font-size:clamp(20px,5vw,60px);
     font-weight:700;
-
-    line-height:1.25;
-
+    line-height:1.05;
     text-align:center;
-
     overflow:visible;
 }
 
 .chord-slot.current .chord {
-    color: #2e9afe;  font-weight:800;
+    color: #ff4a4a;  font-weight:800;
 }
 .chord-progress {
     position:relative; width:100%; height:8px; overflow:hidden;
@@ -291,7 +286,7 @@ footer {
 }
 .chord-progress-fill{
     position: absolute; top: 0; right: 0; bottom: 0;
-    width: 100%;background: #2e9afe;border-radius: 999px;
+    width: 100%;background: #ff4a4a;border-radius: 999px;
     transition:width 100ms linear;
 }
 #lyricCountdown
@@ -300,25 +295,17 @@ footer {
 
     top: 20px;
     right: 25px;
-
+    width: 300px;
+    text-align: center;
     z-index: 100;
-
     padding: 18px 18px;
-
     border-radius: 999px;
-
     background: rgb(255, 217, 0);
-
     xxborder: 2px solid #ffd800;
-
     color: #111;
-
     font-weight: 700;
-
     font-size: 50px;
-
     opacity: 0;
-
     transition:
         opacity 1s ease;
 }
