@@ -1193,9 +1193,12 @@ function renderChords()
     renderChordProgress(
         chords[currentIndex]);
 }
-
 let countdownActive = false;
 let countdownTargetTime = null;
+
+let lastCountdownSongTitle = "";
+let lastCountdownPosition = 0;
+let lastCountdownDuration = 0;
 
 function renderCountdown()
 {
@@ -1212,6 +1215,47 @@ function renderCountdown()
     const position =
         Number(songData.position || 0);
 
+    const duration =
+        Number(songData.duration || 0);
+
+    /*
+     * Detecteer een nieuw nummer.
+     *
+     * Normaal verandert de songtitel.
+     * Daarnaast controleren we op een duidelijke
+     * terugval van de positie, zodat ook twee nummers
+     * met dezelfde titel goed worden herkend.
+     */
+    const songChanged =
+        songData.song !== lastCountdownSongTitle;
+
+    const restarted =
+        position < lastCountdownPosition - 2;
+
+    /*
+     * Een verandering van de totale duur is een extra
+     * beveiliging voor twee nummers met dezelfde titel
+     * waarbij de positie toevallig nog vrijwel gelijk is.
+     */
+    const durationChanged =
+        lastCountdownDuration > 0 &&
+        duration > 0 &&
+        Math.abs(duration - lastCountdownDuration) > 1;
+
+    if (songChanged ||
+        restarted ||
+        durationChanged)
+    {
+        countdownActive = false;
+        countdownTargetTime = null;
+
+        lastCountdownSongTitle =
+            songData.song || "";
+    }
+
+    lastCountdownPosition = position;
+    lastCountdownDuration = duration;
+
     /*
      * Zoek eerstvolgende lyric.
      */
@@ -1226,18 +1270,25 @@ function renderCountdown()
         }
     }
 
+    /*
+     * Geen volgende lyric.
+     */
     if (!nextLyric)
     {
         countdownActive = false;
+        countdownTargetTime = null;
         pill.style.opacity = "0";
         return;
     }
 
     const remaining =
-        nextLyric.time - position;
+        Number(nextLyric.time) - position;
 
     /*
      * Timer starten.
+     *
+     * Belangrijk: de targettijd wordt altijd gekoppeld
+     * aan de eerstvolgende lyric van het huidige nummer.
      */
     if (!countdownActive &&
         remaining > 6)
@@ -1245,7 +1296,7 @@ function renderCountdown()
         countdownActive = true;
 
         countdownTargetTime =
-            nextLyric.time;
+            Number(nextLyric.time);
     }
 
     /*
@@ -1264,9 +1315,15 @@ function renderCountdown()
         countdownTargetTime -
         position;
 
+    /*
+     * Veiligheidscontrole:
+     * als de target niet meer overeenkomt met een
+     * toekomstige lyric, opnieuw bepalen.
+     */
     if (countdownRemaining <= 0)
     {
         countdownActive = false;
+        countdownTargetTime = null;
         pill.style.opacity = "0";
         return;
     }

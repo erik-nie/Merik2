@@ -2,7 +2,7 @@
 #include "WebServer.h"
 #include "BinaryData.h"
 #include <functional>
-
+#include <algorithm>
 #include <array>
 #include <chrono>
 
@@ -312,29 +312,28 @@ void MainComponent::showAudioSettings()
 // ============================================================================
 // SetlistModel
 // ============================================================================
+// ============================================================================
+// SetlistModel
+// ============================================================================
 
-class MainComponent::SetlistModel : public BasicListModel
+class MainComponent::SetlistModel
+    : public juce::ListBoxModel
 {
 public:
-    SetlistModel()
-        : BasicListModel(
-        {
-            "Setlist 1"
-        })
+    SetlistModel(
+        std::vector<MainComponent::SetlistData>* setlistsToUse,
+        std::function<void(int)> selectionCallbackToUse)
+        : setlists(setlistsToUse),
+          selectionCallback(std::move(selectionCallbackToUse))
     {
     }
-};
 
-// ============================================================================
-// SongModel
-// ============================================================================
-
-class MainComponent::SongModel : public juce::ListBoxModel
-{
-public:
     int getNumRows() override
     {
-        return static_cast<int>(files.size());
+        if (setlists == nullptr)
+            return 0;
+
+        return static_cast<int>(setlists->size());
     }
 
     void paintListBoxItem(
@@ -344,82 +343,260 @@ public:
         int height,
         bool rowIsSelected) override
     {
-        if (rowNumber < 0 ||
-            rowNumber >= static_cast<int>(files.size()))
+        if (setlists == nullptr ||
+            rowNumber < 0 ||
+            rowNumber >= static_cast<int>(setlists->size()))
+        {
             return;
+        }
 
         if (rowIsSelected)
-            g.fillAll(merikBlue);
-        else
-            g.fillAll(panelDarkColour);
+        {
+            g.setColour(merikBlue);
+            g.fillAll();
+        }
+        else if ((rowNumber & 1) != 0)
+        {
+            g.setColour(panelDarkColour);
+            g.fillAll();
+        }
 
-        g.setColour(juce::Colours::white);
-
-        g.setFont(
-            juce::Font(
-                juce::FontOptions()
-                    .withHeight(15.0f)));
+        g.setColour(textColour);
+        g.setFont(makeNotoFont(15.0f));
 
         g.drawText(
-            files[static_cast<size_t>(rowNumber)].getFileName(),
-            6,
+            (*setlists)[static_cast<std::size_t>(rowNumber)].name,
+            10,
             0,
-            width - 12,
+            width - 20,
             height,
             juce::Justification::centredLeft);
     }
 
-    void addFile(const juce::File& file)
+    void selectedRowsChanged(int lastRowSelected) override
     {
-        if (!file.existsAsFile())
-            return;
-
-        if (!file.hasFileExtension(
-                ".mid;.midi;.MID;.MIDI;.kar;.KAR"))
-            return;
-
-        for (const auto& existing : files)
-        {
-            if (existing == file)
-                return;
-        }
-
-        files.push_back(file);
+        if (selectionCallback)
+            selectionCallback(lastRowSelected);
     }
 
-    const juce::File* getFile(int row) const
-    {
-        if (row < 0 ||
-            row >= static_cast<int>(files.size()))
-            return nullptr;
+private:
+    std::vector<MainComponent::SetlistData>* setlists = nullptr;
 
-        return &files[static_cast<size_t>(row)];
+    std::function<void(int)> selectionCallback;
+};
+
+
+// ============================================================================
+// SongModel
+// ============================================================================
+
+class MainComponent::SongModel
+    : public juce::ListBoxModel
+{
+public:
+    SongModel(
+        std::vector<MainComponent::SetlistData>* setlistsToUse,
+        int* selectedSetlistToUse)
+        : setlists(setlistsToUse),
+          selectedSetlist(selectedSetlistToUse)
+    {
+    }
+
+    int getNumRows() override
+    {
+        auto* songs = getCurrentSongs();
+
+        if (songs == nullptr)
+            return 0;
+
+        return static_cast<int>(songs->size());
+    }
+
+    void paintListBoxItem(
+        int rowNumber,
+        juce::Graphics& g,
+        int width,
+        int height,
+        bool rowIsSelected) override
+    {
+        auto* songs = getCurrentSongs();
+
+        if (songs == nullptr ||
+            rowNumber < 0 ||
+            rowNumber >= static_cast<int>(songs->size()))
+        {
+            return;
+        }
+
+        if (rowIsSelected)
+        {
+            g.setColour(merikBlue);
+            g.fillAll();
+        }
+        else if ((rowNumber & 1) != 0)
+        {
+            g.setColour(panelDarkColour);
+            g.fillAll();
+        }
+
+        g.setColour(textColour);
+        g.setFont(makeNotoFont(15.0f));
+
+        const auto number =
+            juce::String(rowNumber + 1);
+
+        g.drawText(
+            number,
+            10,
+            0,
+            30,
+            height,
+            juce::Justification::centredRight);
+
+        g.drawText(
+            (*songs)[static_cast<std::size_t>(rowNumber)].getFileName(),
+            48,
+            0,
+            width - 58,
+            height,
+            juce::Justification::centredLeft);
+    }
+
+    bool addFile(const juce::File& file)
+    {
+        auto* songs = getCurrentSongs();
+
+        if (songs == nullptr ||
+            !file.existsAsFile())
+        {
+            return false;
+        }
+
+        const auto extension =
+            file.getFileExtension().toLowerCase();
+
+        if (extension != ".mid" &&
+            extension != ".midi" &&
+            extension != ".kar")
+        {
+            return false;
+        }
+
+        const auto alreadyExists =
+            std::find_if(
+                songs->begin(),
+                songs->end(),
+                [&file](const juce::File& existing)
+                {
+                    return existing == file;
+                });
+
+        if (alreadyExists != songs->end())
+            return false;
+
+        songs->push_back(file);
+        return true;
+    }
+
+    bool removeFile(int row)
+    {
+        auto* songs = getCurrentSongs();
+
+        if (songs == nullptr ||
+            row < 0 ||
+            row >= static_cast<int>(songs->size()))
+        {
+            return false;
+        }
+
+        songs->erase(
+            songs->begin() + row);
+
+        return true;
+    }
+
+    juce::File getFile(int row) const
+    {
+        const auto* songs = getCurrentSongs();
+
+        if (songs == nullptr ||
+            row < 0 ||
+            row >= static_cast<int>(songs->size()))
+        {
+            return {};
+        }
+
+        return (*songs)[static_cast<std::size_t>(row)];
     }
 
     void setDoubleClickCallback(
-        std::function<void(const juce::File&)> callback)
+        std::function<void(const juce::File&)> callbackToUse)
     {
-        doubleClickCallback = std::move(callback);
+        doubleClickCallback = std::move(callbackToUse);
     }
 
     void listBoxItemDoubleClicked(
         int row,
         const juce::MouseEvent&) override
     {
-        const auto* file = getFile(row);
+        if (!doubleClickCallback)
+            return;
 
-        if (file != nullptr &&
-            doubleClickCallback)
-        {
-            doubleClickCallback(*file);
-        }
+        const auto file = getFile(row);
+
+        if (file != juce::File())
+            doubleClickCallback(file);
     }
 
 private:
-    std::vector<juce::File> files;
-    std::function<void(const juce::File&)> doubleClickCallback;
-};
+    // BELANGRIJK:
+    // Dit is een vector van SetlistData, niet van juce::File.
+    std::vector<MainComponent::SetlistData>* setlists = nullptr;
 
+    int* selectedSetlist = nullptr;
+
+    std::function<void(const juce::File&)> doubleClickCallback;
+
+    std::vector<juce::File>* getCurrentSongs()
+    {
+        if (setlists == nullptr ||
+            selectedSetlist == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (*selectedSetlist < 0 ||
+            *selectedSetlist >=
+                static_cast<int>(setlists->size()))
+        {
+            return nullptr;
+        }
+
+        return &(*setlists)
+            [static_cast<std::size_t>(*selectedSetlist)]
+            .songs;
+    }
+
+    const std::vector<juce::File>* getCurrentSongs() const
+    {
+        if (setlists == nullptr ||
+            selectedSetlist == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (*selectedSetlist < 0 ||
+            *selectedSetlist >=
+                static_cast<int>(setlists->size()))
+        {
+            return nullptr;
+        }
+
+        return &(*setlists)
+            [static_cast<std::size_t>(*selectedSetlist)]
+            .songs;
+    }
+};
 
 namespace
 {
@@ -1540,11 +1717,57 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(totalTimeTitle);
 
-    setlistModel = std::make_unique<SetlistModel>();
-    songModel = std::make_unique<SongModel>();
+
+    doubleClickToggle.setButtonText(
+        "Dbl Click Plays");
+
+    normalizeToggle.setButtonText(
+        "Normalize");
+
+    continuousToggle.setButtonText(
+        "Continuous Play");
+
+    // Eerst opgeslagen toestand laden.
+    // Daarna pas de ListBox-modellen maken.
+    loadPersistentState();
+
+    setlistModel =
+        std::make_unique<SetlistModel>(
+            &setlists,
+            [this](int row)
+            {
+                if (row < 0 ||
+                    row >= static_cast<int>(setlists.size()))
+                {
+                    return;
+                }
+
+                selectedSetlist = row;
+
+                refreshSongModel();
+                savePersistentState();
+            });
+
+    songModel =
+        std::make_unique<SongModel>(
+            &setlists,
+            &selectedSetlist);
 
     setlistBox.setModel(setlistModel.get());
     songBox.setModel(songModel.get());
+
+    refreshSetlistModel();
+    refreshSongModel();
+
+    songModel->setDoubleClickCallback(
+        [this](const juce::File& file)
+        {
+            loadMidiFile(file);
+
+            if (doubleClickToggle.getToggleState())
+                play();
+        });
+
 
     songModel->setDoubleClickCallback(
         [this](const juce::File& file)
@@ -1562,6 +1785,8 @@ MainComponent::MainComponent()
     songBox.setColour(
         juce::ListBox::backgroundColourId,
         panelDarkColour);
+
+
 
     addAndMakeVisible(setlistBox);
     addAndMakeVisible(songBox);
@@ -1589,16 +1814,127 @@ MainComponent::MainComponent()
             textColour);
 
         addAndMakeVisible(button);
+
     }
+    newSetlistButton.onClick = [this]
+    {
+        int number = 1;
 
-    doubleClickToggle.setButtonText(
-        "Dbl Click Plays");
+        while (true)
+        {
+            const auto candidate =
+                "Setlist " + juce::String(number);
 
-    normalizeToggle.setButtonText(
-        "Normalize");
+            const bool exists =
+                std::any_of(
+                    setlists.begin(),
+                    setlists.end(),
+                    [&candidate](const SetlistData& setlist)
+                    {
+                        return setlist.name == candidate;
+                    });
 
-    continuousToggle.setButtonText(
-        "Continuous Play");
+            if (!exists)
+            {
+                setlists.push_back(
+                    { candidate, {} });
+                break;
+            }
+
+            ++number;
+        }
+
+        selectedSetlist =
+            static_cast<int>(setlists.size()) - 1;
+
+        refreshSetlistModel();
+        refreshSongModel();
+
+        savePersistentState();
+    };
+
+    deleteSetlistButton.onClick = [this]
+    {
+        if (setlists.size() <= 1)
+            return;
+
+        setlists.erase(
+            setlists.begin() + selectedSetlist);
+
+        selectedSetlist =
+            juce::jlimit(
+                0,
+                static_cast<int>(setlists.size()) - 1,
+                selectedSetlist);
+
+        refreshSetlistModel();
+        refreshSongModel();
+
+        savePersistentState();
+    };
+
+    addButton.onClick = [this]
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Add MIDI files",
+            juce::File(),
+            "*.mid;*.midi;*.kar");
+
+        constexpr int flags =
+            juce::FileBrowserComponent::openMode
+            | juce::FileBrowserComponent::canSelectMultipleItems;
+
+        chooser->launchAsync(
+            flags,
+            [this, chooser](const juce::FileChooser&)
+            {
+                const auto files = chooser->getResults();
+
+                bool changed = false;
+
+                for (const auto& file : files)
+                {
+                    if (songModel->addFile(file))
+                        changed = true;
+                }
+
+                if (changed)
+                {
+                    refreshSongModel();
+                    savePersistentState();
+                }
+            });
+    };
+
+    removeButton.onClick = [this]
+    {
+        const int row =
+            songBox.getSelectedRow();
+
+        if (row < 0)
+            return;
+
+        if (songModel->removeFile(row))
+        {
+            refreshSongModel();
+            savePersistentState();
+        }
+    };
+
+    doubleClickToggle.onClick = [this]
+    {
+        savePersistentState();
+    };
+
+    normalizeToggle.onClick = [this]
+    {
+        savePersistentState();
+    };
+
+    continuousToggle.onClick = [this]
+    {
+        savePersistentState();
+    };
 
     for (auto* toggle :
          {
@@ -1735,6 +2071,197 @@ MainComponent::~MainComponent()
     shutdownAudio();
 }
 
+void MainComponent::loadPersistentState()
+{
+    auto* properties =
+        appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    doubleClickToggle.setToggleState(
+        properties->getBoolValue(
+            "doubleClickPlays",
+            false),
+        juce::dontSendNotification);
+
+    normalizeToggle.setToggleState(
+        properties->getBoolValue(
+            "normalize",
+            false),
+        juce::dontSendNotification);
+
+    continuousToggle.setToggleState(
+        properties->getBoolValue(
+            "continuousPlay",
+            false),
+        juce::dontSendNotification);
+
+    setlists.clear();
+
+    const int setlistCount =
+        properties->getIntValue(
+            "setlistCount",
+            0);
+
+    for (int i = 0; i < setlistCount; ++i)
+    {
+        SetlistData setlist;
+
+        setlist.name =
+            properties->getValue(
+                "setlist." + juce::String(i) + ".name",
+                "Setlist " + juce::String(i + 1));
+
+        const int songCount =
+            properties->getIntValue(
+                "setlist." +
+                juce::String(i) +
+                ".songCount",
+                0);
+
+        for (int j = 0; j < songCount; ++j)
+        {
+            const auto path =
+                properties->getValue(
+                    "setlist." +
+                    juce::String(i) +
+                    ".song." +
+                    juce::String(j));
+
+            if (path.isNotEmpty())
+            {
+                // Bewust ook bewaren als het bestand momenteel
+                // niet beschikbaar is.
+                setlist.songs.emplace_back(
+                    path);
+            }
+        }
+
+        setlists.push_back(
+            std::move(setlist));
+    }
+
+    if (setlists.empty())
+    {
+        setlists.push_back(
+            { "Setlist 1", {} });
+    }
+
+    selectedSetlist =
+        properties->getIntValue(
+            "selectedSetlist",
+            0);
+
+    selectedSetlist =
+        juce::jlimit(
+            0,
+            static_cast<int>(setlists.size()) - 1,
+            selectedSetlist);
+}
+
+void MainComponent::savePersistentState()
+{
+    auto* properties =
+        appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    properties->setValue(
+        "doubleClickPlays",
+        doubleClickToggle.getToggleState());
+
+    properties->setValue(
+        "normalize",
+        normalizeToggle.getToggleState());
+
+    properties->setValue(
+        "continuousPlay",
+        continuousToggle.getToggleState());
+
+    properties->setValue(
+        "selectedSetlist",
+        selectedSetlist);
+
+    properties->setValue(
+        "setlistCount",
+        static_cast<int>(setlists.size()));
+
+    for (std::size_t i = 0;
+         i < setlists.size();
+         ++i)
+    {
+        const auto index =
+            juce::String(static_cast<int>(i));
+
+        properties->setValue(
+            "setlist." + index + ".name",
+            setlists[i].name);
+
+        properties->setValue(
+            "setlist." + index + ".songCount",
+            static_cast<int>(
+                setlists[i].songs.size()));
+
+        for (std::size_t j = 0;
+             j < setlists[i].songs.size();
+             ++j)
+        {
+            properties->setValue(
+                "setlist." +
+                index +
+                ".song." +
+                juce::String(static_cast<int>(j)),
+                setlists[i].songs[j].getFullPathName());
+        }
+    }
+
+    // Echt onmiddellijk naar disk.
+    properties->save();
+}
+
+void MainComponent::refreshSetlistModel()
+{
+    setlistBox.updateContent();
+
+    if (setlists.empty())
+        return;
+
+    selectedSetlist =
+        juce::jlimit(
+            0,
+            static_cast<int>(setlists.size()) - 1,
+            selectedSetlist);
+
+    setlistBox.selectRow(
+        selectedSetlist,
+        juce::dontSendNotification);
+}
+
+void MainComponent::refreshSongModel()
+{
+    songBox.updateContent();
+    songBox.deselectAllRows();
+
+    int songCount = 0;
+
+    if (selectedSetlist >= 0 &&
+        selectedSetlist < static_cast<int>(setlists.size()))
+    {
+        songCount =
+            static_cast<int>(
+                setlists[static_cast<std::size_t>(selectedSetlist)]
+                    .songs.size());
+    }
+
+    songsTitle.setText(
+        songCount > 0
+            ? "Songs (" + juce::String(songCount) + ")"
+            : "Songs",
+        juce::dontSendNotification);
+}
+
 // ============================================================================
 // Painting
 // ============================================================================
@@ -1765,7 +2292,7 @@ void MainComponent::paint(juce::Graphics& g)
         1);
 
     auto player =
-        bounds.removeFromTop(205);
+        bounds.removeFromTop(175);
 
     g.setColour(panelColour);
     g.fillRect(player);
@@ -1887,7 +2414,7 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto player =
-        bounds.removeFromTop(205).reduced(12);
+        bounds.removeFromTop(175).reduced(12);
 
     auto titleArea =
         player.removeFromTop(55);
@@ -2155,7 +2682,7 @@ bool MainComponent::isInterestedInFileDrag(
     {
         const juce::File file(path);
 
-        if (file.hasFileExtension(".mid;.midi"))
+        if (file.hasFileExtension(".mid;.midi;.kar"))
             return true;
     }
 
@@ -2167,11 +2694,7 @@ void MainComponent::filesDropped(
     int x,
     int y)
 {
-    const auto songArea =
-        songBox.getBounds();
-
-    if (!songArea.contains(x, y))
-        return;
+    juce::ignoreUnused(x, y);
 
     bool changed = false;
 
@@ -2179,16 +2702,13 @@ void MainComponent::filesDropped(
     {
         const juce::File file(path);
 
-        if (!file.existsAsFile())
-            continue;
-
-        if (!file.hasFileExtension(".mid;.midi"))
-            continue;
-
-        songModel->addFile(file);
-        changed = true;
+        if (songModel->addFile(file))
+            changed = true;
     }
 
     if (changed)
-        songBox.updateContent();
+    {
+        refreshSongModel();
+        savePersistentState();
+    }
 }

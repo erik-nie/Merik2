@@ -9,8 +9,9 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 
 #include <array>
-#include <memory>
 #include <chrono>
+#include <memory>
+#include <vector>
 
 class MainComponent final
     : public juce::AudioAppComponent,
@@ -23,35 +24,51 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    bool isInterestedInFileDrag( const juce::StringArray& files) override;
 
-    void filesDropped( const juce::StringArray& files,  int x, int y) override;
+    bool isInterestedInFileDrag(
+        const juce::StringArray& files) override;
+
+    void filesDropped(
+        const juce::StringArray& files,
+        int x,
+        int y) override;
+
     void paintOverChildren(juce::Graphics& g) override;
 
-    void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
+    void prepareToPlay(
+        int samplesPerBlockExpected,
+        double sampleRate) override;
 
-    void getNextAudioBlock(  const juce::AudioSourceChannelInfo& bufferToFill) override;
+    void getNextAudioBlock(
+        const juce::AudioSourceChannelInfo& bufferToFill) override;
 
     void releaseResources() override;
 
 private:
+    struct SetlistData
+    {
+        juce::String name;
+        std::vector<juce::File> songs;
+    };
+
     struct FamilyControl
     {
         juce::TextButton labelButton;
         juce::Label valueLabel;
         juce::Slider slider;
     };
+
+    std::vector<SetlistData> setlists;
+    int selectedSetlist = 0;
+
     std::array<juce::Rectangle<int>, 8> familyBlockBounds;
 
     WebServer webServer;
 
     using Clock = std::chrono::steady_clock;
-    std::array<std::uint64_t, 16> channelEventCounters {};
-    std::array<Clock::time_point, 16> channelEventTimes {};  
 
-    // -------------------------------------------------------------------------
-    // Audio / playback
-    // -------------------------------------------------------------------------
+    std::array<std::uint64_t, 16> channelEventCounters {};
+    std::array<Clock::time_point, 16> channelEventTimes {};
 
     MidiFileReader midiReader;
     FluidSynthEngine synthEngine;
@@ -60,10 +77,6 @@ private:
 
     double audioSampleRate = 48000.0;
     bool audioReady = false;
-
-    // -------------------------------------------------------------------------
-    // Top controls
-    // -------------------------------------------------------------------------
 
     juce::Label midiControlLabel;
     juce::ComboBox midiControlBox;
@@ -77,14 +90,11 @@ private:
 
     std::array<FamilyControl, 8> familyControls;
 
-    // -------------------------------------------------------------------------
-    // Player
-    // -------------------------------------------------------------------------
-
     juce::Label songTitle;
     juce::Label nextSong;
     juce::Label elapsedTime;
     juce::Label totalTime;
+
     juce::Slider positionSlider;
 
     juce::TextButton loadButton;
@@ -99,10 +109,6 @@ private:
     juce::TextButton panicButton;
     juce::TextButton lyricsButton;
     juce::TextButton channelsButton;
-
-    // -------------------------------------------------------------------------
-    // Lists
-    // -------------------------------------------------------------------------
 
     juce::Label setlistsTitle;
     juce::Label songsTitle;
@@ -121,10 +127,6 @@ private:
     juce::TextButton addButton;
     juce::TextButton removeButton;
 
-    // -------------------------------------------------------------------------
-    // Channel table
-    // -------------------------------------------------------------------------
-
     juce::TableListBox channelTable;
 
     class SetlistModel;
@@ -135,9 +137,6 @@ private:
     std::unique_ptr<SongModel> songModel;
     std::unique_ptr<ChannelModel> channelModel;
 
-    // -------------------------------------------------------------------------
-    // Current files / state
-    // -------------------------------------------------------------------------
     juce::ApplicationProperties appProperties;
 
     juce::File currentMidiFile;
@@ -145,10 +144,6 @@ private:
 
     bool isPlaying = false;
     int transpose = 0;
-
-    // -------------------------------------------------------------------------
-    // Actions
-    // -------------------------------------------------------------------------
 
     void loadMidi();
     void selectSoundFont();
@@ -161,7 +156,14 @@ private:
     void updateChannelModel();
 
     void timerCallback() override;
+
     void loadMidiFile(const juce::File& file);
+
+    void loadPersistentState();
+    void savePersistentState();
+
+    void refreshSetlistModel();
+    void refreshSongModel();
 
     static juce::String formatTime(double seconds);
 
