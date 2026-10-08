@@ -24,6 +24,12 @@ namespace
     const juce::Colour secondaryTextColour =
         juce::Colour::fromRGB(190, 190, 190);
 
+    const juce::Colour familyBlockColour =
+        juce::Colour::fromRGB(32, 32, 32);
+
+    const juce::Colour familyBorderColour =
+        juce::Colour::fromRGB(65, 65, 65);
+
 }
 
 class MerikLookAndFeel final : public juce::LookAndFeel_V4
@@ -75,6 +81,78 @@ public:
         return makeFont(14.0f);
     }
 
+    // -------------------------------------------------------------------------
+    // Custom Merik slider
+    // -------------------------------------------------------------------------
+
+    void drawLinearSlider(
+        juce::Graphics& g,
+        int x,
+        int y,
+        int width,
+        int height,
+        float sliderPos,
+        float minSliderPos,
+        float maxSliderPos,
+        juce::Slider::SliderStyle sliderStyle,
+        juce::Slider& slider) override
+    {
+        juce::ignoreUnused(
+            minSliderPos,
+            maxSliderPos,
+            sliderStyle);
+
+        const float centreY =
+            static_cast<float>(y) +
+            static_cast<float>(height) * 0.5f;
+
+        const float left =
+            static_cast<float>(x);
+
+        const float right =
+            static_cast<float>(x + width);
+
+        // -------------------------------------------------------------
+        // Background track
+        // -------------------------------------------------------------
+
+        g.setColour(
+            juce::Colour::fromRGB(70, 70, 70));
+
+        g.fillRoundedRectangle(
+            left,
+            centreY - 3.0f,
+            right - left,
+            6.0f,
+            3.0f);
+
+        // -------------------------------------------------------------
+        // Active track
+        // -------------------------------------------------------------
+
+        g.setColour(merikBlue);
+
+        g.fillRoundedRectangle(
+            left,
+            centreY - 3.0f,
+            sliderPos - left,
+            6.0f,
+            3.0f);
+
+        // -------------------------------------------------------------
+        // Thumb
+        // -------------------------------------------------------------
+
+        g.setColour(
+            juce::Colours::white);
+
+        g.fillEllipse(
+            sliderPos - 8.0f,
+            centreY - 8.0f,
+            16.0f,
+            16.0f);
+    }
+
 private:
     static juce::Font makeFont(float height)
     {
@@ -84,6 +162,7 @@ private:
                 .withHeight(height));
     }
 };
+
 
 MerikLookAndFeel merikLookAndFeel;
 
@@ -728,7 +807,20 @@ void MainComponent::updateChannelModel()
     channelTable.updateContent();
 }
 
+void MainComponent::paintOverChildren(juce::Graphics& g)
+{
+    for (const auto& block : familyBlockBounds)
+    {
+        auto r = block.reduced(1, 1);
 
+        g.setColour(familyBorderColour);
+
+        g.drawRoundedRectangle(
+            r.toFloat(),
+            1.0f, // radius
+            4.0f);
+    }
+}
 
 
 void MainComponent::timerCallback()
@@ -866,46 +958,78 @@ MainComponent::MainComponent()
     {
         "1 Drums CH10",
         "2 Bass",
-        "3 Guitar",
+        "3 Guitars",
         "4 Keys",
         "5 Strings",
         "6 Winds",
         "7 FX",
-        "8 Melody CH4"
+        "8 Other"
     };
 
-    for (size_t i = 0; i < familyControls.size(); ++i)
+    for (std::size_t i = 0; i < familyControls.size(); ++i)
     {
         auto& control = familyControls[i];
 
-        control.label.setText(
-            familyNames[i],
+        // Family name / mute button
+        control.labelButton.setButtonText(familyNames[i]);
+
+        control.labelButton.setColour(
+            juce::TextButton::buttonColourId,
+            juce::Colour(45, 45, 45));
+
+        control.labelButton.setColour(
+            juce::TextButton::buttonOnColourId,
+            juce::Colour(65, 65, 65));
+
+        control.labelButton.setColour(
+            juce::TextButton::textColourOffId,
+            juce::Colours::white);
+
+        control.labelButton.setColour(
+            juce::TextButton::textColourOnId,
+            juce::Colours::white);
+
+        control.labelButton.setClickingTogglesState(true);
+
+        control.labelButton.setConnectedEdges(
+            juce::Button::ConnectedOnLeft |
+            juce::Button::ConnectedOnRight);
+
+        addAndMakeVisible(control.labelButton);
+
+        // Numerical value
+        control.valueLabel.setText(
+            "100",
             juce::dontSendNotification);
 
-        control.label.setColour(
+        control.valueLabel.setColour(
             juce::Label::textColourId,
-            textColour);
+            secondaryTextColour);
 
-        control.label.setFont(
-            juce::Font(
-                juce::FontOptions{}
-                    .withName("SF Pro Text")
-                    .withHeight(11.0f)));
+        control.valueLabel.setFont(
+            juce::FontOptions(11.0f));
 
-        control.label.setJustificationType(
+        control.valueLabel.setJustificationType(
             juce::Justification::centred);
 
-        addAndMakeVisible(control.label);
+        addAndMakeVisible(control.valueLabel);
 
+        // Slider
         control.slider.setSliderStyle(
             juce::Slider::LinearHorizontal);
 
-        control.slider.setRange(
-            0.0,
-            127.0,
-            1.0);
+        // Belangrijk: geen waarde/textbox van de Slider zelf
+        control.slider.setTextBoxStyle(
+            juce::Slider::NoTextBox,
+            false,
+            0,
+            0);
 
-        control.slider.setValue(100.0);
+        control.slider.setRange(0.0, 127.0, 1.0);
+
+        control.slider.setValue(
+            100.0,
+            juce::dontSendNotification);
 
         control.slider.setColour(
             juce::Slider::trackColourId,
@@ -917,11 +1041,22 @@ MainComponent::MainComponent()
 
         control.slider.setColour(
             juce::Slider::backgroundColourId,
-            juce::Colour::fromRGB(70, 70, 70));
+            juce::Colour(70, 70, 70));
+
+        control.slider.onValueChange = [this, i]
+        {
+            auto& family = familyControls[i];
+
+            family.valueLabel.setText(
+                juce::String(
+                    juce::roundToInt(
+                        family.slider.getValue())),
+                juce::dontSendNotification);
+        };
 
         addAndMakeVisible(control.slider);
     }
-
+    
     // -------------------------------------------------------------------------
     // Player
     // -------------------------------------------------------------------------
@@ -1318,6 +1453,8 @@ MainComponent::MainComponent()
         juce::ListBox::outlineColourId,
         juce::Colour::fromRGB(65, 65, 65));
 
+    channelTable.setRowHeight(18);
+
     addAndMakeVisible(channelTable);
 
     // -------------------------------------------------------------------------
@@ -1396,7 +1533,7 @@ void MainComponent::paint(juce::Graphics& g)
     // row 2 = family controls
 
     auto header =
-        bounds.removeFromTop(125);
+        bounds.removeFromTop(150);
 
     g.setColour(panelColour);
     g.fillRect(header);
@@ -1457,12 +1594,12 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto header =
-        bounds.removeFromTop(125).reduced(10);
+        bounds.removeFromTop(150).reduced(10);
 
     // First row: MIDI Control / MIDI Out / SoundFont / Settings
 
     auto topRow =
-        header.removeFromTop(52);
+        header.removeFromTop(50);
 
     auto midiControlArea =
         topRow.removeFromLeft(155);
@@ -1509,20 +1646,32 @@ void MainComponent::resized()
 
     auto familyArea = header;
 
+    const int familyGap = 6;
     const int familyWidth =
-        familyArea.getWidth() / 8;
+        (familyArea.getWidth() - familyGap * 7) / 8;
 
-    for (auto& control : familyControls)
+    for (std::size_t i = 0; i < familyControls.size(); ++i)
     {
-        auto area =
-            familyArea.removeFromLeft(
-                familyWidth);
+        auto area = familyArea.removeFromLeft(familyWidth);
 
-        control.label.setBounds(
+        familyBlockBounds[i] = area;
+
+        auto& control = familyControls[i];
+
+        control.labelButton.setBounds(
+            area.removeFromTop(22));
+
+        area.removeFromTop(5);
+        control.valueLabel.setBounds(
             area.removeFromTop(18));
 
+        area.removeFromTop(-10);
+
         control.slider.setBounds(
-            area.reduced(4, 3));
+            area.reduced(4, 0));
+
+        if (i < familyControls.size() - 1)
+            familyArea.removeFromLeft(familyGap);
     }
 
     // -------------------------------------------------------------------------
@@ -1664,7 +1813,7 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto channelArea =
-        bounds.reduced(10);
+        bounds.reduced(0);
 
     channelTable.setBounds(
         channelArea);

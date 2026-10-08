@@ -22,6 +22,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    void paintOverChildren(juce::Graphics& g) override;
 
     void prepareToPlay(int samplesPerBlockExpected,
                        double sampleRate) override;
@@ -34,9 +35,11 @@ public:
 private:
     struct FamilyControl
     {
-        juce::Label label;
+        juce::TextButton labelButton;
+        juce::Label valueLabel;
         juce::Slider slider;
     };
+    std::array<juce::Rectangle<int>, 8> familyBlockBounds;
 
     WebServer webServer;
 
@@ -134,7 +137,7 @@ private:
     // Current files / state
     // -------------------------------------------------------------------------
     juce::ApplicationProperties appProperties;
-    
+
     juce::File currentMidiFile;
     juce::File currentSoundFont;
 
