@@ -14,6 +14,7 @@
 
 class MainComponent final
     : public juce::AudioAppComponent,
+      public juce::FileDragAndDropTarget,
       private juce::Timer
 {
 public:
@@ -22,13 +23,14 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    bool isInterestedInFileDrag( const juce::StringArray& files) override;
+
+    void filesDropped( const juce::StringArray& files,  int x, int y) override;
     void paintOverChildren(juce::Graphics& g) override;
 
-    void prepareToPlay(int samplesPerBlockExpected,
-                       double sampleRate) override;
+    void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
 
-    void getNextAudioBlock(
-        const juce::AudioSourceChannelInfo& bufferToFill) override;
+    void getNextAudioBlock(  const juce::AudioSourceChannelInfo& bufferToFill) override;
 
     void releaseResources() override;
 
@@ -159,6 +161,7 @@ private:
     void updateChannelModel();
 
     void timerCallback() override;
+    void loadMidiFile(const juce::File& file);
 
     static juce::String formatTime(double seconds);
 

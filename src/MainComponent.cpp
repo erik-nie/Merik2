@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "WebServer.h"
 #include "BinaryData.h"
+#include <functional>
 
 #include <array>
 #include <chrono>
@@ -13,11 +14,14 @@ namespace
     const juce::Colour panelColour =
         juce::Colour::fromRGB(38, 38, 38);
 
-    const juce::Colour panelLightColour =
-        juce::Colour::fromRGB(48, 48, 48);
+    const juce::Colour panelDarkColour =
+        juce::Colour::fromRGB(28, 28, 28);
+
+        const juce::Colour panelLightColour =
+        juce::Colour::fromRGB(58, 58, 58);
 
     const juce::Colour merikBlue =
-        juce::Colour::fromRGB(0x2e, 0x9a, 0xfe);
+        juce::Colour::fromRGB(0, 100, 255);
 
     const juce::Colour textColour =
         juce::Colours::white;
@@ -112,7 +116,7 @@ public:
         g.fillRect(width - 1, 0, 1, height);
 
         g.setColour(juce::Colours::white);
-        g.setFont(getMediumFont(17.0f));
+        g.setFont(getMediumFont(15.0f));
 
         g.drawText(
             columnName,
@@ -134,6 +138,36 @@ public:
         g.fillAll();
     }
 
+    void drawButtonBackground(
+        juce::Graphics& g,
+        juce::Button& button,
+        const juce::Colour& backgroundColour,
+        bool shouldDrawButtonAsHighlighted,
+        bool shouldDrawButtonAsDown) override
+    {
+        juce::ignoreUnused(
+            shouldDrawButtonAsHighlighted,
+            shouldDrawButtonAsDown);
+
+        auto bounds =
+            button.getLocalBounds().toFloat().reduced(0.5f);
+
+        const bool isOn =
+            button.getToggleState();
+
+        // Actieve/ingeschakelde knop = MerikBlue
+        // Normale knop = één egale donkere kleur
+        const auto colour =
+            isOn
+                ? merikBlue
+                : panelLightColour;
+
+        g.setColour(colour);
+
+        g.fillRoundedRectangle(
+            bounds,
+            7.0f);
+    }
 
     juce::Typeface::Ptr getNotoSansTypeface() const
     {
@@ -285,14 +319,7 @@ public:
     SetlistModel()
         : BasicListModel(
         {
-            "First Setlist        176:40",
-            "Party                160:58",
-            "Misc                  15:28",
-            "OnlyText              47:03",
-            "Test12                149:37",
-            "Karaoke               398:41",
-            "Test1                 148:51",
-            "Test2                 356:12"
+            "Setlist 1"
         })
     {
     }
@@ -302,29 +329,98 @@ public:
 // SongModel
 // ============================================================================
 
-class MainComponent::SongModel : public BasicListModel
+class MainComponent::SongModel : public juce::ListBoxModel
 {
 public:
-    SongModel()
-        : BasicListModel(
-        {
-            "It's Not XXXXXXX       Tom Jones",
-            "Delilah                Tom Jones",
-            "Sex Bomb               Tom Jones",
-            "Africa                 Toto",
-            "Rosanna                Toto",
-            "Hold The Line          Toto",
-            "Red Red Wine           UB40",
-            "Kingston Town          UB40",
-            "Can't Help Falling     UB40",
-            "Summer Of '69          Bryan Adams",
-            "Have You Ever Seen     CCR",
-            "Brown Eyed Girl        Van Morrison",
-            "Sweet Caroline         Neil Diamond"
-        })
+    int getNumRows() override
     {
+        return static_cast<int>(files.size());
     }
+
+    void paintListBoxItem(
+        int rowNumber,
+        juce::Graphics& g,
+        int width,
+        int height,
+        bool rowIsSelected) override
+    {
+        if (rowNumber < 0 ||
+            rowNumber >= static_cast<int>(files.size()))
+            return;
+
+        if (rowIsSelected)
+            g.fillAll(merikBlue);
+        else
+            g.fillAll(panelDarkColour);
+
+        g.setColour(juce::Colours::white);
+
+        g.setFont(
+            juce::Font(
+                juce::FontOptions()
+                    .withHeight(15.0f)));
+
+        g.drawText(
+            files[static_cast<size_t>(rowNumber)].getFileName(),
+            6,
+            0,
+            width - 12,
+            height,
+            juce::Justification::centredLeft);
+    }
+
+    void addFile(const juce::File& file)
+    {
+        if (!file.existsAsFile())
+            return;
+
+        if (!file.hasFileExtension(
+                ".mid;.midi;.MID;.MIDI;.kar;.KAR"))
+            return;
+
+        for (const auto& existing : files)
+        {
+            if (existing == file)
+                return;
+        }
+
+        files.push_back(file);
+    }
+
+    const juce::File* getFile(int row) const
+    {
+        if (row < 0 ||
+            row >= static_cast<int>(files.size()))
+            return nullptr;
+
+        return &files[static_cast<size_t>(row)];
+    }
+
+    void setDoubleClickCallback(
+        std::function<void(const juce::File&)> callback)
+    {
+        doubleClickCallback = std::move(callback);
+    }
+
+    void listBoxItemDoubleClicked(
+        int row,
+        const juce::MouseEvent&) override
+    {
+        const auto* file = getFile(row);
+
+        if (file != nullptr &&
+            doubleClickCallback)
+        {
+            doubleClickCallback(*file);
+        }
+    }
+
+private:
+    std::vector<juce::File> files;
+    std::function<void(const juce::File&)> doubleClickCallback;
 };
+
+
 namespace
 {
 juce::String familyName(int family)
@@ -455,20 +551,21 @@ public:
         }
 
         // ------------------------------------------------------------
-        // Normale achtergrondkleur
+        // Vaste donkere achtergrond
         // ------------------------------------------------------------
 
-        const juce::Colour originalColour =
+        const juce::Colour normalColour = panelDarkColour;
+
+        const juce::Colour selectedColour =
+            merikBlue;
+
+        juce::Colour colour =
             rowIsSelected
-                ? merikBlue
-                : (rowNumber % 2 == 0
-                    ? juce::Colour::fromRGB(47, 47, 47)
-                    : juce::Colour::fromRGB(39, 39, 39));
-
-        juce::Colour colour = originalColour;
+                ? selectedColour
+                : normalColour;
 
         // ------------------------------------------------------------
-        // 2 seconden blauw terugfaden
+        // 2 seconden blauw terugfaden na MIDI-event
         // ------------------------------------------------------------
 
         const auto elapsed =
@@ -478,7 +575,8 @@ public:
         constexpr auto fadeDuration =
             std::chrono::milliseconds { 2000 };
 
-        if (elapsed.count() >= 0 &&
+        if (!rowIsSelected &&
+            elapsed.count() >= 0 &&
             elapsed < fadeDuration)
         {
             const float remaining =
@@ -487,13 +585,30 @@ public:
                     static_cast<float>(fadeDuration.count());
 
             colour =
-                originalColour.interpolatedWith(
+                normalColour.interpolatedWith(
                     merikBlue,
                     remaining);
         }
 
+        // ------------------------------------------------------------
+        // Rijachtergrond
+        // ------------------------------------------------------------
+
         g.setColour(colour);
         g.fillRect(0, 0, width, height);
+
+        // ------------------------------------------------------------
+        // Dunne lichtgrijze scheidingslijn
+        // ------------------------------------------------------------
+
+        g.setColour(
+            juce::Colour::fromRGB(45, 45, 45));
+
+        g.fillRect(
+            0,
+            height - 1,
+            width,
+            1);
     }
 
     void paintCell(
@@ -652,7 +767,7 @@ public:
                 : juce::Colour::fromRGB(210, 210, 210));
 
         g.setFont(makeNotoFont(14.0f));
-        
+
         g.drawText(
             value,
             6,
@@ -661,6 +776,16 @@ public:
             height,
             juce::Justification::centredLeft,
             true);
+
+        // Verticale scheidingslijn
+        g.setColour(
+            juce::Colour::fromRGB(45, 45, 45));
+
+        g.fillRect(
+            width - 1,
+            0,
+            1,
+            height);
     }
 
 private:
@@ -1421,13 +1546,22 @@ MainComponent::MainComponent()
     setlistBox.setModel(setlistModel.get());
     songBox.setModel(songModel.get());
 
+    songModel->setDoubleClickCallback(
+        [this](const juce::File& file)
+        {
+            loadMidiFile(file);
+
+            if (doubleClickToggle.getToggleState())
+                play();
+        });
+
     setlistBox.setColour(
         juce::ListBox::backgroundColourId,
-        panelColour);
+        panelDarkColour);
 
     songBox.setColour(
         juce::ListBox::backgroundColourId,
-        panelColour);
+        panelDarkColour);
 
     addAndMakeVisible(setlistBox);
     addAndMakeVisible(songBox);
@@ -1582,7 +1716,9 @@ MainComponent::MainComponent()
 
     startTimerHz(20);
 
-    setSize(1200, 850);
+    //setSize(1200, 850);
+
+    
 }
 
 // ============================================================================
@@ -1648,7 +1784,7 @@ void MainComponent::paint(juce::Graphics& g)
     g.setColour(panelColour);
     g.fillRect(lists);
 
-    g.setColour(backgroundColour);
+    g.setColour(panelColour);
     g.fillRect(bounds);
 }
 
@@ -1927,16 +2063,75 @@ void MainComponent::resized()
     // Channel table
     // -------------------------------------------------------------------------
 
-    auto channelArea = bounds;
+    auto channelArea = bounds.reduced(10, 0);
 
     if (channelsButton.getToggleState())
     {
         channelTable.setBounds(channelArea);
         channelTable.setVisible(true);
+
+        auto& header = channelTable.getHeader();
+
+        constexpr int fixedColumnWidth =
+            55 + 45 + 110 + 125 + 210;
+
+        const int familyWidth =
+            juce::jmax(
+                110,
+                channelArea.getWidth() - fixedColumnWidth);
+
+        header.setColumnWidth(
+            6,
+            familyWidth);
     }
     else
     {
         channelTable.setBounds({});
         channelTable.setVisible(false);
     }
+}
+
+bool MainComponent::isInterestedInFileDrag(
+    const juce::StringArray& files)
+{
+    for (const auto& path : files)
+    {
+        const juce::File file(path);
+
+        if (file.hasFileExtension(".mid;.midi"))
+            return true;
+    }
+
+    return false;
+}
+
+void MainComponent::filesDropped(
+    const juce::StringArray& files,
+    int x,
+    int y)
+{
+    const auto songArea =
+        songBox.getBounds();
+
+    if (!songArea.contains(x, y))
+        return;
+
+    bool changed = false;
+
+    for (const auto& path : files)
+    {
+        const juce::File file(path);
+
+        if (!file.existsAsFile())
+            continue;
+
+        if (!file.hasFileExtension(".mid;.midi"))
+            continue;
+
+        songModel->addFile(file);
+        changed = true;
+    }
+
+    if (changed)
+        songBox.updateContent();
 }

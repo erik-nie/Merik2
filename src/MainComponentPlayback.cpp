@@ -22,54 +22,61 @@ void MainComponent::loadMidi()
         juce::FileBrowserComponent::canSelectFiles,
         [this, chooser](const juce::FileChooser& fc)
         {
-            const auto file =
-                fc.getResult();
+            const auto file = fc.getResult();
 
             if (!file.existsAsFile())
                 return;
 
-            try
-            {
-                const double sampleRate =
-                    audioReady
-                        ? audioSampleRate
-                        : 48000.0;
-
-                const Song song =
-                    midiReader.read(
-                        file.getFullPathName().toStdString(),
-                        sampleRate);
-
-                currentSong =
-                    std::make_shared<Song>(
-                        std::move(song));
-
-                currentMidiFile = file;
-
-                webServer.setSong(currentSong);
-
-                isPlaying = false;
-
-                synthEngine.stop();
-
-                synthEngine.setSampleRate(
-                    sampleRate);
-
-                synthEngine.loadSong(
-                    currentSong);
-
-                updateChannelModel();
-
-                updateSongDisplay();
-            }
-            catch (const std::exception& e)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Could not load MIDI",
-                    e.what());
-            }
+            loadMidiFile(file);
         });
+}
+void MainComponent::loadMidiFile(const juce::File& file)
+{
+    if (!file.existsAsFile())
+        return;
+
+    try
+    {
+        const double sampleRate =
+            audioReady
+                ? audioSampleRate
+                : 48000.0;
+
+        const Song song =
+            midiReader.read(
+                file.getFullPathName().toStdString(),
+                sampleRate);
+
+        currentSong =
+            std::make_shared<Song>(
+                std::move(song));
+
+        currentMidiFile = file;
+
+        // Belangrijk: de complete Song inclusief
+        // lyrics en akkoorden naar de webserver.
+        webServer.setSong(currentSong);
+
+        isPlaying = false;
+
+        synthEngine.stop();
+
+        synthEngine.setSampleRate(
+            sampleRate);
+
+        synthEngine.loadSong(
+            currentSong);
+
+        updateChannelModel();
+        updateSongDisplay();
+    }
+    catch (const std::exception& e)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Could not load MIDI",
+            e.what());
+    }
 }
 
 // ============================================================================
