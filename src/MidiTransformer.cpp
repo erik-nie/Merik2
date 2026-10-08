@@ -2,10 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 MidiTransformer::MidiTransformer()
 {
-    familyVolumeFactors.fill(1.27f);
+    familyVolumeFactors.fill(1.0f);
     reset();
 }
 
@@ -139,7 +140,18 @@ int MidiTransformer::getAdjustedChannelVolume(int channel) const
     const float factor =
         familyVolumeFactors[static_cast<std::size_t>(state.family)];
 
-    return scaleMidiValue(state.cc7, factor);
+    const int adjusted =
+        scaleMidiValue(state.cc7, factor);
+
+    // std::cout
+    //     << "CC7 display: channel=" << channel + 1
+    //     << " original=" << state.cc7
+    //     << " family=" << state.family
+    //     << " factor=" << factor
+    //     << " adjusted=" << adjusted
+    //     << std::endl;
+
+    return adjusted;
 }
 
 const MidiChannelState& MidiTransformer::getChannelState(int channel) const

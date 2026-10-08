@@ -1666,6 +1666,7 @@ MainComponent::MainComponent()
     channelTable.getHeader().setColour(
         juce::TableHeaderComponent::outlineColourId,
         juce::Colour::fromRGB(110, 110, 110));
+        
     
     channelTable.setRowHeight(14);
 
@@ -1988,14 +1989,97 @@ void MainComponent::resized()
     channelsButton.setBounds(
         rightGroup.removeFromLeft(channelsWidth)
             .withHeight(buttonHeight));
-    // -------------------------------------------------------------------------
-    // Lists
-    // -------------------------------------------------------------------------
 
-    auto lists =
-        bounds.removeFromTop(215).reduced(10);
+    // -------------------------------------------------------------------------
+    // Lists + Channel table
+    //
+    // Setlists en Songs gebruiken alle beschikbare ruimte.
+    // Channels staat altijd onderaan en krimpt wanneer de window te laag wordt.
+    // -------------------------------------------------------------------------
 
     constexpr int listGap = 10;
+
+    constexpr int channelsNormalHeight = 265;
+    constexpr int channelsMinimumHeight = 100;
+
+    constexpr int listsMinimumHeight = 180;
+
+    const bool showChannels =
+        channelsButton.getToggleState();
+
+    // Links/rechts dezelfde marge als de andere onderdelen.
+    auto contentArea =
+        bounds.reduced(10, 0);
+
+    int channelsHeight = 0;
+
+    if (showChannels)
+    {
+        
+        // Bij een lage window wordt dit kleiner, maar nooit
+        // zo klein dat Setlists + Songs onbruikbaar worden.
+        const int maximumChannelsHeight =
+            juce::jmax(
+                channelsMinimumHeight,
+                contentArea.getHeight() - listsMinimumHeight);
+
+        channelsHeight =
+            juce::jmin(
+                channelsNormalHeight,
+                maximumChannelsHeight);
+    }
+
+    // -------------------------------------------------------------------------
+    // Channels onderaan
+    // -------------------------------------------------------------------------
+
+    juce::Rectangle<int> channelArea;
+
+    if (showChannels)
+    {
+        channelArea =
+            contentArea.removeFromBottom(channelsHeight);
+
+        contentArea.removeFromBottom(8);
+
+        channelTable.setBounds(channelArea);
+        channelTable.setVisible(true);
+
+        auto& header =
+            channelTable.getHeader();
+
+        constexpr int fixedColumnWidth = 55 + 45 + 110 + 125 + 210;
+
+        // TableListBox houdt ruimte vrij voor de verticale scrollbar
+        // zodra die zichtbaar is. Trek die ruimte daarom af.
+        const int scrollBarWidth =
+            channelTable.getVerticalScrollBar().isVisible()
+                ? channelTable.getVerticalScrollBar().getWidth()
+                : 0;
+
+        const int familyWidth =
+            juce::jmax(
+                110,
+                channelArea.getWidth()
+                    - fixedColumnWidth
+                    - scrollBarWidth);
+
+header.setColumnWidth(6, familyWidth);
+    }
+    else
+    {
+        channelTable.setBounds({});
+        channelTable.setVisible(false);
+    }
+
+    // -------------------------------------------------------------------------
+    // Setlists + Songs
+    //
+    // Ze krijgen alle resterende ruimte.
+    // -------------------------------------------------------------------------
+
+    auto lists = contentArea;
+
     const int listWidth =
         (lists.getWidth() - listGap) / 2;
 
@@ -2058,38 +2142,11 @@ void MainComponent::resized()
 
     songBox.setBounds(
         songArea);
+}    
 
-    // -------------------------------------------------------------------------
-    // Channel table
-    // -------------------------------------------------------------------------
 
-    auto channelArea = bounds.reduced(10, 0);
 
-    if (channelsButton.getToggleState())
-    {
-        channelTable.setBounds(channelArea);
-        channelTable.setVisible(true);
 
-        auto& header = channelTable.getHeader();
-
-        constexpr int fixedColumnWidth =
-            55 + 45 + 110 + 125 + 210;
-
-        const int familyWidth =
-            juce::jmax(
-                110,
-                channelArea.getWidth() - fixedColumnWidth);
-
-        header.setColumnWidth(
-            6,
-            familyWidth);
-    }
-    else
-    {
-        channelTable.setBounds({});
-        channelTable.setVisible(false);
-    }
-}
 
 bool MainComponent::isInterestedInFileDrag(
     const juce::StringArray& files)

@@ -233,8 +233,13 @@ header {
 #time { margin-top:4px; color:#bbb; font-size:24px; font-variant-numeric:tabular-nums; }
 main { position:absolute; inset:0; display:flex; justify-content:center; overflow:hidden; }
 #lyricsViewport {
-    width:100%; max-width:1100px; height:100%; overflow-y:auto; overflow-x:hidden;
-    scrollbar-width:none; padding:120px 35px 260px;
+    width:100%;
+    max-width:1100px;
+    height:100%;
+    overflow-y:auto;
+    overflow-x:hidden;
+    scrollbar-width:none;
+    padding:120px 35px 260px;
 }
 #lyricsViewport::-webkit-scrollbar { display:none; }
 #lyrics { width:100%; font-size:clamp(38px,4.3vw,64px); line-height:1.10; font-weight:650; text-align:center; }
@@ -243,7 +248,6 @@ main { position:absolute; inset:0; display:flex; justify-content:center; overflo
 .lyric-part.past { color: #ff4a4a; }
 .lyric-part.current { color: #ff4a4a; }
 .lyric-part.future { color: #fff; }
-.current-line { transform:scale(1.02); }
 footer {
     position:fixed; inset:auto 0 0 0; z-index:20; padding:62px 10px 10px;
     background:linear-gradient(to top,rgba(0,0,0,1) 0%,rgba(0,0,0,.98) 42%,rgba(0,0,0,.86) 70%,transparent 100%);
@@ -270,7 +274,7 @@ footer {
     width:100%;
     white-space:nowrap;
     color:#fff;
-    font-size:clamp(20px,5vw,60px);
+    font-size:clamp(20px,5vw,50px);
     font-weight:700;
     line-height:1.05;
     text-align:center;
@@ -427,6 +431,13 @@ let lastCurrentIndex = -1;
 let lastChordIndex = -2;
 let chordAnimation = null;
 
+let lastPreparedLineIndex = -1;
+let initialLyricsPositioned = false;
+let lyricScrollAnimation = null;
+
+let lastSongTitle = "";
+let lastPosition = 0;
+
 function formatTime(seconds) {
     seconds = Math.max(0, Number(seconds || 0));
     const minutes = Math.floor(seconds / 60);
@@ -443,43 +454,413 @@ function buildLines(lyrics) {
     }
     return [...lines.entries()].sort((a,b)=>a[0]-b[0]).map(([lineIndex,segments])=>({lineIndex,segments}));
 }
-function renderLyrics() {
-    if(!songData) return;
-    const lyrics=songData.lyrics||[];
-    const position=Number(songData.position||0);
-    const container=document.getElementById("lyrics");
-    const viewport=document.getElementById("lyricsViewport");
-    if(!lyrics.length){container.innerHTML="";viewport.scrollTo(0,0);lastCurrentIndex=-1;return;}
-    let currentIndex=-1;
-    for(let i=0;i<lyrics.length;++i){if(Number(lyrics[i].time)<=position)currentIndex=i;else break;}
-    if(currentIndex===lastCurrentIndex) return;
-    lastCurrentIndex=currentIndex;
-    container.innerHTML="";
-    let currentElement=null;
-    for(const line of buildLines(lyrics)) {
-        const lineElement=document.createElement("div");
-        lineElement.className="lyric-line";
-        let lineIsCurrent=false;
-        for(const lyric of line.segments) {
-            const span=document.createElement("span");
-            span.className="lyric-part";
-            if(lyric.originalIndex<currentIndex) span.classList.add("past");
-            else if(lyric.originalIndex===currentIndex){span.classList.add("current");lineIsCurrent=true;}
-            else span.classList.add("future");
-            span.textContent=lyric.text||"";
+
+function smoothScrollLyrics(targetTop, duration = 1200)
+{
+    const viewport =
+        document.getElementById("lyricsViewport");
+
+    if (!viewport)
+        return;
+
+    if (lyricScrollAnimation)
+    {
+        cancelAnimationFrame(
+            lyricScrollAnimation
+        );
+
+        lyricScrollAnimation = null;
+    }
+
+    const startTop =
+        viewport.scrollTop;
+
+    const distance =
+        targetTop - startTop;
+
+    if (Math.abs(distance) < 2)
+    {
+        viewport.scrollTop = targetTop;
+        return;
+    }
+
+    const startTime =
+        performance.now();
+
+    /*
+     * Zeer rustige ease-in/ease-out.
+     *
+     * Begin langzaam,
+     * beweeg in het midden vloeiend,
+     * en kom langzaam tot stilstand.
+     */
+    function easeInOut(t)
+    {
+        return t < 0.5
+            ? 4 * t * t * t
+            : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    function animate(now)
+    {
+        const elapsed =
+            now - startTime;
+
+        const progress =
+            Math.min(
+                1,
+                elapsed / duration
+            );
+
+        const eased =
+            easeInOut(progress);
+
+        viewport.scrollTop =
+            startTop +
+            distance * eased;
+
+        if (progress < 1)
+        {
+            lyricScrollAnimation =
+                requestAnimationFrame(
+                    animate
+                );
+        }
+        else
+        {
+            viewport.scrollTop =
+                targetTop;
+
+            lyricScrollAnimation = null;
+        }
+    }
+
+    lyricScrollAnimation =
+        requestAnimationFrame(
+            animate
+        );
+}
+
+function renderLyrics()
+{
+    if (!songData)
+        return;
+
+    const lyrics =
+        songData.lyrics || [];
+
+    const position =
+        Number(songData.position || 0);
+
+    /*
+     * Detecteer een nieuw nummer.
+     */
+    const songChanged =
+        songData.song !== lastSongTitle;
+
+    /*
+     * Detecteer een restart / terugspoelen naar het begin.
+     *
+     * Een kleine terugloop kan door timingverschillen ontstaan,
+     * daarom gebruiken we 2 seconden als grens.
+     */
+    const restarted =
+        position < lastPosition - 2;
+
+    if (songChanged || restarted)
+    {
+        lastCurrentIndex = -1;
+        lastPreparedLineIndex = -1;
+        initialLyricsPositioned = false;
+
+        if (lyricScrollAnimation)
+        {
+            cancelAnimationFrame(
+                lyricScrollAnimation
+            );
+
+            lyricScrollAnimation = null;
+        }
+
+        lastSongTitle =
+            songData.song || "";
+    }
+
+    lastPosition = position;
+
+    const container =
+        document.getElementById("lyrics");
+
+    const viewport =
+        document.getElementById("lyricsViewport");
+
+    if (songChanged || restarted)
+    {
+        container.innerHTML = "";
+
+        viewport.scrollTo({
+            top: 0,
+            behavior: "auto"
+        });
+    }
+
+    if (!lyrics.length)
+    {
+        container.innerHTML = "";
+
+        viewport.scrollTo({
+            top: 0,
+            behavior: "auto"
+        });
+
+        lastCurrentIndex = -1;
+        lastPreparedLineIndex = -1;
+        initialLyricsPositioned = false;
+
+        return;
+    }
+
+    /*
+     * Zoek de werkelijk actieve lyric.
+     *
+     * Als het nummer nog vóór de eerste lyric staat,
+     * blijft currentIndex -1. Daardoor wordt de eerste
+     * regel wel klaargezet, maar nog niet rood.
+     */
+    let currentIndex = -1;
+
+    for (let i = 0;
+         i < lyrics.length;
+         ++i)
+    {
+        if (Number(lyrics[i].time) <= position)
+            currentIndex = i;
+        else
+            break;
+    }
+
+    /*
+     * Bouw de tekst opnieuw wanneer de actieve lyric
+     * verandert.
+     */
+const lyricIndexChanged =
+    currentIndex !== lastCurrentIndex;
+
+const lyricsNeedInitialRender =
+    container.children.length === 0;
+
+if (lyricIndexChanged ||
+    lyricsNeedInitialRender)
+{
+    lastCurrentIndex =
+        currentIndex;
+
+    container.innerHTML = "";
+
+    const lines =
+        buildLines(lyrics);
+
+    for (const line of lines)
+    {
+        const lineElement =
+            document.createElement("div");
+
+        lineElement.className =
+            "lyric-line";
+
+        let lineIsCurrent = false;
+
+        for (let segmentIndex = 0;
+             segmentIndex < line.segments.length;
+             ++segmentIndex)
+        {
+            const lyric =
+                line.segments[segmentIndex];
+
+            const span =
+                document.createElement("span");
+
+            span.className =
+                "lyric-part";
+
+            if (lyric.originalIndex < currentIndex)
+            {
+                span.classList.add("past");
+            }
+            else if (lyric.originalIndex === currentIndex)
+            {
+                span.classList.add("current");
+                lineIsCurrent = true;
+            }
+            else
+            {
+                span.classList.add("future");
+            }
+
+            span.textContent =
+                lyric.text || "";
+
             lineElement.appendChild(span);
-            const nextIndex=line.segments.indexOf(lyric)+1;
-            if(nextIndex<line.segments.length) {
-                const nextLyric=line.segments[nextIndex];
-                if(nextLyric.startsNewWord||lyric.endsWord)
-                    lineElement.appendChild(document.createTextNode(" "));
+
+            const nextIndex =
+                segmentIndex + 1;
+
+            if (nextIndex < line.segments.length)
+            {
+                const nextLyric =
+                    line.segments[nextIndex];
+
+                if (nextLyric.startsNewWord ||
+                    lyric.endsWord)
+                {
+                    lineElement.appendChild(
+                        document.createTextNode(" ")
+                    );
+                }
             }
         }
-        if(lineIsCurrent){lineElement.classList.add("current-line");currentElement=lineElement;}
+
+        if (lineIsCurrent)
+            lineElement.classList.add("current-line");
+
         container.appendChild(lineElement);
     }
-    if(currentElement) currentElement.scrollIntoView({behavior:"smooth",block:"center",inline:"nearest"});
 }
+
+    /*
+     * Bij het starten van een nummer:
+     *
+     * zet de eerste regel meteen klaar.
+     * Geen animatie en geen afhankelijkheid van
+     * het eerste rode woord.
+     */
+    if (!initialLyricsPositioned)
+    {
+        const firstLine =
+            container.querySelector(".lyric-line");
+
+        if (firstLine)
+        {
+            const targetTop =
+                firstLine.offsetTop -
+                viewport.clientHeight * 0.30;
+
+            viewport.scrollTo({
+                top: Math.max(0, targetTop),
+                behavior: "auto"
+            });
+
+            initialLyricsPositioned = true;
+        }
+    }
+
+    /*
+     * Bepaal welke regel momenteel actief is.
+     *
+     * Als we nog vóór de eerste lyric zitten,
+     * gebruiken we regel 0 als voorbereide regel.
+     */
+    const lines =
+        buildLines(lyrics);
+
+    let currentLineIndex = 0;
+
+    if (currentIndex >= 0)
+    {
+        for (let i = 0;
+             i < lines.length;
+             ++i)
+        {
+            const segments =
+                lines[i].segments;
+
+            if (segments.some(
+                lyric =>
+                    lyric.originalIndex === currentIndex))
+            {
+                currentLineIndex = i;
+                break;
+            }
+        }
+    }
+
+    /*
+    * De volgende regel.
+    */
+    const nextLineIndex =
+        currentLineIndex + 1;
+
+    if (nextLineIndex >= lines.length)
+        return;
+
+    const nextLine =
+        lines[nextLineIndex];
+
+    if (!nextLine ||
+        !nextLine.segments.length)
+        return;
+
+    /*
+    * Bepaal wanneer de huidige regel volledig rood is.
+    *
+    * De laatste lyric van de huidige regel is het laatste
+    * stukje tekst dat rood moet worden. Zodra de timestamp
+    * daarvan bereikt is, mag de volgende regel in beeld
+    * worden geschoven.
+    */
+    const currentLine =
+        lines[currentLineIndex];
+
+    if (!currentLine ||
+        !currentLine.segments.length)
+        return;
+
+    const lastLyric =
+        currentLine.segments[
+            currentLine.segments.length - 1
+        ];
+
+
+    /*
+    * De laatste lyric moet eerst actief zijn geworden.
+    * Daarna is de hele huidige regel rood.
+    */
+    if (currentIndex < lastLyric.originalIndex)
+        return;
+
+    /*
+    * Deze regel mag maar één keer worden voorbereid.
+    */
+    if (lastPreparedLineIndex === nextLineIndex)
+        return;
+
+    lastPreparedLineIndex =
+        nextLineIndex;
+
+    const lineElements =
+        container.querySelectorAll(".lyric-line");
+
+    const nextLineElement =
+        lineElements[nextLineIndex];
+
+    if (!nextLineElement)
+        return;
+
+    const targetTop =
+        nextLineElement.offsetTop -
+        viewport.clientHeight * 0.30;
+
+    /*
+    * Rustige scroll naar de volgende regel.
+    */
+    smoothScrollLyrics(
+        Math.max(0, targetTop),
+        1200
+    ); 
+}
+
+
+
 function renderChordProgress(currentChord)
 {
     const progressContainer =
