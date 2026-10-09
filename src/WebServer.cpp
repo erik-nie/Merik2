@@ -215,7 +215,7 @@ void WebServer::handleClient(int socket)
 
             // Roep de callback buiten mutex_ aan.
             // De callback kan immers zelf andere objecten benaderen.
-            callback(family, factor);
+            callback(family, volume, enabled);
 
             sendResponse(socket, R"({"ok":true})",
                          "application/json; charset=utf-8");

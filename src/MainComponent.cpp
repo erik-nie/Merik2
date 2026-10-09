@@ -1161,7 +1161,39 @@ void MainComponent::timerCallback()
 {
     updateTransportDisplay();
     channelTable.repaint();
+
     webServer.setPositionSamples(synthEngine.positionSamples());
+
+    const auto familySettings = synthEngine.getAllFamilySettings();
+
+    for (std::size_t i = 0; i < familyControls.size(); ++i)
+    {
+        auto& control = familyControls[i];
+        const auto& settings = familySettings[i];
+
+        if (juce::roundToInt(control.slider.getValue()) != settings.volume)
+        {
+            control.slider.setValue(
+                settings.volume,
+                juce::dontSendNotification);
+        }
+
+        const auto displayedValue = juce::String(settings.volume);
+
+        if (control.valueLabel.getText() != displayedValue)
+        {
+            control.valueLabel.setText(
+                displayedValue,
+                juce::dontSendNotification);
+        }
+
+        if (control.labelButton.getToggleState() != settings.enabled)
+        {
+            control.labelButton.setToggleState(
+                settings.enabled,
+                juce::dontSendNotification);
+        }
+    }
 }
 // ============================================================================
 // MainComponent
@@ -1182,9 +1214,10 @@ MainComponent::MainComponent()
     appProperties.setStorageParameters(options);
 
     webServer.setFamilyVolumeCallback(
-        [this](int family, float factor)
+        [this](int family, int volume, bool enabled)
         {
-            synthEngine.setFamilyVolumeFactor(family, factor);
+            synthEngine.setFamilyVolume(family, volume);
+            synthEngine.setFamilyEnabled(family, enabled);
         });
 
     webServer.start(8080);
@@ -1325,7 +1358,7 @@ MainComponent::MainComponent()
             juce::Colours::white);
 
         control.labelButton.setClickingTogglesState(true);
-        
+
         control.labelButton.setToggleState(true, juce::dontSendNotification);
 
         control.labelButton.onClick = [this, i]
@@ -1406,12 +1439,9 @@ MainComponent::MainComponent()
                 juce::String(value),
                 juce::dontSendNotification);
 
-            const float factor =
-                static_cast<float>(value) / 127.0f;
-
-            synthEngine.setFamilyVolumeFactor(
+            synthEngine.setFamilyVolume(
                 static_cast<int>(i),
-                factor);
+                value);
         };
 
         addAndMakeVisible(control.slider);
