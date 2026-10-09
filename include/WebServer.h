@@ -3,15 +3,21 @@
 #include "Song.h"
 
 #include <atomic>
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+#include <array>
 
 class WebServer final
 {
 public:
+    using FamilyVolumeCallback =
+        std::function<void(int family, float factor)>;
+
     WebServer();
     ~WebServer();
 
@@ -26,6 +32,9 @@ public:
     void setSong(std::shared_ptr<const Song> song);
 
     void setPositionSamples(std::int64_t positionSamples);
+
+    void setFamilyVolumeCallback(
+        FamilyVolumeCallback callback);
 
 private:
     struct ClientState
@@ -48,6 +57,11 @@ private:
 
     [[nodiscard]] std::string currentSongTitle() const;
 
+    void applyFamilyVolume(
+        int family,
+        int volume,
+        bool enabled);
+
     std::atomic<bool> running { false };
 
     int port_ = 8080;
@@ -60,4 +74,14 @@ private:
     std::shared_ptr<const Song> song_;
 
     std::int64_t positionSamples_ = 0;
+
+    FamilyVolumeCallback familyVolumeCallback_;
+
+    std::array<int, 8> familyVolumes_ {
+        127, 127, 127, 127, 127, 127, 127, 127
+    };
+
+    std::array<bool, 8> familyEnabled_ {
+        true, true, true, true, true, true, true, true
+    };
 };

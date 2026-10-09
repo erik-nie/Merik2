@@ -1,19 +1,28 @@
 #pragma once
 
 #include "Song.h"
+#include "MidiTransformer.h"
 
 #include <fluidsynth.h>
-#include "MidiTransformer.h"
+
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <array>
+
+struct FamilySettings
+{
+    int volume = 127;
+    bool enabled = true;
+};
 
 class FluidSynthEngine final
 {
 public:
+    static constexpr int familyCount = MidiTransformer::familyCount;
+
     FluidSynthEngine();
     ~FluidSynthEngine();
 
@@ -22,40 +31,53 @@ public:
 
     void setSampleRate(double sampleRate);
 
-    bool loadSoundFont(const std::string& path,
-                       std::string& error);
+    bool loadSoundFont(
+        const std::string& path,
+        std::string& error);
 
     void loadSong(std::shared_ptr<const Song> song);
 
     void start();
     void stop();
-
     void seekSamples(std::int64_t samplePosition);
+
+    [[nodiscard]] FamilySettings getFamilySettings(int family) const;
+
+    [[nodiscard]] std::array<FamilySettings, familyCount>
+    getAllFamilySettings() const;
+
+    void setFamilyVolume(int family, int volume);
+    void setFamilyEnabled(int family, bool enabled);
 
     void setFamilyVolumeFactor(int family, float factor);
 
     [[nodiscard]] bool isPlaying() const;
-    [[nodiscard]] MidiChannelState getChannelState(int channel) const;
-    [[nodiscard]] int getAdjustedChannelVolume(int channel) const;
-    [[nodiscard]] std::int64_t positionSamples() const;
 
+    [[nodiscard]] MidiChannelState getChannelState(int channel) const;
+
+    [[nodiscard]] int getAdjustedChannelVolume(int channel) const;
+
+    [[nodiscard]] std::int64_t positionSamples() const;
     [[nodiscard]] std::int64_t lengthSamples() const;
 
-    void render(float** output,
-                int numChannels,
-                int numSamples);
+    void render(
+        float** output,
+        int numChannels,
+        int numSamples);
 
     [[nodiscard]] std::string soundFontPath() const;
 
 private:
     void destroySynth();
-
     void createSynth();
 
     void sendMidiEvent(const RawMidiEvent& event);
-
     void resetSynth();
+
     void rebuildSynthStateAt(std::int64_t samplePosition);
+
+    void updateFamilyFactorLocked(int family);
+    void applyFamilyVolumeLocked(int family);
 
     struct ChannelPlaybackState
     {
@@ -71,15 +93,16 @@ private:
         int channelPressure = 0;
 
         std::array<int, 128> controllers {};
-
         std::array<bool, 128> activeNotes {};
     };
 
     std::array<ChannelPlaybackState, 16> playbackState {};
 
+    std::array<FamilySettings, familyCount> familySettings_ {};
+
     MidiTransformer midiTransformer_;
 
-    std::int64_t eventSamplePosition(
+    [[nodiscard]] std::int64_t eventSamplePosition(
         const RawMidiEvent& event) const;
 
     fluid_settings_t* settings_ = nullptr;
@@ -94,7 +117,6 @@ private:
     std::shared_ptr<const Song> song_;
 
     std::size_t nextEvent_ = 0;
-
     std::int64_t currentSample_ = 0;
 
     bool playing_ = false;

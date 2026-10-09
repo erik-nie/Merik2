@@ -7,11 +7,30 @@
 
 namespace
 {
-void checkPointer(const void* pointer, const char* message)
-{
-    if (!pointer)
-        throw std::runtime_error(message);
-}
+    const char* getFamilyName(int family)
+    {
+        static constexpr const char* names[] = {
+            "Drums",
+            "Bass",
+            "Guitars",
+            "Keys",
+            "Strings",
+            "Winds",
+            "FX",
+            "Other"
+        };
+
+        if (family < 0 || family >= 8)
+            return "Unknown";
+
+        return names[family];
+    }
+
+    void checkPointer(const void* pointer, const char* message)
+    {
+        if (!pointer)
+            throw std::runtime_error(message);
+    }
 }
 
 MidiChannelState FluidSynthEngine::getChannelState(int channel) const
@@ -73,6 +92,143 @@ void FluidSynthEngine::createSynth()
     fluid_synth_set_gain(synth_, 0.5);
 }
 
+
+FamilySettings FluidSynthEngine::getFamilySettings(int family) const
+{
+    std::scoped_lock lock(mutex_);
+
+    if (family < 0 || family >= familyCount)
+        return FamilySettings { 0, false };
+
+    return familySettings_[static_cast<std::size_t>(family)];
+}
+
+std::array<FamilySettings, FluidSynthEngine::familyCount>
+FluidSynthEngine::getAllFamilySettings() const
+{
+    std::scoped_lock lock(mutex_);
+    return familySettings_;
+}
+void FluidSynthEngine::setFamilyVolume(int family, int volume)
+{
+    if (family < 0 || family >= familyCount)
+    {
+        std::clog << "[Mixer] Ongeldige family: "
+                  << family << '\n';
+        return;
+    }
+
+    std::scoped_lock lock(mutex_);
+
+    auto& settings = familySettings_[static_cast<std::size_t>(family)];
+
+    const int oldVolume = settings.volume;
+    settings.volume = std::clamp(volume, 0, 127);
+
+    updateFamilyFactorLocked(family);
+    applyFamilyVolumeLocked(family);
+
+    const float factor = settings.enabled
+        ? static_cast<float>(settings.volume) / 127.0f
+        : 0.0f;
+
+    std::clog
+        << "[Mixer] " << getFamilyName(family)
+        << ": volume " << oldVolume
+        << " -> " << settings.volume
+        << ", enabled=" << (settings.enabled ? "true" : "false")
+        << ", factor=" << factor
+        << '\n';
+}
+
+void FluidSynthEngine::setFamilyEnabled(int family, bool enabled)
+{
+    if (family < 0 || family >= familyCount)
+    {
+        std::clog << "[Mixer] Ongeldige family: "
+                  << family << '\n';
+        return;
+    }
+
+    std::scoped_lock lock(mutex_);
+
+    auto& settings = familySettings_[static_cast<std::size_t>(family)];
+    const bool oldEnabled = settings.enabled;
+
+    settings.enabled = enabled;
+
+    updateFamilyFactorLocked(family);
+    applyFamilyVolumeLocked(family);
+
+    const float factor = settings.enabled
+        ? static_cast<float>(settings.volume) / 127.0f
+        : 0.0f;
+
+    std::clog
+        << "[Mixer] " << getFamilyName(family)
+        << ": enabled " << (oldEnabled ? "true" : "false")
+        << " -> " << (settings.enabled ? "true" : "false")
+        << ", volume=" << settings.volume
+        << ", factor=" << factor
+        << '\n';
+}
+
+void FluidSynthEngine::updateFamilyFactorLocked(int family)
+{
+    const auto& settings =
+        familySettings_[static_cast<std::size_t>(family)];
+
+    const float factor = settings.enabled
+        ? static_cast<float>(settings.volume) / 127.0f
+        : 0.0f;
+
+    midiTransformer_.setFamilyVolumeFactor(family, factor);
+}
+
+void FluidSynthEngine::applyFamilyVolumeLocked(int family)
+{
+    if (!synth_)
+    {
+        std::clog
+            << "[Mixer] " << getFamilyName(family)
+            << ": geen FluidSynth-instantie beschikbaar\n";
+        return;
+    }
+
+    int updatedChannels = 0;
+
+    for (int channel = 0; channel < 16; ++channel)
+    {
+        const auto& state = midiTransformer_.getChannelState(channel);
+
+        if (state.family != family)
+            continue;
+
+        const int volume =
+            midiTransformer_.getAdjustedChannelVolume(channel);
+
+        const int expression =
+            midiTransformer_.getAdjustedChannelExpression(channel);
+
+        fluid_synth_cc(synth_, channel, 7, volume);
+        fluid_synth_cc(synth_, channel, 11, expression);
+
+        ++updatedChannels;
+
+        std::clog
+            << "[Mixer] " << getFamilyName(family)
+            << ": channel=" << channel + 1
+            << ", CC7=" << volume
+            << ", CC11=" << expression
+            << '\n';
+    }
+
+    std::clog
+        << "[Mixer] " << getFamilyName(family)
+        << ": bijgewerkte kanalen=" << updatedChannels
+        << '\n';
+}
+
 void FluidSynthEngine::destroySynth()
 {
     if (synth_)
@@ -92,25 +248,34 @@ void FluidSynthEngine::destroySynth()
 
 void FluidSynthEngine::setSampleRate(double sampleRate)
 {
+    std::scoped_lock lock(mutex_);
+
     if (sampleRate <= 0.0)
         return;
 
-    std::scoped_lock lock(mutex_);
-
     sampleRate_ = sampleRate;
 
-    if (settings_)
-    {
-        fluid_settings_setnum(
-            settings_,
-            "synth.sample-rate",
-            sampleRate_);
-    }
-
     if (synth_)
-        fluid_synth_set_sample_rate(
-            synth_,
-            sampleRate_);
+    {
+        destroySynth();
+        createSynth();
+
+        if (!soundFontPath_.empty())
+        {
+            soundFontId_ = fluid_synth_sfload(
+                synth_,
+                soundFontPath_.c_str(),
+                1);
+
+            if (soundFontId_ < 0)
+            {
+                std::clog
+                    << "[FluidSynth] SoundFont opnieuw laden mislukt: "
+                    << soundFontPath_
+                    << '\n';
+            }
+        }
+    }
 }
 
 bool FluidSynthEngine::loadSoundFont(
@@ -713,42 +878,23 @@ void FluidSynthEngine::rebuildSynthStateAt(
     }
 }
 
-
-void FluidSynthEngine::setFamilyVolumeFactor(
-    int family,
-    float factor)
+void FluidSynthEngine::setFamilyVolumeFactor(int family, float factor)
 {
+    if (family < 0 || family >= familyCount)
+        return;
+
+    if (!std::isfinite(factor))
+        factor = 0.0f;
+
+    factor = std::clamp(factor, 0.0f, 1.0f);
+
     std::scoped_lock lock(mutex_);
 
-    if (family < 0 || family >= 16)
-        return;
+    familySettings_[static_cast<std::size_t>(family)].volume =
+        static_cast<int>(std::lround(factor * 127.0f));
 
-    midiTransformer_.setFamilyVolumeFactor(
-        family,
-        factor);
-
-    if (!synth_)
-        return;
-
-    // Pas de nieuwe family-volume direct toe op alle
-    // kanalen die momenteel bij deze family horen.
-    for (int channel = 0; channel < 16; ++channel)
-    {
-        const auto& state =
-            midiTransformer_.getChannelState(channel);
-
-        if (state.family != family)
-            continue;
-
-        const int adjustedVolume =
-            midiTransformer_.getAdjustedChannelVolume(channel);
-
-        fluid_synth_cc(
-            synth_,
-            channel,
-            7,
-            adjustedVolume);
-    }
+    updateFamilyFactorLocked(family);
+    applyFamilyVolumeLocked(family);
 }
 
 bool FluidSynthEngine::isPlaying() const

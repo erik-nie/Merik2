@@ -102,6 +102,12 @@ void WebServer::setPositionSamples(std::int64_t positionSamples)
     positionSamples_ = std::max<std::int64_t>(0, positionSamples);
 }
 
+void WebServer::setFamilyVolumeCallback(FamilyVolumeCallback callback)
+{
+    std::scoped_lock lock(mutex_);
+    familyVolumeCallback_ = std::move(callback);
+}
+
 void WebServer::serverThread()
 {
     while (running)
@@ -129,6 +135,7 @@ void WebServer::handleClient(int socket)
 {
     char buffer[4096] {};
     const auto received = ::recv(socket, buffer, sizeof(buffer) - 1, 0);
+
     if (received <= 0)
         return;
 
@@ -136,9 +143,93 @@ void WebServer::handleClient(int socket)
     const std::string request(buffer);
 
     if (request.rfind("GET /api/song", 0) == 0)
+    {
         sendResponse(socket, createJson(), "application/json; charset=utf-8");
-    else
-        sendResponse(socket, createHtml(), "text/html; charset=utf-8");
+        return;
+    }
+
+    if (request.rfind("GET /api/family?", 0) == 0)
+    {
+        const auto targetStart = request.find(' ') + 1;
+        const auto targetEnd = request.find(' ', targetStart);
+
+        if (targetStart == 0 || targetEnd == std::string::npos)
+        {
+            sendResponse(socket, R"({"ok":false})", "application/json; charset=utf-8");
+            return;
+        }
+
+        const std::string target =
+            request.substr(targetStart, targetEnd - targetStart);
+
+        auto getParameter = [&target](const std::string& name) -> std::string
+        {
+            const std::string key = name + "=";
+            auto position = target.find(key);
+
+            if (position == std::string::npos)
+                return {};
+
+            position += key.size();
+            const auto end = target.find('&', position);
+
+            return target.substr(
+                position,
+                end == std::string::npos
+                    ? std::string::npos
+                    : end - position);
+        };
+
+        try
+        {
+            const int family = std::stoi(getParameter("family"));
+            const int volume = std::stoi(getParameter("volume"));
+            const int enabled = std::stoi(getParameter("enabled"));
+
+            if (family < 0 || family >= 8 ||
+                volume < 0 || volume > 127 ||
+                (enabled != 0 && enabled != 1))
+            {
+                sendResponse(socket, R"({"ok":false})", "application/json; charset=utf-8");
+                return;
+            }
+
+            const float factor =
+                enabled != 0
+                    ? static_cast<float>(volume) / 127.0f
+                    : 0.0f;
+
+            FamilyVolumeCallback callback;
+
+            {
+                std::scoped_lock lock(mutex_);
+                callback = familyVolumeCallback_;
+            }
+
+            if (!callback)
+            {
+                sendResponse(socket, R"({"ok":false,"error":"no_callback"})",
+                             "application/json; charset=utf-8");
+                return;
+            }
+
+            // Roep de callback buiten mutex_ aan.
+            // De callback kan immers zelf andere objecten benaderen.
+            callback(family, factor);
+
+            sendResponse(socket, R"({"ok":true})",
+                         "application/json; charset=utf-8");
+        }
+        catch (const std::exception&)
+        {
+            sendResponse(socket, R"({"ok":false,"error":"invalid_parameters"})",
+                         "application/json; charset=utf-8");
+        }
+
+        return;
+    }
+
+    sendResponse(socket, createHtml(), "text/html; charset=utf-8");
 }
 
 std::string WebServer::createJson() const
@@ -415,11 +506,15 @@ body.family-panel-open #familyPanelContent { pointer-events: auto; }
 body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 #familyPanelHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 22px; font-size: 20px; font-weight: 700; color: #ff4a4a; }
 #familyClose { width: 36px; height: 36px; border: 0; border-radius: 6px; background: #30303d; color: #fff; font-size: 24px; cursor: pointer; }
-.family-control { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #353543; }
-.family-control-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.family-control { margin-bottom: 5px; padding-bottom: 4px; border-bottom: 1px solid #353543; }
+.family-control-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .family-name { color: #fff; font-size: 15px; font-weight: 600; }
-.family-enable { width: 18px; height: 18px; accent-color: #ff4a4a; cursor: pointer; }
-.family-slider-row { display: flex; align-items: center; gap: 10px; }
+.family-enable { appearance: none; -webkit-appearance: none; width: 34px; height: 18px; flex-shrink: 0; border-radius: 9px; background: #555; position: relative; cursor: pointer; transition: background 180ms ease; }
+.family-enable::before { content: ""; position: absolute; width: 14px; height: 14px; top: 2px; left: 2px; border-radius: 50%; background: #fff; transition: transform 180ms ease; }
+.family-enable:checked { background: #ff4a4a; }
+.family-enable:checked::before { transform: translateX(16px); }
+.family-enable:focus-visible { outline: 2px solid #ff4a4a; outline-offset: 3px; }
+.family-slider-row { display: flex; align-items: center; gap: 3px; }
 .family-slider { width: 100%; min-width: 0; accent-color: #ff4a4a; cursor: pointer; }
 .family-value { width: 28px; text-align: right; color: #bbb; font-size: 12px; font-variant-numeric: tabular-nums; }
 .family-control.disabled { opacity: 0.4; }
@@ -1518,23 +1613,12 @@ async function update() {
 }
 
 
-// =====================================================
-// Family mixer - voorlopige webinterface
-// Nog niet gekoppeld aan de desktopapp of MIDI-engine.
-// =====================================================
-
+// Family mixer gekoppeld aan de FluidSynth-engine.
 (function initFamilyMixer() {
-    const toggle =
-        document.getElementById("familyToggle");
-
-    const panel =
-        document.getElementById("familyPanel");
-
-    const close =
-        document.getElementById("familyClose");
-
-    const controls =
-        document.getElementById("familyControls");
+    const toggle = document.getElementById("familyToggle");
+    const panel = document.getElementById("familyPanel");
+    const close = document.getElementById("familyClose");
+    const controls = document.getElementById("familyControls");
 
     const families = [
         "Drums",
@@ -1548,119 +1632,117 @@ async function update() {
     ];
 
     function setOpen(open) {
-        document.body.classList.toggle(
-            "family-panel-open",
-            open
-        );
-
-        toggle.setAttribute(
-            "aria-expanded",
-            String(open)
-        );
-
+        document.body.classList.toggle("family-panel-open", open);
+        toggle.setAttribute("aria-expanded", String(open));
         toggle.setAttribute(
             "aria-label",
-            open
-                ? "Family mixer sluiten"
-                : "Family mixer openen"
+            open ? "Family mixer sluiten" : "Family mixer openen"
         );
-
         toggle.textContent = open ? "›" : "‹";
-
-        panel.setAttribute(
-            "aria-hidden",
-            String(!open)
-        );
+        panel.setAttribute("aria-hidden", String(!open));
     }
 
     toggle.addEventListener("click", function () {
-        const open =
-            !document.body.classList.contains(
-                "family-panel-open"
-            );
-
-        setOpen(open);
+        setOpen(!document.body.classList.contains("family-panel-open"));
     });
 
     close.addEventListener("click", function () {
         setOpen(false);
     });
 
-    // Maak de acht voorlopige family-bedieningen.
     families.forEach(function (family, index) {
-        const row =
-            document.createElement("div");
-
+        const row = document.createElement("div");
         row.className = "family-control";
 
-        const header =
-            document.createElement("div");
+        const header = document.createElement("div");
+        header.className = "family-control-header";
 
-        header.className =
-            "family-control-header";
-
-        const name =
-            document.createElement("label");
-
+        const name = document.createElement("label");
         name.className = "family-name";
         name.textContent = family;
         name.htmlFor = "familySlider" + index;
 
-        const enabled =
-            document.createElement("input");
-
+        const enabled = document.createElement("input");
         enabled.type = "checkbox";
         enabled.className = "family-enable";
         enabled.checked = true;
+        enabled.setAttribute("aria-label", family + " inschakelen");
 
-        enabled.setAttribute(
-            "aria-label",
-            family + " inschakelen"
-        );
+        const sliderRow = document.createElement("div");
+        sliderRow.className = "family-slider-row";
 
-        const sliderRow =
-            document.createElement("div");
-
-        sliderRow.className =
-            "family-slider-row";
-
-        const slider =
-            document.createElement("input");
-
+        const slider = document.createElement("input");
         slider.type = "range";
         slider.id = "familySlider" + index;
         slider.className = "family-slider";
         slider.min = "0";
         slider.max = "127";
         slider.step = "1";
-        slider.value = "100";
+        slider.value = "127";
+        slider.setAttribute("aria-label", family + " volume");
 
-        slider.setAttribute(
-            "aria-label",
-            family + " volume"
-        );
-
-        const value =
-            document.createElement("span");
-
+        const value = document.createElement("span");
         value.className = "family-value";
         value.textContent = slider.value;
 
+        let sendTimer = null;
+
+        async function sendFamilyVolume() {
+            const parameters = new URLSearchParams({
+                family: String(index),
+                volume: slider.value,
+                enabled: enabled.checked ? "1" : "0"
+            });
+
+            try {
+                const response = await fetch(
+                    "/api/family?" + parameters.toString(),
+                    { cache: "no-store" }
+                );
+
+                if (!response.ok) {
+                    console.error("Family-volume aanpassen mislukt:", family);
+                } else {
+                    const result = await response.json();
+
+                    if (!result.ok) {
+                        console.error(
+                            "Family-volume niet toegepast:",
+                            family,
+                            result.error || ""
+                        );
+                    }
+                }
+            } catch (error) {
+                console.error("Family-mixer niet bereikbaar:", error);
+            }
+        }
+
+        function scheduleUpdate(immediate) {
+            if (sendTimer !== null) {
+                clearTimeout(sendTimer);
+                sendTimer = null;
+            }
+
+            if (immediate) {
+                sendFamilyVolume();
+            } else {
+                sendTimer = setTimeout(function () {
+                    sendTimer = null;
+                    sendFamilyVolume();
+                }, 50);
+            }
+        }
+
         slider.addEventListener("input", function () {
             value.textContent = slider.value;
+            scheduleUpdate(false);
         });
 
-        enabled.addEventListener(
-            "change",
-            function () {
-                slider.disabled = !enabled.checked;
-
-                row.classList.toggle(
-                    "disabled",
-                    !enabled.checked
-                );
-            }
-        );
+        enabled.addEventListener("change", function () {
+            row.classList.toggle("disabled", !enabled.checked);
+            scheduleUpdate(true);
+        });
 
         header.append(name, enabled);
         sliderRow.append(slider, value);

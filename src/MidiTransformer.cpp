@@ -32,14 +32,12 @@ RawMidiEvent MidiTransformer::transform(const RawMidiEvent& event)
     if (channel < 0 || channel >= 16)
         return result;
 
-    const std::size_t channelIndex = static_cast<std::size_t>(channel);
-    auto& state = channelStates[channelIndex];
+    auto& state = channelStates[static_cast<std::size_t>(channel)];
 
     ++state.eventCounter;
 
     const std::uint8_t message = status & 0xF0;
 
-    // Program Change
     if (message == 0xC0)
     {
         if (event.bytes.size() < 2)
@@ -50,59 +48,34 @@ RawMidiEvent MidiTransformer::transform(const RawMidiEvent& event)
         state.program = program;
         state.family = getFamilyFromProgram(program);
 
-        // MIDI kanaal 10 = drums.
-        // MIDI channels zijn 0-based, dus kanaal 9 = CH10.
         if (channel == 9)
             state.family = 0;
 
         return result;
     }
 
-    // Control Change
     if (message == 0xB0)
     {
         if (event.bytes.size() < 3)
             return result;
 
         const int controller = event.bytes[1] & 0x7F;
-        const int originalValue = event.bytes[2] & 0x7F;
+        const int value = event.bytes[2] & 0x7F;
 
         if (controller == 7)
         {
-            // Bewaar altijd de originele CC7.
-            // De family-slider wordt daar bovenop toegepast.
-            state.cc7 = originalValue;
+            state.cc7 = value;
 
-            const int family = state.family;
-
-            if (family >= 0 && family < 16)
-            {
-                const float factor =
-                    familyVolumeFactors[static_cast<std::size_t>(family)];
-
-                result.bytes[2] =
-                    static_cast<std::uint8_t>(
-                        scaleMidiValue(originalValue, factor));
-            }
+            result.bytes[2] = static_cast<std::uint8_t>(
+                getAdjustedChannelVolume(channel));
         }
         else if (controller == 11)
         {
-            state.cc11 = originalValue;
+            state.cc11 = value;
 
-            const int family = state.family;
-
-            if (family >= 0 && family < 16)
-            {
-                const float factor =
-                    familyVolumeFactors[static_cast<std::size_t>(family)];
-
-                result.bytes[2] =
-                    static_cast<std::uint8_t>(
-                        scaleMidiValue(originalValue, factor));
-            }
+            result.bytes[2] = static_cast<std::uint8_t>(
+                getAdjustedChannelExpression(channel));
         }
-
-        return result;
     }
 
     return result;
@@ -110,8 +83,11 @@ RawMidiEvent MidiTransformer::transform(const RawMidiEvent& event)
 
 void MidiTransformer::setFamilyVolumeFactor(int family, float factor)
 {
-    if (family < 0 || family >= 16)
+    if (family < 0 || family >= familyCount)
         return;
+
+    if (!std::isfinite(factor))
+        factor = 0.0f;
 
     familyVolumeFactors[static_cast<std::size_t>(family)] =
         std::clamp(factor, 0.0f, 1.0f);
@@ -119,7 +95,7 @@ void MidiTransformer::setFamilyVolumeFactor(int family, float factor)
 
 float MidiTransformer::getFamilyVolumeFactor(int family) const
 {
-    if (family < 0 || family >= 16)
+    if (family < 0 || family >= familyCount)
         return 1.0f;
 
     return familyVolumeFactors[static_cast<std::size_t>(family)];
@@ -133,24 +109,28 @@ int MidiTransformer::getAdjustedChannelVolume(int channel) const
     const auto& state =
         channelStates[static_cast<std::size_t>(channel)];
 
-    if (state.family < 0 || state.family >= 16)
+    if (state.family < 0 || state.family >= familyCount)
         return state.cc7;
 
-    const float factor =
-        familyVolumeFactors[static_cast<std::size_t>(state.family)];
+    return scaleMidiValue(
+        state.cc7,
+        familyVolumeFactors[static_cast<std::size_t>(state.family)]);
+}
 
-    const int adjusted =
-        scaleMidiValue(state.cc7, factor);
+int MidiTransformer::getAdjustedChannelExpression(int channel) const
+{
+    if (channel < 0 || channel >= 16)
+        return 0;
 
-    // std::cout
-    //     << "CC7 display: channel=" << channel + 1
-    //     << " original=" << state.cc7
-    //     << " family=" << state.family
-    //     << " factor=" << factor
-    //     << " adjusted=" << adjusted
-    //     << std::endl;
+    const auto& state =
+        channelStates[static_cast<std::size_t>(channel)];
 
-    return adjusted;
+    if (state.family < 0 || state.family >= familyCount)
+        return state.cc11;
+
+    return scaleMidiValue(
+        state.cc11,
+        familyVolumeFactors[static_cast<std::size_t>(state.family)]);
 }
 
 const MidiChannelState& MidiTransformer::getChannelState(int channel) const
@@ -177,31 +157,29 @@ int MidiTransformer::getFamilyFromProgram(int program)
     if (program < 0 || program >= 128)
         return -1;
 
-    // Exact dezelfde indeling als de Python Merik-versie.
-
     if (program <= 23)
-        return 3; // Keys
+        return 3;
 
     if (program <= 31)
-        return 2; // Guitars
+        return 2;
 
     if (program <= 39)
-        return 1; // Bass
+        return 1;
 
     if (program <= 55)
-        return 4; // Strings
+        return 4;
 
     if (program <= 79)
-        return 5; // Winds
+        return 5;
 
     if (program <= 95)
-        return 3; // Keys
+        return 3;
 
     if (program <= 103)
-        return 6; // FX
+        return 6;
 
     if (program <= 119)
-        return 3; // Keys
+        return 3;
 
-    return 6; // FX
+    return 6;
 }

@@ -1181,6 +1181,11 @@ MainComponent::MainComponent()
 
     appProperties.setStorageParameters(options);
 
+    webServer.setFamilyVolumeCallback(
+        [this](int family, float factor)
+        {
+            synthEngine.setFamilyVolumeFactor(family, factor);
+        });
 
     webServer.start(8080);
 
@@ -1320,6 +1325,23 @@ MainComponent::MainComponent()
             juce::Colours::white);
 
         control.labelButton.setClickingTogglesState(true);
+        
+        control.labelButton.setToggleState(true, juce::dontSendNotification);
+
+        control.labelButton.onClick = [this, i]
+        {
+            const bool enabled =
+                familyControls[i].labelButton.getToggleState();
+
+            synthEngine.setFamilyEnabled(
+                static_cast<int>(i),
+                enabled);
+
+            DBG(
+                "Family "
+                + juce::String(static_cast<int>(i))
+                + (enabled ? " enabled" : " disabled"));
+        };
 
         control.labelButton.setConnectedEdges(
             juce::Button::ConnectedOnLeft |
