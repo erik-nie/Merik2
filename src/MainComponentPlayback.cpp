@@ -58,7 +58,7 @@ void MainComponent::loadMidiFile(const juce::File& file)
         webServer.setSong(currentSong);
 
         isPlaying = false;
-
+        playButton.setButtonText("Play");
         synthEngine.stop();
 
         synthEngine.setSampleRate(
@@ -148,29 +148,32 @@ void MainComponent::selectSoundFont()
 
 void MainComponent::play()
 {
-    if (!currentSong)
+    if (!currentSong || !audioReady)
         return;
 
-    if (!audioReady)
-        return;
-
-    synthEngine.start();
-
-    isPlaying =
-        synthEngine.isPlaying();
-
-    if (isPlaying)
+    if (synthEngine.isPlaying())
     {
-        playButton.setButtonText(
-            "Playing");
+        // Pauze: behoud de huidige positie en synthstatus.
+        synthEngine.stop();
+        isPlaying = false;
 
-        playButton.setColour(
-            juce::TextButton::buttonColourId,
-            juce::Colour::fromRGB(
-                0,
-                164,
-                235));
+        playButton.setButtonText("Play");
     }
+    else
+    {
+        // Play: start of hervat vanaf de huidige positie.
+        synthEngine.start();
+        isPlaying = synthEngine.isPlaying();
+
+        playButton.setButtonText(
+            isPlaying ? "Pause" : "Play");
+    }
+
+    playButton.setColour(
+        juce::TextButton::buttonColourId,
+        juce::Colour::fromRGB(0, 164, 235));
+
+    updateTransportDisplay();
 }
 
 // ============================================================================
@@ -180,18 +183,16 @@ void MainComponent::play()
 void MainComponent::stop()
 {
     synthEngine.stop();
+    synthEngine.seekSamples(0);
 
     isPlaying = false;
 
-    playButton.setButtonText(
-        "Play");
-
+    playButton.setButtonText("Play");
     playButton.setColour(
         juce::TextButton::buttonColourId,
-        juce::Colour::fromRGB(
-            0,
-            164,
-            235));
+        juce::Colour::fromRGB(0, 164, 235));
+
+    updateTransportDisplay();
 }
 
 // ============================================================================
@@ -227,41 +228,26 @@ void MainComponent::updateTransportDisplay()
 {
     if (!currentSong)
     {
-        elapsedTime.setText(
-            "00:00",
-            juce::dontSendNotification);
+        elapsedTime.setText("00:00", juce::dontSendNotification);
+        totalTime.setText("00:00", juce::dontSendNotification);
+        positionSlider.setValue(0.0, juce::dontSendNotification);
 
-        totalTime.setText(
-            "00:00",
-            juce::dontSendNotification);
-
-        positionSlider.setValue(
-            0.0,
-            juce::dontSendNotification);
-
+        isPlaying = false;
+        playButton.setButtonText("Play");
         return;
     }
 
-    const auto lengthSamples =
-        synthEngine.lengthSamples();
-
-    const auto positionSamples =
-        synthEngine.positionSamples();
+    const auto lengthSamples = synthEngine.lengthSamples();
+    const auto positionSamples = synthEngine.positionSamples();
 
     const double sampleRate =
-        audioSampleRate > 0.0
-            ? audioSampleRate
-            : 48000.0;
+        audioSampleRate > 0.0 ? audioSampleRate : 48000.0;
 
     const double positionSeconds =
-        static_cast<double>(
-            positionSamples)
-        / sampleRate;
+        static_cast<double>(positionSamples) / sampleRate;
 
     const double lengthSeconds =
-        static_cast<double>(
-            lengthSamples)
-        / sampleRate;
+        static_cast<double>(lengthSamples) / sampleRate;
 
     elapsedTime.setText(
         formatTime(positionSeconds),
@@ -271,45 +257,30 @@ void MainComponent::updateTransportDisplay()
         formatTime(lengthSeconds),
         juce::dontSendNotification);
 
-    // Tijdens het slepen moet de timer de slider niet
-    // voortdurend terugzetten naar de afspeelpositie.
-    if (!positionSlider.isMouseButtonDown())
+    const double fraction =
+        lengthSamples > 0
+            ? static_cast<double>(positionSamples) /
+                  static_cast<double>(lengthSamples)
+            : 0.0;
+
+    positionSlider.setValue(
+        juce::jlimit(0.0, 1.0, fraction),
+        juce::dontSendNotification);
+
+    const bool enginePlaying = synthEngine.isPlaying();
+
+    if (isPlaying != enginePlaying)
     {
-        const double fraction =
-            lengthSamples > 0
-                ? static_cast<double>(
-                      positionSamples)
-                  / static_cast<double>(
-                      lengthSamples)
-                : 0.0;
-
-        positionSlider.setValue(
-            juce::jlimit(
-                0.0,
-                1.0,
-                fraction),
-            juce::dontSendNotification);
-    }
-
-    const bool enginePlaying =
-        synthEngine.isPlaying();
-
-    if (!enginePlaying && isPlaying)
-    {
-        isPlaying = false;
+        isPlaying = enginePlaying;
 
         playButton.setButtonText(
-            "Play");
+            enginePlaying ? "Pause" : "Play");
 
         playButton.setColour(
             juce::TextButton::buttonColourId,
-            juce::Colour::fromRGB(
-                0,
-                164,
-                235));
+            juce::Colour::fromRGB(0, 164, 235));
     }
 }
-
 
 // ============================================================================
 // Time formatting

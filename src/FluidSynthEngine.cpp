@@ -916,10 +916,16 @@ std::int64_t FluidSynthEngine::lengthSamples() const
     if (!song_ || song_->playbackEvents.empty())
         return 0;
 
-    const auto last =
-        song_->playbackEvents.back();
+    const auto lastEventSample =
+        eventSamplePosition(song_->playbackEvents.back());
 
-    return eventSamplePosition(last);
+    constexpr double tailSeconds = 2.0;
+
+    const auto tailSamples =
+        static_cast<std::int64_t>(
+            std::llround(sampleRate_ * tailSeconds));
+
+    return lastEventSample + tailSamples;
 }
 
 std::int64_t FluidSynthEngine::eventSamplePosition(
@@ -943,12 +949,38 @@ std::int64_t FluidSynthEngine::eventSamplePosition(
 
 void FluidSynthEngine::resetSynth()
 {
-    midiTransformer_.reset();
-    
     if (!synth_)
         return;
 
     fluid_synth_system_reset(synth_);
+
+    constexpr int bufferSize = 512;
+    constexpr double flushSeconds = 2.0;
+
+    float left[bufferSize];
+    float right[bufferSize];
+
+    auto remaining = static_cast<int>(
+        std::ceil(sampleRate_ * flushSeconds));
+
+    while (remaining > 0)
+    {
+        const int count = std::min(
+            remaining,
+            bufferSize);
+
+        fluid_synth_write_float(
+            synth_,
+            count,
+            left,
+            0,
+            1,
+            right,
+            0,
+            1);
+
+        remaining -= count;
+    }
 }
 
 void FluidSynthEngine::sendMidiEvent(
