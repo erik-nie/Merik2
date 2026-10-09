@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <iostream>
 
 namespace
 {
@@ -219,39 +220,499 @@ void FluidSynthEngine::seekSamples(
     if (!song_)
         return;
 
+    const auto length = lengthSamples();
+
     samplePosition =
         std::clamp<std::int64_t>(
             samplePosition,
             0,
-            lengthSamples());
+            length);
+
+    const bool wasPlaying = playing_;
 
     playing_ = false;
 
+    rebuildSynthStateAt(samplePosition);
+
     currentSample_ = samplePosition;
+
+    /*
+        Keep playback running when the user was already playing,
+        except when seeking to the exact end of the song.
+    */
+    playing_ =
+        wasPlaying &&
+        samplePosition < length;
+}
+
+
+void FluidSynthEngine::rebuildSynthStateAt(
+    std::int64_t samplePosition)
+{
+    if (!song_ || !synth_)
+    {
+        nextEvent_ = 0;
+        return;
+    }
+
+    const auto& events =
+        song_->playbackEvents;
+
+    /*
+        We reconstrueren alleen de MIDI-state die op het
+        seekpunt geldig is.
+
+        BELANGRIJK:
+        We sturen historische Note On-events NIET opnieuw
+        naar FluidSynth. Dat zou alle oude noten tegelijk
+        opnieuw starten en kan de polyfonie overschrijden.
+    */
+
+    struct ChannelState
+    {
+        // Bank Select
+        int bankMsb = 0;
+        int bankLsb = 0;
+
+        bool hasBankMsb = false;
+        bool hasBankLsb = false;
+
+        // Program Change
+        int program = 0;
+        bool hasProgram = false;
+
+        // Controllers
+        std::array<int, 128> controllerValue {};
+        std::array<bool, 128> controllerValid {};
+
+        // Pitch bend
+        int pitchBend = 8192;
+        bool hasPitchBend = false;
+
+        // Channel pressure
+        int channelPressure = 0;
+        bool hasChannelPressure = false;
+
+        /*
+            Aantal actieve Note Ons per pitch.
+
+            Een bool zou niet voldoende zijn omdat dezelfde
+            noot meerdere keren overlappend kan voorkomen.
+        */
+        std::array<int, 128> activeNoteCount {};
+
+        /*
+            Laatste velocity van een actieve noot.
+        */
+        std::array<int, 128> activeNoteVelocity {};
+    };
+
+    std::array<ChannelState, 16> state {};
+
+    std::size_t index = 0;
+
+    // ------------------------------------------------------------------------
+    // 1. Bepaal de MIDI-state op het seekpunt
+    // ------------------------------------------------------------------------
+
+    while (index < events.size())
+    {
+        const auto eventPosition =
+            eventSamplePosition(
+                events[index]);
+
+        if (eventPosition >= samplePosition)
+            break;
+
+        const auto& event =
+            events[index];
+
+        if (event.bytes.empty())
+        {
+            ++index;
+            continue;
+        }
+
+        const auto status =
+            event.bytes[0];
+
+        // Meta/system events
+        if (status >= 0xF0)
+        {
+            ++index;
+            continue;
+        }
+
+        const int channel =
+            static_cast<int>(
+                status & 0x0F);
+
+        if (channel < 0 || channel >= 16)
+        {
+            ++index;
+            continue;
+        }
+
+        auto& channelState =
+            state[static_cast<std::size_t>(channel)];
+
+        const int command =
+            status & 0xF0;
+
+        // --------------------------------------------------------------------
+        // Note Off
+        // --------------------------------------------------------------------
+
+        if (command == 0x80 &&
+            event.bytes.size() >= 3)
+        {
+            const int note =
+                static_cast<int>(
+                    event.bytes[1] & 0x7F);
+
+            if (channelState.activeNoteCount[note] > 0)
+            {
+                --channelState.activeNoteCount[note];
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // Note On
+        // --------------------------------------------------------------------
+
+        else if (command == 0x90 &&
+                 event.bytes.size() >= 3)
+        {
+            const int note =
+                static_cast<int>(
+                    event.bytes[1] & 0x7F);
+
+            const int velocity =
+                static_cast<int>(
+                    event.bytes[2] & 0x7F);
+
+            /*
+                MIDI Note On velocity 0 betekent Note Off.
+            */
+            if (velocity == 0)
+            {
+                if (channelState.activeNoteCount[note] > 0)
+                {
+                    --channelState.activeNoteCount[note];
+                }
+            }
+            else
+            {
+                ++channelState.activeNoteCount[note];
+
+                channelState.activeNoteVelocity[note] =
+                    velocity;
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // Control Change
+        // --------------------------------------------------------------------
+
+        else if (command == 0xB0 &&
+                 event.bytes.size() >= 3)
+        {
+            const int controller =
+                static_cast<int>(
+                    event.bytes[1] & 0x7F);
+
+            const int value =
+                static_cast<int>(
+                    event.bytes[2] & 0x7F);
+
+            channelState.controllerValue[controller] =
+                value;
+
+            channelState.controllerValid[controller] =
+                true;
+
+            if (controller == 0)
+            {
+                channelState.bankMsb =
+                    value;
+
+                channelState.hasBankMsb =
+                    true;
+            }
+            else if (controller == 32)
+            {
+                channelState.bankLsb =
+                    value;
+
+                channelState.hasBankLsb =
+                    true;
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // Program Change
+        // --------------------------------------------------------------------
+
+        else if (command == 0xC0 &&
+                 event.bytes.size() >= 2)
+        {
+            channelState.program =
+                static_cast<int>(
+                    event.bytes[1] & 0x7F);
+
+            channelState.hasProgram =
+                true;
+        }
+
+        // --------------------------------------------------------------------
+        // Channel Pressure
+        // --------------------------------------------------------------------
+
+        else if (command == 0xD0 &&
+                 event.bytes.size() >= 2)
+        {
+            channelState.channelPressure =
+                static_cast<int>(
+                    event.bytes[1] & 0x7F);
+
+            channelState.hasChannelPressure =
+                true;
+        }
+
+        // --------------------------------------------------------------------
+        // Pitch Bend
+        // --------------------------------------------------------------------
+
+        else if (command == 0xE0 &&
+                 event.bytes.size() >= 3)
+        {
+            const int lsb =
+                static_cast<int>(
+                    event.bytes[1] & 0x7F);
+
+            const int msb =
+                static_cast<int>(
+                    event.bytes[2] & 0x7F);
+
+            channelState.pitchBend =
+                lsb | (msb << 7);
+
+            channelState.hasPitchBend =
+                true;
+        }
+
+        ++index;
+    }
+
+    /*
+        index is nu het eerste event op of na het seekpunt.
+        Dat event moet door de normale render-loop worden
+        uitgevoerd.
+    */
+    nextEvent_ = index;
+
+    // ------------------------------------------------------------------------
+    // 2. Synth resetten
+    // ------------------------------------------------------------------------
 
     resetSynth();
 
-    nextEvent_ = static_cast<std::size_t>(
-        std::lower_bound(
-            song_->playbackEvents.begin(),
-            song_->playbackEvents.end(),
-            samplePosition,
-            [this](const RawMidiEvent& event,
-                    std::int64_t position)
+    // ------------------------------------------------------------------------
+    // 3. MIDI-state herstellen
+    //
+    // Volgorde is belangrijk:
+    //
+    //   Bank Select
+    //   Program Change
+    //   Controllers
+    //   Pitch Bend
+    //   Channel Pressure
+    //   actieve noten
+    //
+    // Vooral Program Change moet vóór CC7/CC11 komen omdat
+    // MidiTransformer daarna weet bij welke family het kanaal hoort.
+    // ------------------------------------------------------------------------
+
+    for (int channel = 0;
+         channel < 16;
+         ++channel)
+    {
+        auto& channelState =
+            state[static_cast<std::size_t>(channel)];
+
+        // ------------------------------------------------------------
+        // Bank Select MSB
+        // ------------------------------------------------------------
+
+        if (channelState.hasBankMsb)
+        {
+            RawMidiEvent event;
+
+            event.bytes =
             {
-                return eventSamplePosition(event)
-                       < position;
-            })
-        - song_->playbackEvents.begin());
+                static_cast<std::uint8_t>(
+                    0xB0 | channel),
+                0,
+                static_cast<std::uint8_t>(
+                    channelState.bankMsb)
+            };
 
-    /*
-        For now we deliberately do not reconstruct the complete
-        synth envelope state before a seek.
+            sendMidiEvent(event);
+        }
 
-        That will be added when the transport seek bar is implemented.
-        Starting from zero is fully sample accurate.
-    */
+        // ------------------------------------------------------------
+        // Bank Select LSB
+        // ------------------------------------------------------------
+
+        if (channelState.hasBankLsb)
+        {
+            RawMidiEvent event;
+
+            event.bytes =
+            {
+                static_cast<std::uint8_t>(
+                    0xB0 | channel),
+                32,
+                static_cast<std::uint8_t>(
+                    channelState.bankLsb)
+            };
+
+            sendMidiEvent(event);
+        }
+
+        // ------------------------------------------------------------
+        // Program Change
+        // ------------------------------------------------------------
+
+        if (channelState.hasProgram)
+        {
+            RawMidiEvent event;
+
+            event.bytes =
+            {
+                static_cast<std::uint8_t>(
+                    0xC0 | channel),
+                static_cast<std::uint8_t>(
+                    channelState.program)
+            };
+
+            sendMidiEvent(event);
+        }
+
+        // ------------------------------------------------------------
+        // Controllers
+        //
+        // CC7 en CC11 moeten pas ná Program Change komen zodat
+        // MidiTransformer de juiste family kent.
+        // ------------------------------------------------------------
+
+        for (int controller = 0;
+             controller < 128;
+             ++controller)
+        {
+            if (!channelState.controllerValid[controller])
+                continue;
+
+            RawMidiEvent event;
+
+            event.bytes =
+            {
+                static_cast<std::uint8_t>(
+                    0xB0 | channel),
+                static_cast<std::uint8_t>(
+                    controller),
+                static_cast<std::uint8_t>(
+                    channelState.controllerValue[controller])
+            };
+
+            sendMidiEvent(event);
+        }
+
+        // ------------------------------------------------------------
+        // Pitch Bend
+        // ------------------------------------------------------------
+
+        if (channelState.hasPitchBend)
+        {
+            RawMidiEvent event;
+
+            event.bytes =
+            {
+                static_cast<std::uint8_t>(
+                    0xE0 | channel),
+                static_cast<std::uint8_t>(
+                    channelState.pitchBend & 0x7F),
+                static_cast<std::uint8_t>(
+                    (channelState.pitchBend >> 7) & 0x7F)
+            };
+
+            sendMidiEvent(event);
+        }
+
+        // ------------------------------------------------------------
+        // Channel Pressure
+        // ------------------------------------------------------------
+
+        if (channelState.hasChannelPressure)
+        {
+            RawMidiEvent event;
+
+            event.bytes =
+            {
+                static_cast<std::uint8_t>(
+                    0xD0 | channel),
+                static_cast<std::uint8_t>(
+                    channelState.channelPressure)
+            };
+
+            sendMidiEvent(event);
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. Alleen noten die op het seekpunt nog actief zijn opnieuw
+    //    aanslaan.
+    //
+    //    We doen dit pas nadat alle programma's/controllers zijn
+    //    hersteld.
+    // ------------------------------------------------------------------------
+
+    for (int channel = 0;
+         channel < 16;
+         ++channel)
+    {
+        const auto& channelState =
+            state[static_cast<std::size_t>(channel)];
+
+        for (int note = 0;
+             note < 128;
+             ++note)
+        {
+            if (channelState.activeNoteCount[note] <= 0)
+                continue;
+
+            const int velocity =
+                std::clamp(
+                    channelState.activeNoteVelocity[note],
+                    1,
+                    127);
+
+            /*
+                Start één voice per actieve noot.
+
+                Bij overlappende identieke Note Ons starten we
+                bewust maar één voice. Dat voorkomt dat een seek
+                een enorme hoeveelheid polyfonie consumeert.
+            */
+            fluid_synth_noteon(
+                synth_,
+                channel,
+                note,
+                velocity);
+        }
+    }
 }
+
 
 void FluidSynthEngine::setFamilyVolumeFactor(
     int family,

@@ -143,6 +143,7 @@ private:
     juce::File currentSoundFont;
 
     bool isPlaying = false;
+    bool positionSliderWasPlaying = false;
     int transpose = 0;
 
     void loadMidi();

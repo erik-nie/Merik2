@@ -223,7 +223,6 @@ void MainComponent::updateSongDisplay()
 // ============================================================================
 // Transport display
 // ============================================================================
-
 void MainComponent::updateTransportDisplay()
 {
     if (!currentSong)
@@ -272,20 +271,25 @@ void MainComponent::updateTransportDisplay()
         formatTime(lengthSeconds),
         juce::dontSendNotification);
 
-    const double fraction =
-        lengthSamples > 0
-            ? static_cast<double>(
-                  positionSamples)
-              / static_cast<double>(
-                  lengthSamples)
-            : 0.0;
+    // Tijdens het slepen moet de timer de slider niet
+    // voortdurend terugzetten naar de afspeelpositie.
+    if (!positionSlider.isMouseButtonDown())
+    {
+        const double fraction =
+            lengthSamples > 0
+                ? static_cast<double>(
+                      positionSamples)
+                  / static_cast<double>(
+                      lengthSamples)
+                : 0.0;
 
-    positionSlider.setValue(
-        juce::jlimit(
-            0.0,
-            1.0,
-            fraction),
-        juce::dontSendNotification);
+        positionSlider.setValue(
+            juce::jlimit(
+                0.0,
+                1.0,
+                fraction),
+            juce::dontSendNotification);
+    }
 
     const bool enginePlaying =
         synthEngine.isPlaying();
@@ -305,7 +309,6 @@ void MainComponent::updateTransportDisplay()
                 235));
     }
 }
-
 
 
 // ============================================================================

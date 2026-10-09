@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 
 namespace
 {
@@ -1453,6 +1454,7 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(totalTime);
 
+
     positionSlider.setSliderStyle(
         juce::Slider::LinearHorizontal);
 
@@ -1461,7 +1463,15 @@ MainComponent::MainComponent()
         1.0,
         0.001);
 
-    positionSlider.setValue(0.0);
+    positionSlider.setValue(
+        0.0,
+        juce::dontSendNotification);
+
+    positionSlider.setTextBoxStyle(
+        juce::Slider::NoTextBox,
+        false,
+        0,
+        0);
 
     positionSlider.setColour(
         juce::Slider::trackColourId,
@@ -1475,7 +1485,63 @@ MainComponent::MainComponent()
         juce::Slider::backgroundColourId,
         juce::Colour::fromRGB(70, 70, 70));
 
-    addAndMakeVisible(positionSlider);
+    positionSlider.onDragStart = [this]
+    {
+        positionSliderWasPlaying =
+            synthEngine.isPlaying();
+
+        /*
+            Stop tijdens het slepen. De slider zelf blijft bewegen,
+            maar we doen pas een echte seek wanneer de gebruiker
+            de muisknop loslaat.
+        */
+        synthEngine.stop();
+
+        isPlaying = false;
+    };
+
+    positionSlider.onDragEnd = [this]
+    {
+        if (!currentSong)
+            return;
+
+        const auto lengthSamples =
+            synthEngine.lengthSamples();
+
+        if (lengthSamples <= 0)
+            return;
+
+        const double normalizedPosition =
+            juce::jlimit(
+                0.0,
+                1.0,
+                positionSlider.getValue());
+
+        const auto targetSamples =
+            static_cast<std::int64_t>(
+                std::llround(
+                    normalizedPosition *
+                    static_cast<double>(lengthSamples)));
+
+        synthEngine.seekSamples(targetSamples);
+
+        if (positionSliderWasPlaying &&
+            targetSamples < lengthSamples)
+        {
+            synthEngine.start();
+            isPlaying = true;
+        }
+        else
+        {
+            isPlaying = false;
+        }
+
+        positionSliderWasPlaying = false;
+
+        updateTransportDisplay();
+    };
+
+    addAndMakeVisible(positionSlider);    
 
     // -------------------------------------------------------------------------
     // Transport

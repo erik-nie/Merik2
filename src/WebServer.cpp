@@ -229,6 +229,22 @@ header {
     background:linear-gradient(to bottom,rgba(0,0,0,.99),rgba(0,0,0,.9),transparent);
     pointer-events:none;
 }
+#songProgress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    z-index: 99999;
+    pointer-events: none;
+    background: #111;
+}
+
+#songProgressFill {
+    width: 0%;
+    height: 3px;
+    background-color: #ff4a4a;
+}
 #song { font-size:36px; font-weight:600; }
 #time { margin-top:4px; color:#bbb; font-size:24px; font-variant-numeric:tabular-nums; }
 main { position:absolute; inset:0; display:flex; justify-content:center; overflow:hidden; }
@@ -254,6 +270,58 @@ footer {
     pointer-events:none;
 }
 #chordViewport { width:100%; max-width:1000px; margin:0 auto; overflow:hidden; }
+
+#lyricsFontControl {
+    position: fixed;
+    right: 10px;
+    bottom: 80px;
+    z-index: 30;
+
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    padding: 8px 12px;
+    border-radius: 8px;
+
+    background: rgba(0, 0, 0, 0.35);
+    color: #ff4a4a;
+
+    font-size: 15px;
+    font-weight: 600;
+
+    pointer-events: auto;
+}
+
+#lyricsFontControl label {
+    font-size: 18px;
+    white-space: nowrap;
+}
+
+#lyricsFontSize {
+    width: 150px;
+    accent-color: #ff4a4a;
+    cursor: pointer;
+}
+
+#lyricsFontSizeValue {
+    min-width: 22px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+    #lyricsFontControl {
+        right: 12px;
+        bottom: 125px;
+        gap: 6px;
+        padding: 6px 8px;
+    }
+
+    #lyricsFontSize {
+        width: 100px;
+    }
+}
 
 #chords {
     display: grid;
@@ -333,12 +401,69 @@ footer {
     .chord-slot.current .chord { font-size:20px; }
     .chord-progress { height:6px; }
 }
+
+/* ############################################# */
+/* FAMILY SLIDERS ############################## */
+/* ############################################# */
+
+#familyPanel { position: fixed; z-index: 100; top: 0; right: 0; bottom: 0; width: 20%; min-width: 220px; max-width: 340px; transform: translateX(100%); transition: transform 280ms ease; pointer-events: none; }
+#familyPanelContent { position: absolute; inset: 0; padding: 20px 16px; overflow-x: hidden; overflow-y: auto; background: rgba(15,15,28,0.97); border-left: 1px solid #444; pointer-events: auto; }
+#familyToggle { position: absolute; z-index: 101; top: 50%; left: -28px; width: 28px; height: 76px; padding: 0; transform: translateY(-50%); border: 1px solid #555; border-right: none; border-radius: 8px 0 0 8px; background: #181824; color: #ff4a4a; font-size: 28px; cursor: pointer; pointer-events: auto; }
+body.family-panel-open #familyPanel { transform: translateX(0); }
+body.family-panel-open #familyPanelContent { pointer-events: auto; }
+#lyricsViewport { width: 100%; margin-right: 0; transition: width 280ms ease, margin-right 280ms ease; }
+body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
+#familyPanelHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 22px; font-size: 20px; font-weight: 700; color: #ff4a4a; }
+#familyClose { width: 36px; height: 36px; border: 0; border-radius: 6px; background: #30303d; color: #fff; font-size: 24px; cursor: pointer; }
+.family-control { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #353543; }
+.family-control-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.family-name { color: #fff; font-size: 15px; font-weight: 600; }
+.family-enable { width: 18px; height: 18px; accent-color: #ff4a4a; cursor: pointer; }
+.family-slider-row { display: flex; align-items: center; gap: 10px; }
+.family-slider { width: 100%; min-width: 0; accent-color: #ff4a4a; cursor: pointer; }
+.family-value { width: 28px; text-align: right; color: #bbb; font-size: 12px; font-variant-numeric: tabular-nums; }
+.family-control.disabled { opacity: 0.4; }
+@media (max-width: 700px) { #familyPanel { width: 45%; min-width: 200px; } body.family-panel-open #lyricsViewport { width: 55%; margin-right: 45%; } }
+@media (prefers-reduced-motion: reduce) { #familyPanel, #lyricsViewport { transition: none; } }
 </style>
 </head>
+
+<!-- ################################################################### -->
+<!-- ########################## HTML   ################################# -->
+<!-- ################################################################### -->
 <body>
 <header><div id="song">Merik</div><div id="time">00:00 / 00:00</div></header>
+<div id="songProgress"><div id="songProgressFill"></div></div>
 <div id="lyricCountdown"></div>
-<main><div id="lyricsViewport"><div id="lyrics"></div></div></main>
+<main>
+    <div id="lyricsViewport">
+        <div id="lyrics"></div>
+    </div>
+
+    <div id="lyricsFontControl">
+        <label for="lyricsFontSize">Aa</label>
+        <input
+            id="lyricsFontSize"
+            type="range"
+            min="24"
+            max="90"
+            value="64"
+            step="1"
+            aria-label="Lettergrootte songteksten">
+    </div>
+</main>
+
+<aside id="familyPanel" aria-hidden="true">
+    <button id="familyToggle" type="button" aria-label="Family mixer openen" aria-expanded="false">‹</button>
+    <div id="familyPanelContent">
+        <div id="familyPanelHeader">
+            <span>Families</span>
+            <button id="familyClose" type="button" aria-label="Mixer sluiten">X</button>
+        </div>
+        <div id="familyControls"></div>
+    </div>
+</aside>
+
 <footer>
 
   <div id="chordViewport">
@@ -1193,6 +1318,31 @@ function renderChords()
     renderChordProgress(
         chords[currentIndex]);
 }
+
+
+const lyricsFontSizeSlider =
+    document.getElementById("lyricsFontSize");
+
+function setLyricsFontSize(size) {
+    const fontSize = Math.max(
+        24,
+        Math.min(90, Number(size) || 64)
+    );
+
+    const lyrics = document.getElementById("lyrics");
+
+    lyrics.style.fontSize = fontSize + "px";
+}
+
+lyricsFontSizeSlider.addEventListener("input", function () {
+    setLyricsFontSize(this.value);
+});
+
+setLyricsFontSize(lyricsFontSizeSlider.value);
+
+
+
+
 let countdownActive = false;
 let countdownTargetTime = null;
 
@@ -1355,11 +1505,172 @@ async function update() {
         songData=await response.json();
         document.getElementById("song").textContent=songData.song||"Merik";
         document.getElementById("time").textContent=formatTime(songData.position)+" / "+formatTime(songData.duration);
+ 
+        const duration = Number(songData.duration) || 0;
+        const position = Number(songData.position) || 0;
+        const progress = duration > 0 ? Math.max(0, Math.min(100, position / duration * 100))   : 0;
+            document.getElementById("songProgressFill") .style.width = progress + "%";
+
         renderLyrics();
         renderChords();
         renderCountdown();
     } catch(error) { console.log(error); }
 }
+
+
+// =====================================================
+// Family mixer - voorlopige webinterface
+// Nog niet gekoppeld aan de desktopapp of MIDI-engine.
+// =====================================================
+
+(function initFamilyMixer() {
+    const toggle =
+        document.getElementById("familyToggle");
+
+    const panel =
+        document.getElementById("familyPanel");
+
+    const close =
+        document.getElementById("familyClose");
+
+    const controls =
+        document.getElementById("familyControls");
+
+    const families = [
+        "Drums",
+        "Bass",
+        "Guitars",
+        "Keys",
+        "Strings",
+        "Winds",
+        "FX",
+        "Other"
+    ];
+
+    function setOpen(open) {
+        document.body.classList.toggle(
+            "family-panel-open",
+            open
+        );
+
+        toggle.setAttribute(
+            "aria-expanded",
+            String(open)
+        );
+
+        toggle.setAttribute(
+            "aria-label",
+            open
+                ? "Family mixer sluiten"
+                : "Family mixer openen"
+        );
+
+        toggle.textContent = open ? "›" : "‹";
+
+        panel.setAttribute(
+            "aria-hidden",
+            String(!open)
+        );
+    }
+
+    toggle.addEventListener("click", function () {
+        const open =
+            !document.body.classList.contains(
+                "family-panel-open"
+            );
+
+        setOpen(open);
+    });
+
+    close.addEventListener("click", function () {
+        setOpen(false);
+    });
+
+    // Maak de acht voorlopige family-bedieningen.
+    families.forEach(function (family, index) {
+        const row =
+            document.createElement("div");
+
+        row.className = "family-control";
+
+        const header =
+            document.createElement("div");
+
+        header.className =
+            "family-control-header";
+
+        const name =
+            document.createElement("label");
+
+        name.className = "family-name";
+        name.textContent = family;
+        name.htmlFor = "familySlider" + index;
+
+        const enabled =
+            document.createElement("input");
+
+        enabled.type = "checkbox";
+        enabled.className = "family-enable";
+        enabled.checked = true;
+
+        enabled.setAttribute(
+            "aria-label",
+            family + " inschakelen"
+        );
+
+        const sliderRow =
+            document.createElement("div");
+
+        sliderRow.className =
+            "family-slider-row";
+
+        const slider =
+            document.createElement("input");
+
+        slider.type = "range";
+        slider.id = "familySlider" + index;
+        slider.className = "family-slider";
+        slider.min = "0";
+        slider.max = "127";
+        slider.step = "1";
+        slider.value = "100";
+
+        slider.setAttribute(
+            "aria-label",
+            family + " volume"
+        );
+
+        const value =
+            document.createElement("span");
+
+        value.className = "family-value";
+        value.textContent = slider.value;
+
+        slider.addEventListener("input", function () {
+            value.textContent = slider.value;
+        });
+
+        enabled.addEventListener(
+            "change",
+            function () {
+                slider.disabled = !enabled.checked;
+
+                row.classList.toggle(
+                    "disabled",
+                    !enabled.checked
+                );
+            }
+        );
+
+        header.append(name, enabled);
+        sliderRow.append(slider, value);
+        row.append(header, sliderRow);
+        controls.appendChild(row);
+    });
+
+    setOpen(false);
+})();
+
 update();
 setInterval(update,100);
 </script>

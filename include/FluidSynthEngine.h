@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <array>
 
 class FluidSynthEngine final
 {
@@ -54,6 +55,27 @@ private:
     void sendMidiEvent(const RawMidiEvent& event);
 
     void resetSynth();
+    void rebuildSynthStateAt(std::int64_t samplePosition);
+
+    struct ChannelPlaybackState
+    {
+        int bankMsb = 0;
+        int bankLsb = 0;
+        int program = 0;
+
+        int cc7 = 127;
+        int cc11 = 127;
+        int sustain = 0;
+
+        int pitchBend = 8192;
+        int channelPressure = 0;
+
+        std::array<int, 128> controllers {};
+
+        std::array<bool, 128> activeNotes {};
+    };
+
+    std::array<ChannelPlaybackState, 16> playbackState {};
 
     MidiTransformer midiTransformer_;
 
