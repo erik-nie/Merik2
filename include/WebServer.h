@@ -54,6 +54,7 @@ private:
     [[nodiscard]] std::string escapeHtml(const std::string& text) const;
     [[nodiscard]] std::string escapeJson(const std::string& text) const;
     [[nodiscard]] std::string currentSongTitle() const;
+    [[nodiscard]] std::string createFamilyJson() const;
 
     std::atomic<bool> running { false };
 

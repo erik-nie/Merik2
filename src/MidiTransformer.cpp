@@ -15,6 +15,11 @@ void MidiTransformer::reset()
         state = MidiChannelState {};
 }
 
+void MidiTransformer::setNormalizeEnabled(bool enabled)
+{
+    normalizeEnabled = enabled;
+}
+
 RawMidiEvent MidiTransformer::transform(const RawMidiEvent& event)
 {
     RawMidiEvent result = event;
@@ -109,12 +114,43 @@ int MidiTransformer::getAdjustedChannelVolume(int channel) const
     const auto& state =
         channelStates[static_cast<std::size_t>(channel)];
 
-    if (state.family < 0 || state.family >= familyCount)
-        return state.cc7;
+    // Stap 1: bereken het volume na de familieaanpassing.
+    const int family =
+        (channel == 9) ? 0 : state.family;
 
-    return scaleMidiValue(
-        state.cc7,
-        familyVolumeFactors[static_cast<std::size_t>(state.family)]);
+    int adjustedVolume = state.cc7;
+
+    if (family >= 0 && family < familyCount)
+    {
+        adjustedVolume = scaleMidiValue(
+            state.cc7,
+            familyVolumeFactors[static_cast<std::size_t>(family)]);
+    }
+
+    // Stap 2: normalisatie is optioneel.
+    if (!normalizeEnabled)
+        return adjustedVolume;
+
+    // Kanaal 10 (index 9) is de referentie.
+    const auto& drumsState = channelStates[9];
+
+    const int drumsVolume = scaleMidiValue(
+        drumsState.cc7,
+        familyVolumeFactors[0]);
+
+    // Voorkom deling door nul.
+    if (drumsVolume <= 0 || drumsVolume >= 127)
+        return adjustedVolume;
+
+    // Stap 3: normaliseer ten opzichte van het drumsvolume.
+    return std::clamp(
+        static_cast<int>(
+            std::lround(
+                static_cast<double>(adjustedVolume)
+                * 127.0
+                / static_cast<double>(drumsVolume))),
+        0,
+        127);
 }
 
 int MidiTransformer::getAdjustedChannelExpression(int channel) const

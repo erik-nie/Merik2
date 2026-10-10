@@ -41,6 +41,7 @@ public:
     void stop();
     void seekSamples(std::int64_t samplePosition);
 
+    void setNormalizeEnabled(bool enabled);
     [[nodiscard]] FamilySettings getFamilySettings(int family) const;
 
     [[nodiscard]] std::array<FamilySettings, familyCount>
@@ -78,6 +79,8 @@ private:
 
     void updateFamilyFactorLocked(int family);
     void applyFamilyVolumeLocked(int family);
+
+
 
     struct ChannelPlaybackState
     {

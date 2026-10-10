@@ -12,6 +12,7 @@
 #include <chrono>
 #include <memory>
 #include <vector>
+#include <atomic>
 
 class MainComponent final
     : public juce::AudioAppComponent,
@@ -120,9 +121,9 @@ private:
     juce::TextButton newSetlistButton;
     juce::TextButton deleteSetlistButton;
 
-    juce::ToggleButton doubleClickToggle;
-    juce::ToggleButton normalizeToggle;
-    juce::ToggleButton continuousToggle;
+    juce::TextButton doubleClickToggle;
+    juce::TextButton normalizeToggle;
+    juce::TextButton continuousToggle;
 
     juce::TextButton addButton;
     juce::TextButton removeButton;
@@ -142,7 +143,7 @@ private:
     juce::File currentMidiFile;
     juce::File currentSoundFont;
 
-    bool isPlaying = false;
+    std::atomic<bool> isPlaying{false};
     bool positionSliderWasPlaying = false;
     int transpose = 0;
 
@@ -156,6 +157,7 @@ private:
     void updateTransportDisplay();
     void updateChannelModel();
 
+    void syncFamilySettingsToWebServer();
     void timerCallback() override;
 
     void loadMidiFile(const juce::File& file);

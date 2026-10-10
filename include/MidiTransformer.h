@@ -26,6 +26,7 @@ public:
     RawMidiEvent transform(const RawMidiEvent& event);
 
     void setFamilyVolumeFactor(int family, float factor);
+    void setNormalizeEnabled(bool enabled);
 
     [[nodiscard]] float getFamilyVolumeFactor(int family) const;
     [[nodiscard]] int getAdjustedChannelVolume(int channel) const;
@@ -37,6 +38,7 @@ public:
 private:
     std::array<MidiChannelState, 16> channelStates {};
     std::array<float, familyCount> familyVolumeFactors {};
+    bool normalizeEnabled = false;
 
     static int getFamilyFromProgram(int program);
     static int scaleMidiValue(int value, float factor);

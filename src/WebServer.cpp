@@ -107,7 +107,46 @@ void WebServer::setFamilyVolumeCallback(FamilyVolumeCallback callback)
     std::scoped_lock lock(mutex_);
     familyVolumeCallback_ = std::move(callback);
 }
+void WebServer::setFamilySettings(
+    const std::array<int, familyCount>& volumes,
+    const std::array<bool, familyCount>& enabled)
+{
+    std::scoped_lock lock(mutex_);
 
+    for (int i = 0; i < familyCount; ++i)
+    {
+        familyVolumes_[i] = std::clamp(volumes[i], 0, 127);
+        familyEnabled_[i] = enabled[i];
+    }
+}
+
+std::string WebServer::createFamilyJson() const
+{
+    std::array<int, familyCount> volumes;
+    std::array<bool, familyCount> enabled;
+
+    {
+        std::scoped_lock lock(mutex_);
+        volumes = familyVolumes_;
+        enabled = familyEnabled_;
+    }
+
+    std::string json = "{\"families\":[";
+
+    for (int i = 0; i < familyCount; ++i)
+    {
+        if (i > 0)
+            json += ",";
+
+        json += "{\"volume\":" + std::to_string(volumes[i]);
+        json += ",\"enabled\":";
+        json += enabled[i] ? "true" : "false";
+        json += "}";
+    }
+
+    json += "]}";
+    return json;
+}
 void WebServer::serverThread()
 {
     while (running)
@@ -142,6 +181,14 @@ void WebServer::handleClient(int socket)
     buffer[received] = '\0';
     const std::string request(buffer);
 
+    if (request.rfind("GET /api/families", 0) == 0)
+    {
+        sendResponse(
+            socket,
+            createFamilyJson(),
+            "application/json; charset=utf-8");
+        return;
+    }
     if (request.rfind("GET /api/song", 0) == 0)
     {
         sendResponse(socket, createJson(), "application/json; charset=utf-8");
@@ -203,6 +250,10 @@ void WebServer::handleClient(int socket)
 
             {
                 std::scoped_lock lock(mutex_);
+
+                familyVolumes_[family] = volume;
+                familyEnabled_[family] = enabled != 0;
+
                 callback = familyVolumeCallback_;
             }
 
@@ -1631,6 +1682,49 @@ async function update() {
         "Other"
     ];
 
+    async function syncFamilySettings() {
+        try {
+            const response = await fetch("/api/families", {
+                cache: "no-store"
+            });
+
+            if (!response.ok)
+                return;
+
+            const data = await response.json();
+
+            if (!Array.isArray(data.families))
+                return;
+
+            data.families.forEach(function (family, index) {
+                const slider = document.getElementById("familySlider" + index);
+                const enabled = slider?.closest(".family-control")
+                    ?.querySelector(".family-enable");
+                const value = slider?.closest(".family-control")
+                    ?.querySelector(".family-value");
+
+                if (!slider || !enabled || !value)
+                    return;
+
+                const volume = String(family.volume);
+
+                if (slider.value !== volume)
+                    slider.value = volume;
+
+                value.textContent = volume;
+
+                if (enabled.checked !== family.enabled)
+                    enabled.checked = family.enabled;
+
+                slider.disabled = !family.enabled;
+                slider.closest(".family-control")
+                    .classList.toggle("disabled", !family.enabled);
+            });
+        } catch (error) {
+            console.error("Families synchroniseren mislukt:", error);
+        }
+    }
+
     function setOpen(open) {
         document.body.classList.toggle("family-panel-open", open);
         toggle.setAttribute("aria-expanded", String(open));
@@ -1751,6 +1845,8 @@ async function update() {
     });
 
     setOpen(false);
+    syncFamilySettings();
+    setInterval(syncFamilySettings, 500);
 })();
 
 update();

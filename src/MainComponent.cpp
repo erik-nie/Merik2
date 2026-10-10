@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "WebServer.h"
 #include "BinaryData.h"
+#include "FluidSynthEngine.h"
 #include <functional>
 #include <algorithm>
 #include <array>
@@ -51,6 +52,10 @@ public:
             juce::Typeface::createSystemTypefaceFor(
                 BinaryData::NotoSansMedium_ttf,
                 BinaryData::NotoSansMedium_ttfSize);
+        notoSansBoldTypeface =
+            juce::Typeface::createSystemTypefaceFor(
+                BinaryData::NotoSansSemiBold_ttf,
+                BinaryData::NotoSansSemiBold_ttfSize);
 
         setColour(
             juce::TextButton::buttonColourId,
@@ -69,10 +74,10 @@ public:
             juce::Colours::white);
     }
 
-    juce::Font getLabelFont(juce::Label&) override
-    {
-        return makeFont(15.0f);
-    }
+    // juce::Font getLabelFont(juce::Label&) override
+    // {
+    //     return makeFont(15.0f);
+    // }
 
     juce::Font getTextButtonFont(
         juce::TextButton&,
@@ -81,15 +86,44 @@ public:
         return getMediumFont(20.0f);
     }
 
-    juce::Font getComboBoxFont(
-        juce::ComboBox&) override
-    {
-        return makeFont(14.0f);
-    }
+    // juce::Font getComboBoxFont(
+    //     juce::ComboBox&) override
+    // {
+    //     return makeFont(14.0f);
+    // }
 
     juce::Font getPopupMenuFont() override
     {
         return makeFont(14.0f);
+    }
+    juce::Font getComboBoxFont(juce::ComboBox&) override
+    {
+        return getMerikFont(17.0f);
+    }
+
+    void drawComboBox(juce::Graphics& g, int width, int height, bool,
+                    int, int, int, int, juce::ComboBox&) override
+    {
+        auto bounds = juce::Rectangle<int>(0, 0, width, height).toFloat();
+
+        g.setColour(panelColour);
+        g.fillRoundedRectangle(bounds, 5.0f);
+
+        g.setColour(secondaryTextColour.withAlpha(0.45f));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
+
+        auto arrowArea = bounds.removeFromRight(28.0f);
+
+        juce::Path arrow;
+        arrow.startNewSubPath(arrowArea.getCentreX() - 4.0f,
+                            arrowArea.getCentreY() - 2.0f);
+        arrow.lineTo(arrowArea.getCentreX(),
+                    arrowArea.getCentreY() + 2.0f);
+        arrow.lineTo(arrowArea.getCentreX() + 4.0f,
+                    arrowArea.getCentreY() - 2.0f);
+
+        g.setColour(secondaryTextColour);
+        g.strokePath(arrow, juce::PathStrokeType(1.5f));
     }
 
     void drawTableHeaderColumn(
@@ -182,6 +216,13 @@ public:
                 .withHeight(height));
     }
 
+    juce::Font getBoldFont(float height) const
+    {
+        return juce::Font(
+            juce::FontOptions(notoSansBoldTypeface)
+                .withHeight(height));
+    }
+
     juce::Font getMerikFont(float height)
     {
         return makeFont(height);
@@ -190,6 +231,7 @@ public:
     private:
         juce::Typeface::Ptr notoSansTypeface;
         juce::Typeface::Ptr notoSansMediumTypeface;
+        juce::Typeface::Ptr notoSansBoldTypeface;
 
         juce::Font makeFont(float height) const
         {
@@ -250,7 +292,7 @@ public:
         g.fillRect(0, 0, width, height);
 
         g.setColour(textColour);
-        g.setFont(makeNotoFont(13.0f));
+        g.setFont(makeNotoFont(17.0f));
 
         g.drawText(
             values[static_cast<size_t>(rowNumber)],
@@ -363,7 +405,7 @@ public:
         }
 
         g.setColour(textColour);
-        g.setFont(makeNotoFont(15.0f));
+        g.setFont(makeNotoFont(17.0f));
 
         g.drawText(
             (*setlists)[static_cast<std::size_t>(rowNumber)].name,
@@ -441,7 +483,7 @@ public:
         }
 
         g.setColour(textColour);
-        g.setFont(makeNotoFont(15.0f));
+        g.setFont(makeNotoFont(17.0f));
 
         const auto number =
             juce::String(rowNumber + 1);
@@ -1156,6 +1198,22 @@ void MainComponent::paintOverChildren(juce::Graphics& g)
     }
 }
 
+void MainComponent::syncFamilySettingsToWebServer()
+{
+    std::array<int, 8> volumes{};
+    std::array<bool, 8> enabled{};
+
+    for (std::size_t i = 0; i < familyControls.size(); ++i)
+    {
+        volumes[i] = juce::roundToInt(
+            familyControls[i].slider.getValue());
+
+        enabled[i] =
+            familyControls[i].labelButton.getToggleState();
+    }
+
+    webServer.setFamilySettings(volumes, enabled);
+}
 
 void MainComponent::timerCallback()
 {
@@ -1238,6 +1296,10 @@ MainComponent::MainComponent()
     midiControlBox.addItem("None", 2);
     midiControlBox.setSelectedId(1);
 
+    midiControlBox.setColour(juce::ComboBox::textColourId, textColour);
+
+    midiControlBox.setLookAndFeel(&merikLookAndFeel);
+
     addAndMakeVisible(midiControlBox);
 
     // -------------------------------------------------------------------------
@@ -1257,6 +1319,10 @@ MainComponent::MainComponent()
     midiOutBox.addItem("Default", 1);
     midiOutBox.addItem("None", 2);
     midiOutBox.setSelectedId(1);
+
+    midiOutBox.setColour(juce::ComboBox::textColourId, textColour);
+
+    midiOutBox.setLookAndFeel(&merikLookAndFeel);
 
     addAndMakeVisible(midiOutBox);
 
@@ -1370,6 +1436,8 @@ MainComponent::MainComponent()
                 static_cast<int>(i),
                 enabled);
 
+            syncFamilySettingsToWebServer();
+
             DBG(
                 "Family "
                 + juce::String(static_cast<int>(i))
@@ -1391,7 +1459,7 @@ MainComponent::MainComponent()
             juce::Label::textColourId,
             secondaryTextColour);
 
-        control.valueLabel.setFont(makeNotoFont(12.0f));
+        control.valueLabel.setFont(makeNotoFont(20.0f));
 
         control.valueLabel.setJustificationType(
             juce::Justification::centred);
@@ -1442,8 +1510,11 @@ MainComponent::MainComponent()
             synthEngine.setFamilyVolume(
                 static_cast<int>(i),
                 value);
+
+            syncFamilySettingsToWebServer();
         };
 
+        syncFamilySettingsToWebServer();
         addAndMakeVisible(control.slider);
     }
     
@@ -1451,19 +1522,15 @@ MainComponent::MainComponent()
     // Player
     // -------------------------------------------------------------------------
 
-    songTitle.setText(
-        "No MIDI loaded",
-        juce::dontSendNotification);
-
-    songTitle.setColour(
-        juce::Label::textColourId,
-        textColour);
-
-    songTitle.setFont(makeNotoFont(60.0f));
-
-    songTitle.setJustificationType(
-        juce::Justification::centred);
-
+    // Song title
+    songTitle.setText("No MIDI loaded", juce::dontSendNotification);
+    songTitle.setColour(juce::Label::textColourId, textColour);
+    // songTitle.setColour(juce::Label::backgroundColourId, juce::Colours::lime);
+    //songTitle.setFont(makeNotoFont(60.0f));
+    songTitle.setFont(
+        merikLookAndFeel.getBoldFont(40.0f));
+    songTitle.setJustificationType(juce::Justification::centred);
+    songTitle.setMinimumHorizontalScale(1.0f);
     addAndMakeVisible(songTitle);
 
     nextSong.setText(
@@ -1473,8 +1540,9 @@ MainComponent::MainComponent()
     nextSong.setColour(
         juce::Label::textColourId,
         secondaryTextColour);
+    // nextSong.setColour(juce::Label::backgroundColourId, juce::Colours::red);
 
-    nextSong.setFont(makeNotoFont(15.0f));
+    nextSong.setFont(makeNotoFont(30.0f));
 
     nextSong.setJustificationType(
         juce::Justification::centred);
@@ -1489,7 +1557,7 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         secondaryTextColour);
 
-    elapsedTime.setFont(makeNotoFont(14.0f));
+    elapsedTime.setFont(makeNotoFont(20.0f));
 
     addAndMakeVisible(elapsedTime);
 
@@ -1503,6 +1571,8 @@ MainComponent::MainComponent()
 
     totalTime.setJustificationType(
         juce::Justification::centredRight);
+
+    totalTime.setFont(makeNotoFont(20.0f));
 
     addAndMakeVisible(totalTime);
 
@@ -1794,7 +1864,7 @@ MainComponent::MainComponent()
         textColour);
 
     setlistsTitle.setFont(
-        merikLookAndFeel.getMediumFont(25.0f));
+        merikLookAndFeel.getMediumFont(17.0f));
 
     setlistsTitle.setColour(
         juce::Label::backgroundColourId,
@@ -1814,7 +1884,7 @@ MainComponent::MainComponent()
         textColour);
 
     songsTitle.setFont(
-        merikLookAndFeel.getMediumFont(25.0f));
+        merikLookAndFeel.getMediumFont(17.0f));
 
     songsTitle.setColour(
         juce::Label::backgroundColourId,
@@ -1836,14 +1906,37 @@ MainComponent::MainComponent()
     addAndMakeVisible(totalTimeTitle);
 
 
-    doubleClickToggle.setButtonText(
-        "Dbl Click Plays");
+    // -------------------------------------------------------------------------
+    // Toggle buttons: Dbl Click Plays / Normalize / Continuous Play
+    // -------------------------------------------------------------------------
 
-    normalizeToggle.setButtonText(
-        "Normalize");
+    doubleClickToggle.setButtonText("Direct Play");
+    normalizeToggle.setButtonText("Normalize");
+    continuousToggle.setButtonText("Auto Next");
 
-    continuousToggle.setButtonText(
-        "Continuous Play");
+    for (auto* button :
+        { &doubleClickToggle, &normalizeToggle, &continuousToggle })
+    {
+        button->setColour(
+            juce::TextButton::buttonColourId,
+            panelLightColour);
+
+        button->setColour(
+            juce::TextButton::buttonOnColourId,
+            merikBlue);
+
+        button->setColour(
+            juce::TextButton::textColourOffId,
+            juce::Colours::white);
+
+        button->setColour(
+            juce::TextButton::textColourOnId,
+            juce::Colours::white);
+
+        button->setClickingTogglesState(true);
+
+        addAndMakeVisible(*button);
+    }
 
     // Eerst opgeslagen toestand laden.
     // Daarna pas de ListBox-modellen maken.
@@ -1874,6 +1967,9 @@ MainComponent::MainComponent()
     setlistBox.setModel(setlistModel.get());
     songBox.setModel(songModel.get());
 
+    setlistBox.setRowHeight(19);
+    songBox.setRowHeight(19);
+
     refreshSetlistModel();
     refreshSongModel();
 
@@ -1899,7 +1995,8 @@ MainComponent::MainComponent()
     setlistBox.setColour(
         juce::ListBox::backgroundColourId,
         panelDarkColour);
-
+        
+    
     songBox.setColour(
         juce::ListBox::backgroundColourId,
         panelDarkColour);
@@ -2046,6 +2143,10 @@ MainComponent::MainComponent()
 
     normalizeToggle.onClick = [this]
     {
+        synthEngine.setNormalizeEnabled( 
+            normalizeToggle.getToggleState());
+
+        channelTable.repaint();
         savePersistentState();
     };
 
@@ -2054,23 +2155,6 @@ MainComponent::MainComponent()
         savePersistentState();
     };
 
-    for (auto* toggle :
-         {
-             &doubleClickToggle,
-             &normalizeToggle,
-             &continuousToggle
-         })
-    {
-        toggle->setColour(
-            juce::ToggleButton::textColourId,
-            secondaryTextColour);
-
-        toggle->setColour(
-            juce::ToggleButton::tickColourId,
-            merikBlue);
-
-        addAndMakeVisible(toggle);
-    }
 
     // -------------------------------------------------------------------------
     // Channel table
@@ -2208,6 +2292,8 @@ void MainComponent::loadPersistentState()
             "normalize",
             false),
         juce::dontSendNotification);
+    synthEngine.setNormalizeEnabled( 
+        normalizeToggle.getToggleState());
 
     continuousToggle.setToggleState(
         properties->getBoolValue(
@@ -2395,34 +2481,16 @@ void MainComponent::paint(juce::Graphics& g)
     // row 2 = family controls
 
     auto header =
-        bounds.removeFromTop(150);
+        bounds.removeFromTop(1);
 
     g.setColour(panelColour);
     g.fillRect(header);
-
-    g.setColour(
-        juce::Colour::fromRGB(65, 65, 65));
-
-    g.fillRect(
-        0,
-        header.getBottom() - 1,
-        getWidth(),
-        1);
 
     auto player =
         bounds.removeFromTop(175);
 
     g.setColour(panelColour);
     g.fillRect(player);
-
-    g.setColour(
-        juce::Colour::fromRGB(65, 65, 65));
-
-    g.fillRect(
-        0,
-        player.getBottom() - 1,
-        getWidth(),
-        1);
 
     auto lists =
         bounds.removeFromTop(215);
@@ -2447,7 +2515,7 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto header =
-        bounds.removeFromTop(150).reduced(10);
+        bounds.removeFromTop(145).reduced(10,0);
 
     // First row: MIDI Control / MIDI Out / SoundFont / Settings
 
@@ -2532,24 +2600,24 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto player =
-        bounds.removeFromTop(175).reduced(12);
+        bounds.removeFromTop(155).reduced(10,5);
 
     auto titleArea =
-        player.removeFromTop(55);
-
+        player.removeFromTop(35);
+    //titleArea.translate(0, -10);
     songTitle.setBounds(titleArea);
 
     nextSong.setBounds(
         player.removeFromTop(25));
 
     auto progressArea =
-        player.removeFromTop(38);
+        player.removeFromTop(35);
 
     elapsedTime.setBounds(
-        progressArea.removeFromLeft(45));
+        progressArea.removeFromLeft(60));
 
     totalTime.setBounds(
-        progressArea.removeFromRight(45));
+        progressArea.removeFromRight(60));
 
     positionSlider.setBounds(
         progressArea.reduced(5, 8));
@@ -2709,7 +2777,7 @@ void MainComponent::resized()
                     - fixedColumnWidth
                     - scrollBarWidth);
 
-header.setColumnWidth(6, familyWidth);
+        header.setColumnWidth(6, familyWidth);
     }
     else
     {
@@ -2738,10 +2806,11 @@ header.setColumnWidth(6, familyWidth);
     lists.removeFromLeft(listGap);
 
     setlistsTitle.setBounds(
-        setlistArea.removeFromTop(24));
+        setlistArea.removeFromTop(20));
 
-    auto setlistButtons =
-        setlistArea.removeFromBottom(30);
+    auto setlistButtons = setlistArea.removeFromBottom(30);
+    setlistArea.removeFromBottom(6);
+    setlistBox.setBounds(setlistArea);
 
     newSetlistButton.setBounds(
         setlistButtons.removeFromLeft(85));
@@ -2761,10 +2830,11 @@ header.setColumnWidth(6, familyWidth);
     auto songArea = lists;
 
     songsTitle.setBounds(
-        songArea.removeFromTop(24));
+        songArea.removeFromTop(20));
 
-    auto songButtons =
-        songArea.removeFromBottom(30);
+    auto songButtons = songArea.removeFromBottom(30);
+    songArea.removeFromBottom(6);
+    songBox.setBounds(songArea);
 
     addButton.setBounds(
         songButtons.removeFromLeft(35));
@@ -2777,13 +2847,17 @@ header.setColumnWidth(6, familyWidth);
     songButtons.removeFromLeft(15);
 
     doubleClickToggle.setBounds(
-        songButtons.removeFromLeft(120));
+        songButtons.removeFromLeft(80));
+
+    songButtons.removeFromLeft(6);
 
     normalizeToggle.setBounds(
-        songButtons.removeFromLeft(95));
+        songButtons.removeFromLeft(80));
+
+    songButtons.removeFromLeft(6);
 
     continuousToggle.setBounds(
-        songButtons.removeFromLeft(120));
+        songButtons.removeFromLeft(80));
 
     songBox.setBounds(
         songArea);

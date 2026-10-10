@@ -947,6 +947,11 @@ std::int64_t FluidSynthEngine::eventSamplePosition(
             / song_->sampleRate));
 }
 
+void FluidSynthEngine::setNormalizeEnabled(bool enabled)
+{
+    midiTransformer_.setNormalizeEnabled(enabled);
+}
+
 void FluidSynthEngine::resetSynth()
 {
     if (!synth_)
