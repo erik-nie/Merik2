@@ -30,7 +30,7 @@ void MainComponent::loadMidi()
             loadMidiFile(file);
         });
 }
-void MainComponent::loadMidiFile(const juce::File& file)
+void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist)
 {
     if (!file.existsAsFile())
         return;
@@ -52,6 +52,9 @@ void MainComponent::loadMidiFile(const juce::File& file)
                 std::move(song));
 
         currentMidiFile = file;
+
+        // Alleen een nummer uit de songlijst mag een volgend nummer starten.
+        currentSongFromSetlist = fromSetlist;
 
         // Belangrijk: de complete Song inclusief
         // lyrics en akkoorden naar de webserver.
@@ -196,6 +199,55 @@ void MainComponent::stop()
 }
 
 // ============================================================================
+// Setlist: volgend nummer
+// ============================================================================
+
+juce::File MainComponent::nextSetlistFile() const
+{
+    if (!currentSongFromSetlist ||
+        selectedSetlist < 0 ||
+        selectedSetlist >= static_cast<int>(setlists.size()))
+    {
+        return {};
+    }
+
+    const auto& songs =
+        setlists[static_cast<std::size_t>(selectedSetlist)].songs;
+
+    for (std::size_t i = 0; i + 1 < songs.size(); ++i)
+    {
+        if (songs[i] == currentMidiFile)
+            return songs[i + 1];
+    }
+
+    return {};
+}
+
+void MainComponent::playNextInSetlist()
+{
+    const auto next = nextSetlistFile();
+
+    if (!next.existsAsFile())
+        return;
+
+    loadMidiFile(next, true);
+
+    const auto& songs =
+        setlists[static_cast<std::size_t>(selectedSetlist)].songs;
+
+    for (std::size_t i = 0; i < songs.size(); ++i)
+    {
+        if (songs[i] == next)
+        {
+            songBox.selectRow(static_cast<int>(i));
+            break;
+        }
+    }
+
+    play();
+}
+
+// ============================================================================
 // Song display
 // ============================================================================
 
@@ -214,8 +266,12 @@ void MainComponent::updateSongDisplay()
         name,
         juce::dontSendNotification);
 
+    const auto next = nextSetlistFile();
+
     nextSong.setText(
-        "Next: -",
+        next.existsAsFile()
+            ? "Next: " + next.getFileNameWithoutExtension()
+            : juce::String("Next: -"),
         juce::dontSendNotification);
 
     updateTransportDisplay();
@@ -263,11 +319,26 @@ void MainComponent::updateTransportDisplay()
                   static_cast<double>(lengthSamples)
             : 0.0;
 
-    positionSlider.setValue(
-        juce::jlimit(0.0, 1.0, fraction),
-        juce::dontSendNotification);
+    // Tijdens het slepen staat de engine stil op de oude positie;
+    // de timer mag de slider dan niet terugzetten.
+    if (!positionSliderDragging)
+    {
+        positionSlider.setValue(
+            juce::jlimit(0.0, 1.0, fraction),
+            juce::dontSendNotification);
+    }
 
     const bool enginePlaying = synthEngine.isPlaying();
+
+    // Nummer is vanzelf afgelopen (niet gepauzeerd of gestopt):
+    // de engine stond aan en staat nu uit op het einde.
+    const bool songFinished =
+        wasEnginePlaying
+        && !enginePlaying
+        && lengthSamples > 0
+        && positionSamples >= lengthSamples;
+
+    wasEnginePlaying = enginePlaying;
 
     if (isPlaying != enginePlaying)
     {
@@ -280,6 +351,9 @@ void MainComponent::updateTransportDisplay()
             juce::TextButton::buttonColourId,
             juce::Colour::fromRGB(0, 164, 235));
     }
+
+    if (songFinished && continuousToggle.getToggleState())
+        playNextInSetlist();
 }
 
 // ============================================================================

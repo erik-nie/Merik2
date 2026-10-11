@@ -24,19 +24,29 @@ RawMidiEvent MidiTransformer::transform(const RawMidiEvent& event)
 {
     RawMidiEvent result = event;
 
-    if (event.bytes.empty())
-        return result;
+    if (event.bytes.size() >= 1 && event.bytes.size() <= 3)
+    {
+        std::array<std::uint8_t, 3> bytes {};
+        std::copy(event.bytes.begin(), event.bytes.end(), bytes.begin());
+        transformInPlace(bytes, event.bytes.size());
+        std::copy_n(bytes.begin(), event.bytes.size(), result.bytes.begin());
+    }
 
-    const std::uint8_t status = event.bytes[0];
+    return result;
+}
+
+void MidiTransformer::transformInPlace(std::array<std::uint8_t, 3>& bytes,
+                                       std::size_t size)
+{
+    if (size == 0)
+        return;
+
+    const std::uint8_t status = bytes[0];
 
     if (status >= 0xF0)
-        return result;
+        return;
 
     const int channel = status & 0x0F;
-
-    if (channel < 0 || channel >= 16)
-        return result;
-
     auto& state = channelStates[static_cast<std::size_t>(channel)];
 
     ++state.eventCounter;
@@ -45,10 +55,10 @@ RawMidiEvent MidiTransformer::transform(const RawMidiEvent& event)
 
     if (message == 0xC0)
     {
-        if (event.bytes.size() < 2)
-            return result;
+        if (size < 2)
+            return;
 
-        const int program = event.bytes[1] & 0x7F;
+        const int program = bytes[1] & 0x7F;
 
         state.program = program;
         state.family = getFamilyFromProgram(program);
@@ -56,34 +66,28 @@ RawMidiEvent MidiTransformer::transform(const RawMidiEvent& event)
         if (channel == 9)
             state.family = 0;
 
-        return result;
+        return;
     }
 
     if (message == 0xB0)
     {
-        if (event.bytes.size() < 3)
-            return result;
+        if (size < 3)
+            return;
 
-        const int controller = event.bytes[1] & 0x7F;
-        const int value = event.bytes[2] & 0x7F;
+        const int controller = bytes[1] & 0x7F;
+        const int value = bytes[2] & 0x7F;
 
         if (controller == 7)
         {
             state.cc7 = value;
-
-            result.bytes[2] = static_cast<std::uint8_t>(
-                getAdjustedChannelVolume(channel));
+            bytes[2] = static_cast<std::uint8_t>(getAdjustedChannelVolume(channel));
         }
         else if (controller == 11)
         {
             state.cc11 = value;
-
-            result.bytes[2] = static_cast<std::uint8_t>(
-                getAdjustedChannelExpression(channel));
+            bytes[2] = static_cast<std::uint8_t>(getAdjustedChannelExpression(channel));
         }
     }
-
-    return result;
 }
 
 void MidiTransformer::setFamilyVolumeFactor(int family, float factor)

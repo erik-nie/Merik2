@@ -6,6 +6,7 @@
 #include <fluidsynth.h>
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -120,9 +121,9 @@ private:
     std::shared_ptr<const Song> song_;
 
     std::size_t nextEvent_ = 0;
-    std::int64_t currentSample_ = 0;
+    std::atomic<std::int64_t> currentSample_ { 0 };
 
-    bool playing_ = false;
+    std::atomic<bool> playing_ { false };
 
     mutable std::mutex mutex_;
 };

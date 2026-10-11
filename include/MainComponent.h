@@ -9,6 +9,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 
 #include <array>
+#include <functional>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -145,11 +146,19 @@ private:
 
     std::atomic<bool> isPlaying{false};
     bool positionSliderWasPlaying = false;
+    bool positionSliderDragging = false;
+    bool currentSongFromSetlist = false;
+    bool wasEnginePlaying = false;
     int transpose = 0;
 
     void loadMidi();
     void selectSoundFont();
     void showAudioSettings();
+
+    // Houdt de kopieën van de toggles in het settingsvenster gelijk
+    // met die in het hoofdscherm (leeg zolang het venster dicht is).
+    std::function<void()> syncSettingsToggles;
+    juce::Component::SafePointer<juce::Component> settingsWindow;
     void play();
     void stop();
 
@@ -160,7 +169,9 @@ private:
     void syncFamilySettingsToWebServer();
     void timerCallback() override;
 
-    void loadMidiFile(const juce::File& file);
+    void loadMidiFile(const juce::File& file, bool fromSetlist = false);
+    void playNextInSetlist();
+    [[nodiscard]] juce::File nextSetlistFile() const;
 
     void loadPersistentState();
     void savePersistentState();

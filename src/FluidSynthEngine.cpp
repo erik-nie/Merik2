@@ -122,23 +122,10 @@ void FluidSynthEngine::setFamilyVolume(int family, int volume)
 
     auto& settings = familySettings_[static_cast<std::size_t>(family)];
 
-    const int oldVolume = settings.volume;
     settings.volume = std::clamp(volume, 0, 127);
 
     updateFamilyFactorLocked(family);
     applyFamilyVolumeLocked(family);
-
-    const float factor = settings.enabled
-        ? static_cast<float>(settings.volume) / 127.0f
-        : 0.0f;
-
-    std::clog
-        << "[Mixer] " << getFamilyName(family)
-        << ": volume " << oldVolume
-        << " -> " << settings.volume
-        << ", enabled=" << (settings.enabled ? "true" : "false")
-        << ", factor=" << factor
-        << '\n';
 }
 
 void FluidSynthEngine::setFamilyEnabled(int family, bool enabled)
@@ -153,24 +140,10 @@ void FluidSynthEngine::setFamilyEnabled(int family, bool enabled)
     std::scoped_lock lock(mutex_);
 
     auto& settings = familySettings_[static_cast<std::size_t>(family)];
-    const bool oldEnabled = settings.enabled;
-
     settings.enabled = enabled;
 
     updateFamilyFactorLocked(family);
     applyFamilyVolumeLocked(family);
-
-    const float factor = settings.enabled
-        ? static_cast<float>(settings.volume) / 127.0f
-        : 0.0f;
-
-    std::clog
-        << "[Mixer] " << getFamilyName(family)
-        << ": enabled " << (oldEnabled ? "true" : "false")
-        << " -> " << (settings.enabled ? "true" : "false")
-        << ", volume=" << settings.volume
-        << ", factor=" << factor
-        << '\n';
 }
 
 void FluidSynthEngine::updateFamilyFactorLocked(int family)
@@ -189,13 +162,8 @@ void FluidSynthEngine::applyFamilyVolumeLocked(int family)
 {
     if (!synth_)
     {
-        std::clog
-            << "[Mixer] " << getFamilyName(family)
-            << ": geen FluidSynth-instantie beschikbaar\n";
         return;
     }
-
-    int updatedChannels = 0;
 
     for (int channel = 0; channel < 16; ++channel)
     {
@@ -212,21 +180,7 @@ void FluidSynthEngine::applyFamilyVolumeLocked(int family)
 
         fluid_synth_cc(synth_, channel, 7, volume);
         fluid_synth_cc(synth_, channel, 11, expression);
-
-        ++updatedChannels;
-
-        std::clog
-            << "[Mixer] " << getFamilyName(family)
-            << ": channel=" << channel + 1
-            << ", CC7=" << volume
-            << ", CC11=" << expression
-            << '\n';
     }
-
-    std::clog
-        << "[Mixer] " << getFamilyName(family)
-        << ": bijgewerkte kanalen=" << updatedChannels
-        << '\n';
 }
 
 void FluidSynthEngine::destroySynth()
@@ -899,16 +853,12 @@ void FluidSynthEngine::setFamilyVolumeFactor(int family, float factor)
 
 bool FluidSynthEngine::isPlaying() const
 {
-    std::scoped_lock lock(mutex_);
-
-    return playing_;
+    return playing_.load(std::memory_order_relaxed);
 }
 
 std::int64_t FluidSynthEngine::positionSamples() const
 {
-    std::scoped_lock lock(mutex_);
-
-    return currentSample_;
+    return currentSample_.load(std::memory_order_relaxed);
 }
 
 std::int64_t FluidSynthEngine::lengthSamples() const
@@ -957,35 +907,19 @@ void FluidSynthEngine::resetSynth()
     if (!synth_)
         return;
 
+    // system_reset stopt alle voices en wist reverb/chorus.
+    // Een kort blokje renderen verwerkt de reset; 2 seconden
+    // "uitrenderen" onder de lock liet de audio-callback stilvallen.
+    fluid_synth_all_sounds_off(synth_, -1);
     fluid_synth_system_reset(synth_);
 
-    constexpr int bufferSize = 512;
-    constexpr double flushSeconds = 2.0;
+    constexpr int flushSamples = 256;
 
-    float left[bufferSize];
-    float right[bufferSize];
+    float left[flushSamples];
+    float right[flushSamples];
 
-    auto remaining = static_cast<int>(
-        std::ceil(sampleRate_ * flushSeconds));
-
-    while (remaining > 0)
-    {
-        const int count = std::min(
-            remaining,
-            bufferSize);
-
-        fluid_synth_write_float(
-            synth_,
-            count,
-            left,
-            0,
-            1,
-            right,
-            0,
-            1);
-
-        remaining -= count;
-    }
+    fluid_synth_write_float(
+        synth_, flushSamples, left, 0, 1, right, 0, 1);
 }
 
 void FluidSynthEngine::sendMidiEvent(
@@ -999,13 +933,16 @@ void FluidSynthEngine::sendMidiEvent(
     // Program Changes update the channel/family state.
     // CC7 and CC11 are transformed according to the
     // current family volume factor.
-    const RawMidiEvent transformedEvent =
-        midiTransformer_.transform(event);
-
-    const auto& bytes = transformedEvent.bytes;
-
-    if (bytes.empty())
+    //
+    // Gebeurt op de audio-thread: geen heap-allocaties.
+    if (event.bytes.empty())
         return;
+
+    std::array<std::uint8_t, 3> bytes {};
+    const std::size_t size = std::min<std::size_t>(event.bytes.size(), 3);
+    std::copy_n(event.bytes.begin(), size, bytes.begin());
+
+    midiTransformer_.transformInPlace(bytes, size);
 
     const auto status = bytes[0];
 
@@ -1016,7 +953,7 @@ void FluidSynthEngine::sendMidiEvent(
     if (status >= 0xF0)
         return;
 
-    if (bytes.size() < 2)
+    if (size < 2)
         return;
 
     const int channel =
@@ -1035,7 +972,7 @@ void FluidSynthEngine::sendMidiEvent(
     {
         case 0x80:
         {
-            if (bytes.size() >= 3)
+            if (size >= 3)
             {
                 fluid_synth_noteoff(
                     synth_,
@@ -1048,7 +985,7 @@ void FluidSynthEngine::sendMidiEvent(
 
         case 0x90:
         {
-            if (bytes.size() >= 3)
+            if (size >= 3)
             {
                 const int velocity =
                     std::clamp(
@@ -1068,7 +1005,7 @@ void FluidSynthEngine::sendMidiEvent(
 
         case 0xA0:
         {
-            if (bytes.size() >= 3)
+            if (size >= 3)
             {
                 const int value =
                     std::clamp(
@@ -1088,7 +1025,7 @@ void FluidSynthEngine::sendMidiEvent(
 
         case 0xB0:
         {
-            if (bytes.size() >= 3)
+            if (size >= 3)
             {
                 const int value =
                     std::clamp(
@@ -1128,7 +1065,7 @@ void FluidSynthEngine::sendMidiEvent(
 
         case 0xE0:
         {
-            if (bytes.size() >= 3)
+            if (size >= 3)
             {
                 const int lsb =
                     std::clamp(

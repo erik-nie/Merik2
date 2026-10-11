@@ -72,6 +72,18 @@ public:
         setColour(
             juce::TextButton::textColourOnId,
             juce::Colours::white);
+
+        // Dropdowns: zelfde vlak als de knoppen
+        setColour(juce::ComboBox::backgroundColourId, panelLightColour);
+        setColour(juce::ComboBox::textColourId, textColour);
+        setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+        setColour(juce::ComboBox::arrowColourId, secondaryTextColour);
+
+        // Uitklapmenu
+        setColour(juce::PopupMenu::backgroundColourId, panelColour);
+        setColour(juce::PopupMenu::textColourId, textColour);
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, merikBlue);
+        setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
     }
 
     // juce::Font getLabelFont(juce::Label&) override
@@ -94,36 +106,103 @@ public:
 
     juce::Font getPopupMenuFont() override
     {
-        return makeFont(14.0f);
+        return getMediumFont(16.0f);
     }
     juce::Font getComboBoxFont(juce::ComboBox&) override
     {
-        return getMerikFont(17.0f);
+        return getMediumFont(18.0f);
     }
 
     void drawComboBox(juce::Graphics& g, int width, int height, bool,
-                    int, int, int, int, juce::ComboBox&) override
+                      int, int, int, int, juce::ComboBox& box) override
     {
-        auto bounds = juce::Rectangle<int>(0, 0, width, height).toFloat();
+        auto bounds = juce::Rectangle<int>(0, 0, width, height)
+                          .toFloat().reduced(0.5f);
 
-        g.setColour(panelColour);
-        g.fillRoundedRectangle(bounds, 5.0f);
+        // Zelfde vlak en afronding als de knoppen
+        auto fill = panelLightColour;
 
-        g.setColour(secondaryTextColour.withAlpha(0.45f));
-        g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
+        if (box.isPopupActive())
+            fill = fill.brighter(0.10f);
+        else if (box.isMouseOver(true))
+            fill = fill.brighter(0.06f);
 
-        auto arrowArea = bounds.removeFromRight(28.0f);
+        g.setColour(fill.withMultipliedAlpha(box.isEnabled() ? 1.0f : 0.5f));
+        g.fillRoundedRectangle(bounds, 7.0f);
+
+        auto arrowArea = bounds.removeFromRight(30.0f);
 
         juce::Path arrow;
-        arrow.startNewSubPath(arrowArea.getCentreX() - 4.0f,
-                            arrowArea.getCentreY() - 2.0f);
+        arrow.startNewSubPath(arrowArea.getCentreX() - 4.5f,
+                              arrowArea.getCentreY() - 2.5f);
         arrow.lineTo(arrowArea.getCentreX(),
-                    arrowArea.getCentreY() + 2.0f);
-        arrow.lineTo(arrowArea.getCentreX() + 4.0f,
-                    arrowArea.getCentreY() - 2.0f);
+                     arrowArea.getCentreY() + 2.5f);
+        arrow.lineTo(arrowArea.getCentreX() + 4.5f,
+                     arrowArea.getCentreY() - 2.5f);
 
         g.setColour(secondaryTextColour);
-        g.strokePath(arrow, juce::PathStrokeType(1.5f));
+        g.strokePath(arrow,
+                     juce::PathStrokeType(1.8f,
+                                          juce::PathStrokeType::curved,
+                                          juce::PathStrokeType::rounded));
+    }
+
+    void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override
+    {
+        label.setBounds(10, 1, box.getWidth() - 40, box.getHeight() - 2);
+        label.setFont(getComboBoxFont(box));
+    }
+
+    void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override
+    {
+        g.fillAll(panelColour);
+
+        g.setColour(familyBorderColour);
+        g.drawRect(0, 0, width, height, 1);
+    }
+
+    void drawToggleButton(juce::Graphics& g,
+                          juce::ToggleButton& button,
+                          bool highlighted,
+                          bool) override
+    {
+        const float boxSize = 22.0f;
+        const auto box = juce::Rectangle<float>(
+            2.0f,
+            (static_cast<float>(button.getHeight()) - boxSize) * 0.5f,
+            boxSize,
+            boxSize);
+
+        const bool on = button.getToggleState();
+
+        auto fill = on ? merikBlue : panelLightColour;
+        if (highlighted)
+            fill = fill.brighter(0.08f);
+
+        g.setColour(fill.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f));
+        g.fillRoundedRectangle(box, 5.0f);
+
+        if (on)
+        {
+            juce::Path tick;
+            tick.startNewSubPath(box.getX() + boxSize * 0.24f, box.getCentreY());
+            tick.lineTo(box.getX() + boxSize * 0.44f, box.getY() + boxSize * 0.70f);
+            tick.lineTo(box.getX() + boxSize * 0.76f, box.getY() + boxSize * 0.30f);
+
+            g.setColour(juce::Colours::white);
+            g.strokePath(tick,
+                         juce::PathStrokeType(2.2f,
+                                              juce::PathStrokeType::curved,
+                                              juce::PathStrokeType::rounded));
+        }
+
+        g.setColour(textColour);
+        g.setFont(getMediumFont(17.0f));
+        g.drawText(button.getButtonText(),
+                   button.getLocalBounds().withTrimmedLeft(
+                       static_cast<int>(boxSize) + 12),
+                   juce::Justification::centredLeft,
+                   true);
     }
 
     void drawTableHeaderColumn(
@@ -309,22 +388,144 @@ private:
 
 namespace
 {
+class SettingsContent final : public juce::Component,
+                              private juce::ComponentListener
+{
+public:
+    SettingsContent(juce::AudioDeviceManager& deviceManager,
+                    juce::TextButton& directPlay,
+                    juce::TextButton& normalize,
+                    juce::TextButton& autoNext)
+        : sources { &directPlay, &normalize, &autoNext }
+    {
+        setLookAndFeel(&merikLookAndFeel);
+
+        selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
+            deviceManager,
+            0, 0,   // geen audio-input
+            1, 2,   // 1-2 outputkanalen
+            false,  // geen MIDI input
+            false,  // geen MIDI output
+            true,   // stereo pairs
+            false); // advanced settings
+
+        addAndMakeVisible(*selector);
+
+        // De selector bepaalt zelf zijn hoogte (hangt af van het gekozen
+        // apparaat); de opties eronder en het venster volgen daarop.
+        selector->addComponentListener(this);
+
+        for (std::size_t i = 0; i < copies.size(); ++i)
+        {
+            auto& copy = copies[i];
+            auto* source = sources[i];
+
+            copy.setButtonText(labels[i]);
+            copy.setClickingTogglesState(true);
+
+            copy.onClick = [source, &copy]
+            {
+                source->setToggleState(copy.getToggleState(),
+                                       juce::dontSendNotification);
+
+                // Zelfde afhandeling als een klik in het hoofdscherm
+                // (opslaan, normalize doorgeven, ...).
+                if (source->onClick != nullptr)
+                    source->onClick();
+            };
+
+            addAndMakeVisible(copy);
+        }
+
+        refresh();
+        setSize(600, 400);
+    }
+
+    ~SettingsContent() override
+    {
+        selector->removeComponentListener(this);
+        setLookAndFeel(nullptr);
+    }
+
+    void refresh()
+    {
+        for (std::size_t i = 0; i < copies.size(); ++i)
+            copies[i].setToggleState(sources[i]->getToggleState(),
+                                     juce::dontSendNotification);
+    }
+
+    void resized() override
+    {
+        if (inLayout)
+            return;
+
+        const juce::ScopedValueSetter<bool> guard(inLayout, true);
+
+        selector->setBounds(0, 6, getWidth(), 3000);
+        layoutOptions();
+    }
+
+private:
+    void componentMovedOrResized(juce::Component& component, bool, bool wasResized) override
+    {
+        if (&component != selector.get() || !wasResized || inLayout)
+            return;
+
+        const juce::ScopedValueSetter<bool> guard(inLayout, true);
+        layoutOptions();
+    }
+
+    // Opties staan in dezelfde kolom als de keuzelijsten van de selector
+    // (die beginnen op 35% van de breedte en zijn 60% breed).
+    void layoutOptions()
+    {
+        constexpr int rowHeight = 30;
+
+        const int x = selector->proportionOfWidth(0.35f);
+        const int width = selector->proportionOfWidth(0.6f);
+        int y = selector->getBottom() + 4;
+
+        for (auto& copy : copies)
+        {
+            copy.setBounds(x, y, width, rowHeight);
+            y += rowHeight;
+        }
+
+        const int wantedHeight = y + 14;
+
+        if (getHeight() != wantedHeight)
+            setSize(getWidth(), wantedHeight);
+    }
+
+    bool inLayout = false;
+
+    static inline const std::array<const char*, 3> labels {
+        "Doubleclick starts playing",
+        "Normalize based on drumchannel level",
+        "Auto play next song in setlist"
+    };
+
+    std::array<juce::TextButton*, 3> sources;
+    std::array<juce::ToggleButton, 3> copies;
+    std::unique_ptr<juce::AudioDeviceSelectorComponent> selector;
+};
+
 class AudioSettingsWindow final : public juce::DialogWindow
 {
 public:
     AudioSettingsWindow(juce::Component* content,
                         juce::Component* owner)
         : juce::DialogWindow(
-              "Audio Settings",
+              "Settings",
               backgroundColour,
               true)
     {
         setUsingNativeTitleBar(true);
-        setResizable(true, true);
+        setResizable(false, false);
 
         setContentOwned(content, true);
 
-        centreAroundComponent(owner, 700, 500);
+        centreAroundComponent(owner, getWidth(), getHeight());
         setVisible(true);
     }
 
@@ -337,21 +538,29 @@ public:
 
 void MainComponent::showAudioSettings()
 {
-    auto* selector = new juce::AudioDeviceSelectorComponent(
+    if (settingsWindow != nullptr)
+    {
+        settingsWindow->toFront(true);
+        return;
+    }
+
+    auto* content = new SettingsContent(
         deviceManager,
-        0, 0,   // geen audio-input
-        1, 2,   // 1-2 outputkanalen
-        false,  // geen MIDI input
-        false,  // geen MIDI output
-        true,   // stereo pairs
-        false); // advanced settings
+        doubleClickToggle,
+        normalizeToggle,
+        continuousToggle);
 
-    selector->setSize(700, 500);
+    juce::Component::SafePointer<SettingsContent> safeContent(content);
 
-    new AudioSettingsWindow(
-        selector,
-        this);
+    syncSettingsToggles = [safeContent]
+    {
+        if (safeContent != nullptr)
+            safeContent->refresh();
+    };
+
+    settingsWindow = new AudioSettingsWindow(content, this);
 }
+
 // ============================================================================
 // SetlistModel
 // ============================================================================
@@ -1609,6 +1818,8 @@ MainComponent::MainComponent()
 
     positionSlider.onDragStart = [this]
     {
+        positionSliderDragging = true;
+
         positionSliderWasPlaying =
             synthEngine.isPlaying();
 
@@ -1624,6 +1835,11 @@ MainComponent::MainComponent()
 
     positionSlider.onDragEnd = [this]
     {
+        // De sliderwaarde is nu de bedoelde positie; lees die eerst,
+        // pas daarna mag de timer de slider weer bijwerken.
+        const double sliderValue = positionSlider.getValue();
+        positionSliderDragging = false;
+
         if (!currentSong)
             return;
 
@@ -1637,7 +1853,7 @@ MainComponent::MainComponent()
             juce::jlimit(
                 0.0,
                 1.0,
-                positionSlider.getValue());
+                sliderValue);
 
         const auto targetSamples =
             static_cast<std::int64_t>(
@@ -1976,17 +2192,7 @@ MainComponent::MainComponent()
     songModel->setDoubleClickCallback(
         [this](const juce::File& file)
         {
-            loadMidiFile(file);
-
-            if (doubleClickToggle.getToggleState())
-                play();
-        });
-
-
-    songModel->setDoubleClickCallback(
-        [this](const juce::File& file)
-        {
-            loadMidiFile(file);
+            loadMidiFile(file, true);
 
             if (doubleClickToggle.getToggleState())
                 play();
@@ -2139,6 +2345,7 @@ MainComponent::MainComponent()
     doubleClickToggle.onClick = [this]
     {
         savePersistentState();
+        if (syncSettingsToggles) syncSettingsToggles();
     };
 
     normalizeToggle.onClick = [this]
@@ -2148,11 +2355,13 @@ MainComponent::MainComponent()
 
         channelTable.repaint();
         savePersistentState();
+        if (syncSettingsToggles) syncSettingsToggles();
     };
 
     continuousToggle.onClick = [this]
     {
         savePersistentState();
+        if (syncSettingsToggles) syncSettingsToggles();
     };
 
 

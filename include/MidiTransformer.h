@@ -25,6 +25,9 @@ public:
 
     RawMidiEvent transform(const RawMidiEvent& event);
 
+    // Allocatievrij (voor de audio-thread): past de bytes ter plekke aan.
+    void transformInPlace(std::array<std::uint8_t, 3>& bytes, std::size_t size);
+
     void setFamilyVolumeFactor(int family, float factor);
     void setNormalizeEnabled(bool enabled);
 
