@@ -1,5 +1,6 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "MainComponent.h"
+#include "WebServer.h"
 
 
 class MerikApplication : public juce::JUCEApplication
@@ -34,11 +35,28 @@ public:
         return day + " " + month + " " + year + " " + time;
     }
 
+    // Eerste niet-loopback IPv4-adres, zodat de webinterface vanaf een
+    // ander apparaat te vinden is (bijv. 192.168.2.212:8888).
+    static juce::String getLocalAddress()
+    {
+        for (const auto& address : juce::IPAddress::getAllAddresses(false))
+        {
+            if (!address.isIPv6 && address != juce::IPAddress::local())
+                return address.toString();
+        }
+
+        return {};
+    }
+
     void initialise(const juce::String&) override
     {
+        const auto ip = getLocalAddress();
+        const juce::String web = ip.isNotEmpty()
+            ? "    web:" + ip + ":" + juce::String(WebServer::defaultPort)
+            : juce::String();
 
         mainWindow = std::make_unique<MainWindow>(
-            getApplicationName() + "    v:" + getApplicationVersion() + "    build:" + getBuildDateTime(),
+            getApplicationName() + "    v:" + getApplicationVersion() + "    build:" + getBuildDateTime() + web,
             *this
         );
     }

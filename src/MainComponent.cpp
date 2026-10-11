@@ -491,14 +491,47 @@ public:
                     juce::ComboBox& midiIn,
                     juce::ComboBox& midiOut,
                     juce::TextButton& soundFont,
+                    const juce::String& webKey,
+                    std::function<void(const juce::String&)> webKeyChanged,
                     juce::TextButton& directPlay,
                     juce::TextButton& normalize,
                     juce::TextButton& autoNext)
         : sources { &directPlay, &normalize, &autoNext },
           midiSources { &midiIn, &midiOut },
-          soundFontSource(&soundFont)
+          soundFontSource(&soundFont),
+          onWebKeyChanged(std::move(webKeyChanged))
     {
         setLookAndFeel(&merikLookAndFeel);
+
+        // Sleutel voor bediening via de webpagina (standaard alleen-lezen).
+        webKeyLabel.setText("Web control key", juce::dontSendNotification);
+        webKeyLabel.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(webKeyLabel);
+
+        webKeyEditor.setInputRestrictions(
+            32, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_");
+        webKeyEditor.setText(webKey, juce::dontSendNotification);
+        webKeyEditor.setColour(juce::TextEditor::backgroundColourId, panelLightColour);
+        webKeyEditor.setColour(juce::TextEditor::textColourId, textColour);
+        webKeyEditor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        webKeyEditor.setColour(juce::TextEditor::focusedOutlineColourId, merikBlue);
+        webKeyEditor.setFont(merikLookAndFeel.getMediumFont(17.0f));
+        webKeyEditor.setIndents(10, 0);
+        webKeyEditor.setJustification(juce::Justification::centredLeft);
+        webKeyEditor.onTextChange = [this]
+        {
+            updateWebHint();
+
+            if (onWebKeyChanged)
+                onWebKeyChanged(webKeyEditor.getText());
+        };
+        addAndMakeVisible(webKeyEditor);
+
+        webHint.setColour(juce::Label::textColourId, secondaryTextColour);
+        webHint.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        webHint.setMinimumHorizontalScale(1.0f);
+        addAndMakeVisible(webHint);
+        updateWebHint();
 
         // MIDI / SoundFont: werken op dezelfde (verborgen) controls van het
         // hoofdscherm, zodat de bestaande afhandeling gebruikt blijft.
@@ -621,11 +654,41 @@ public:
         soundFontCopy.setBounds(controlX, y, controlWidth, 28);
         y += 34;
 
+        webKeyLabel.setBounds(0, y, controlX - 8, 28);
+        webKeyEditor.setBounds(controlX, y, controlWidth, 28);
+        y += 30;
+
+        webHint.setBounds(controlX, y, controlWidth, 34);
+        y += 42;
+
         selector->setBounds(0, y, getWidth(), 3000);
         layoutOptions();
     }
 
 private:
+    void updateWebHint()
+    {
+        juce::String ip = "<ip>";
+
+        for (const auto& address : juce::IPAddress::getAllAddresses(false))
+        {
+            if (!address.isIPv6 && address != juce::IPAddress::local())
+            {
+                ip = address.toString();
+                break;
+            }
+        }
+
+        const auto key = webKeyEditor.getText();
+
+        webHint.setText(
+            key.isEmpty()
+                ? "Leeg: de webpagina is alleen-lezen en kan nooit bedienen."
+                : "Bediening aan via http://" + ip + ":" + juce::String(WebServer::defaultPort)
+                    + "/?key=" + key + "  (zonder sleutel: alleen kijken)",
+            juce::dontSendNotification);
+    }
+
     void timerCallback() override
     {
         if (soundFontCopy.getButtonText() != soundFontSource->getButtonText())
@@ -679,6 +742,11 @@ private:
     std::array<juce::TextButton*, 3> sources;
     std::array<juce::ComboBox*, 2> midiSources;
     juce::TextButton* soundFontSource;
+    std::function<void(const juce::String&)> onWebKeyChanged;
+
+    juce::Label webKeyLabel;
+    juce::TextEditor webKeyEditor;
+    juce::Label webHint;
 
     std::array<juce::Label, 2> midiRowLabels;
     std::array<juce::ComboBox, 2> midiBoxes;
@@ -728,6 +796,18 @@ void MainComponent::showAudioSettings()
         midiControlBox,
         midiOutBox,
         soundFontButton,
+        webControlKey,
+        [this](const juce::String& key)
+        {
+            webControlKey = key;
+            webServer.setControlKey(key.toStdString());
+
+            if (auto* properties = appProperties.getUserSettings())
+            {
+                properties->setValue("webControlKey", key);
+                properties->saveIfNeeded();
+            }
+        },
         doubleClickToggle,
         normalizeToggle,
         continuousToggle);
@@ -1710,6 +1790,9 @@ void MainComponent::timerCallback()
     channelTable.repaint();
 
     webServer.setPositionSamples(synthEngine.positionSamples());
+    webServer.setTransportInfo(
+        synthEngine.isPlaying(),
+        nextSetlistFile().getFileNameWithoutExtension().toStdString());
 
     const auto familySettings = synthEngine.getAllFamilySettings();
 
@@ -1767,7 +1850,35 @@ MainComponent::MainComponent()
             synthEngine.setFamilyEnabled(family, enabled);
         });
 
-    webServer.start(8080);
+    // Play/Stop/Next vanuit de webpagina: uitvoeren op de GUI-thread,
+    // net als een klik op de knoppen.
+    webServer.setControlCallback(
+        [safeThis = juce::Component::SafePointer<MainComponent>(this)]
+        (const std::string& command)
+        {
+            juce::MessageManager::callAsync(
+                [safeThis, command]
+                {
+                    if (safeThis == nullptr)
+                        return;
+
+                    if (command == "play")
+                        safeThis->play();
+                    else if (command == "stop")
+                        safeThis->stop();
+                    else if (command == "next")
+                        safeThis->skipToNextSong();
+                });
+        });
+
+    // Bediening via de webpagina: standaard sleutel "merik"; aanpasbaar
+    // in Settings. Leeg = bediening volledig uit.
+    if (auto* properties = appProperties.getUserSettings())
+        webControlKey = properties->getValue("webControlKey", "merik");
+
+    webServer.setControlKey(webControlKey.toStdString());
+
+    webServer.start(WebServer::defaultPort);
 
     // -------------------------------------------------------------------------
     // MIDI Control
@@ -2013,7 +2124,7 @@ MainComponent::MainComponent()
     // songTitle.setColour(juce::Label::backgroundColourId, juce::Colours::lime);
     //songTitle.setFont(makeNotoFont(60.0f));
     songTitle.setFont(
-        merikLookAndFeel.getBoldFont(40.0f));
+        merikLookAndFeel.getBoldFont(36.0f));
     songTitle.setJustificationType(juce::Justification::centred);
     songTitle.setMinimumHorizontalScale(1.0f);
     addAndMakeVisible(songTitle);
@@ -2027,7 +2138,7 @@ MainComponent::MainComponent()
         secondaryTextColour);
     // nextSong.setColour(juce::Label::backgroundColourId, juce::Colours::red);
 
-    nextSong.setFont(makeNotoFont(30.0f));
+    nextSong.setFont(makeNotoFont(26.0f));
 
     nextSong.setJustificationType(
         juce::Justification::centred);
@@ -2275,7 +2386,7 @@ MainComponent::MainComponent()
 
     lyricsButton.onClick = []
     {
-        juce::URL("http://localhost:8080").launchInDefaultBrowser();
+        juce::URL("http://localhost:" + juce::String(WebServer::defaultPort)).launchInDefaultBrowser();
     };
 
     addAndMakeVisible(lyricsButton);
@@ -3008,15 +3119,15 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto player =
-        bounds.removeFromTop(155).reduced(10,5);
+        bounds.removeFromTop(179).reduced(10,5);
 
     auto titleArea =
-        player.removeFromTop(35);
+        player.removeFromTop(48);
     //titleArea.translate(0, -10);
     songTitle.setBounds(titleArea);
 
     nextSong.setBounds(
-        player.removeFromTop(25));
+        player.removeFromTop(36));
 
     auto progressArea =
         player.removeFromTop(35);

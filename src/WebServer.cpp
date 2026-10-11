@@ -2,9 +2,11 @@
 #include "ChordParser.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <netinet/in.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -93,7 +95,96 @@ bool WebServer::isRunning() const { return running.load(); }
 void WebServer::setTranspose(int semitones)
 {
     const std::scoped_lock lock(mutex_);
-    transpose_ = semitones;
+
+    if (transpose_ != semitones)
+    {
+        transpose_ = semitones;
+        ++contentRevision_;
+    }
+}
+
+void WebServer::setControlKey(const std::string& key)
+{
+    const std::scoped_lock lock(mutex_);
+    controlKey_ = key;
+}
+
+namespace
+{
+    // Haalt een queryparameter uit de eerste regel van een HTTP-verzoek.
+    std::string queryParameter(const std::string& request, const std::string& name)
+    {
+        const auto targetStart = request.find(' ');
+        if (targetStart == std::string::npos)
+            return {};
+
+        const auto targetEnd = request.find(' ', targetStart + 1);
+        const auto target = request.substr(
+            targetStart + 1,
+            targetEnd == std::string::npos ? std::string::npos : targetEnd - targetStart - 1);
+
+        auto position = target.find('?');
+        if (position == std::string::npos)
+            return {};
+
+        const std::string key = name + "=";
+
+        while (position != std::string::npos)
+        {
+            ++position;
+
+            if (target.compare(position, key.size(), key) == 0)
+            {
+                const auto end = target.find('&', position);
+                const auto raw = target.substr(
+                    position + key.size(),
+                    end == std::string::npos ? std::string::npos : end - position - key.size());
+
+                std::string decoded;
+                for (std::size_t i = 0; i < raw.size(); ++i)
+                {
+                    if (raw[i] == '%' && i + 2 < raw.size() + 0 && std::isxdigit(static_cast<unsigned char>(raw[i + 1]))
+                        && std::isxdigit(static_cast<unsigned char>(raw[i + 2])))
+                    {
+                        decoded += static_cast<char>(std::stoi(raw.substr(i + 1, 2), nullptr, 16));
+                        i += 2;
+                    }
+                    else
+                        decoded += raw[i] == '+' ? ' ' : raw[i];
+                }
+                return decoded;
+            }
+
+            position = target.find('&', position);
+        }
+
+        return {};
+    }
+}
+
+bool WebServer::isAuthorized(const std::string& request) const
+{
+    std::string expected;
+
+    {
+        const std::scoped_lock lock(mutex_);
+        expected = controlKey_;
+    }
+
+    return !expected.empty() && queryParameter(request, "key") == expected;
+}
+
+void WebServer::setControlCallback(ControlCallback callback)
+{
+    const std::scoped_lock lock(mutex_);
+    controlCallback_ = std::move(callback);
+}
+
+void WebServer::setTransportInfo(bool playing, const std::string& nextSongTitle)
+{
+    const std::scoped_lock lock(mutex_);
+    playing_ = playing;
+    nextSongTitle_ = nextSongTitle;
 }
 
 void WebServer::setSong(std::shared_ptr<const Song> song)
@@ -101,6 +192,8 @@ void WebServer::setSong(std::shared_ptr<const Song> song)
     std::scoped_lock lock(mutex_);
     song_ = std::move(song);
     positionSamples_ = 0;
+    ++songRevision_;
+    ++contentRevision_;
 }
 
 void WebServer::setPositionSamples(std::int64_t positionSamples)
@@ -179,6 +272,13 @@ void WebServer::serverThread()
 
 void WebServer::handleClient(int socket)
 {
+    // Een client die niets stuurt mag de (enkele) serverthread niet
+    // eeuwig blokkeren.
+    timeval timeout {};
+    timeout.tv_sec = 2;
+    ::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    ::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
     char buffer[4096] {};
     const auto received = ::recv(socket, buffer, sizeof(buffer) - 1, 0);
 
@@ -187,6 +287,46 @@ void WebServer::handleClient(int socket)
 
     buffer[received] = '\0';
     const std::string request(buffer);
+
+    if (request.rfind("GET /api/state", 0) == 0)
+    {
+        sendResponse(socket, createStateJson(isAuthorized(request)), "application/json; charset=utf-8");
+        return;
+    }
+
+    if (request.rfind("POST /api/control?cmd=", 0) == 0)
+    {
+        const auto start = request.find("cmd=") + 4;
+        const auto end = request.find_first_of(" &", start);
+        const std::string command =
+            request.substr(start, end == std::string::npos ? std::string::npos : end - start);
+
+        ControlCallback callback;
+
+        {
+            std::scoped_lock lock(mutex_);
+            callback = controlCallback_;
+        }
+
+        if (!isAuthorized(request))
+        {
+            sendResponse(socket, R"({"ok":false,"error":"unauthorized"})",
+                         "application/json; charset=utf-8");
+            return;
+        }
+
+        if (callback && (command == "play" || command == "stop" || command == "next"))
+        {
+            callback(command);
+            sendResponse(socket, R"({"ok":true})", "application/json; charset=utf-8");
+        }
+        else
+        {
+            sendResponse(socket, R"({"ok":false})", "application/json; charset=utf-8");
+        }
+
+        return;
+    }
 
     if (request.rfind("GET /api/families", 0) == 0)
     {
@@ -204,6 +344,13 @@ void WebServer::handleClient(int socket)
 
     if (request.rfind("GET /api/family?", 0) == 0)
     {
+        if (!isAuthorized(request))
+        {
+            sendResponse(socket, R"({"ok":false,"error":"unauthorized"})",
+                         "application/json; charset=utf-8");
+            return;
+        }
+
         const auto targetStart = request.find(' ') + 1;
         const auto targetEnd = request.find(' ', targetStart);
 
@@ -290,96 +437,126 @@ void WebServer::handleClient(int socket)
     sendResponse(socket, createHtml(), "text/html; charset=utf-8");
 }
 
-std::string WebServer::createJson() const
+std::string WebServer::createStateJson(bool control) const
 {
     std::shared_ptr<const Song> song;
     std::int64_t positionSamples = 0;
+    std::uint64_t contentRevision = 0;
+    std::uint64_t songRevision = 0;
     int transpose = 0;
-    std::vector<std::string> chordLabels;
+    bool playing = false;
+    std::string nextTitle;
 
     {
         std::scoped_lock lock(mutex_);
         song = song_;
         positionSamples = positionSamples_;
+        contentRevision = contentRevision_;
+        songRevision = songRevision_;
         transpose = transpose_;
-
-        // Getransponeerde akkoorden cachen: de client pollt 10x/s.
-        if (song && transpose != 0
-            && (transposedChordCacheSong_ != song.get()
-                || transposedChordCacheKey_ != transpose
-                || transposedChordCache_.size() != song->chords.size()))
-        {
-            transposedChordCache_.clear();
-            transposedChordCache_.reserve(song->chords.size());
-
-            for (const auto& chord : song->chords)
-                transposedChordCache_.push_back(
-                    ChordParser::transposeLabel(chord.label, transpose));
-
-            transposedChordCacheSong_ = song.get();
-            transposedChordCacheKey_ = transpose;
-        }
-
-        if (song && transpose != 0)
-            chordLabels = transposedChordCache_;
+        playing = playing_;
+        nextTitle = nextSongTitle_;
     }
 
-    if (!song)
-        return R"({"song":"","position":0,"duration":0,"lyrics":[],"chords":[]})";
-
-    const double sampleRate = song->sampleRate > 0.0 ? song->sampleRate : 48000.0;
-    const double positionSeconds = static_cast<double>(positionSamples) / sampleRate;
-
-    double durationSeconds = 0.0;
-    if (!song->playbackEvents.empty())
-        durationSeconds = std::max(durationSeconds, song->playbackEvents.back().seconds);
-    if (!song->lyrics.empty())
-        durationSeconds = std::max(durationSeconds, song->lyrics.back().seconds);
-    if (!song->chords.empty())
-        durationSeconds = std::max(durationSeconds, song->chords.back().endSeconds);
-
-    const auto& path = song->sourceFile;
-    const auto slash = path.find_last_of("/\\");
-    const auto start = slash == std::string::npos ? 0 : slash + 1;
-    const auto dot = path.find_last_of('.');
-    const auto end = dot != std::string::npos && dot > start ? dot : path.length();
-    const std::string title = path.substr(start, end - start);
+    const double sampleRate =
+        song && song->sampleRate > 0.0 ? song->sampleRate : 48000.0;
 
     std::string json = "{";
-    json += "\"song\":\"" + escapeJson(title) + "\",";
-    json += "\"position\":" + std::to_string(positionSeconds) + ",";
-    json += "\"duration\":" + std::to_string(durationSeconds) + ",";
+    json += "\"rev\":" + std::to_string(contentRevision) + ",";
+    json += "\"songRev\":" + std::to_string(songRevision) + ",";
+    json += "\"position\":" + std::to_string(static_cast<double>(positionSamples) / sampleRate) + ",";
+    json += "\"playing\":" + std::string(playing ? "true" : "false") + ",";
+    json += "\"transpose\":" + std::to_string(transpose) + ",";
+    json += "\"next\":\"" + escapeJson(nextTitle) + "\",";
 
-    json += "\"lyrics\":[";
-    for (std::size_t i = 0; i < song->lyrics.size(); ++i)
-    {
-        if (i != 0) json += ",";
-        const auto& lyric = song->lyrics[i];
-        json += "{";
-        json += "\"time\":" + std::to_string(lyric.seconds) + ",";
-        json += "\"line\":" + std::to_string(lyric.lineIndex) + ",";
-        json += "\"startsNewWord\":" + std::string(lyric.startsNewWord ? "true" : "false") + ",";
-        json += "\"endsWord\":" + std::string(lyric.endsWord ? "true" : "false") + ",";
-        json += "\"startsNewLine\":" + std::string(lyric.startsNewLine ? "true" : "false") + ",";
-        json += "\"endsLine\":" + std::string(lyric.endsLine ? "true" : "false") + ",";
-        json += "\"text\":\"" + escapeJson(lyric.text) + "\"}";
-    }
-    json += "],";
+    json += "\"control\":" + std::string(control ? "true" : "false");
 
-    json += "\"chords\":[";
-    for (std::size_t i = 0; i < song->chords.size(); ++i)
+    // Families alleen voor bedienende clients (scheelt ook een aparte poll).
+    if (control)
     {
-        if (i != 0) json += ",";
-        const auto& chord = song->chords[i];
-        json += "{";
-        json += "\"time\":" + std::to_string(chord.seconds) + ",";
-        json += "\"end\":" + std::to_string(chord.endSeconds) + ",";
-        const std::string& label =
-            transpose != 0 && i < chordLabels.size() ? chordLabels[i] : chord.label;
-        json += "\"label\":\"" + escapeJson(label) + "\"}";
+        const auto families = createFamilyJson();
+        json += "," + families.substr(1, families.size() - 2);   // "families":[...]
     }
-    json += "]}";
+
+    json += "}";
     return json;
+}
+
+std::string WebServer::createJson() const
+{
+    std::scoped_lock lock(mutex_);
+
+    if (songJsonCacheRevision_ == contentRevision_ && !songJsonCache_.empty())
+        return songJsonCache_;
+
+    const auto song = song_;
+    const int transpose = transpose_;
+
+    std::string json = "{";
+    json += "\"rev\":" + std::to_string(contentRevision_) + ",";
+    json += "\"songRev\":" + std::to_string(songRevision_) + ",";
+
+    if (!song)
+    {
+        json += "\"song\":\"\",\"duration\":0,\"lyrics\":[],\"chords\":[]}";
+    }
+    else
+    {
+        double durationSeconds = 0.0;
+        if (!song->playbackEvents.empty())
+            durationSeconds = std::max(durationSeconds, song->playbackEvents.back().seconds);
+        if (!song->lyrics.empty())
+            durationSeconds = std::max(durationSeconds, song->lyrics.back().seconds);
+        if (!song->chords.empty())
+            durationSeconds = std::max(durationSeconds, song->chords.back().endSeconds);
+
+        const auto& path = song->sourceFile;
+        const auto slash = path.find_last_of("/\\");
+        const auto start = slash == std::string::npos ? 0 : slash + 1;
+        const auto dot = path.find_last_of('.');
+        const auto end = dot != std::string::npos && dot > start ? dot : path.length();
+        const std::string title = path.substr(start, end - start);
+
+        json += "\"song\":\"" + escapeJson(title) + "\",";
+        json += "\"duration\":" + std::to_string(durationSeconds) + ",";
+
+        json += "\"lyrics\":[";
+        for (std::size_t i = 0; i < song->lyrics.size(); ++i)
+        {
+            if (i != 0) json += ",";
+            const auto& lyric = song->lyrics[i];
+            json += "{";
+            json += "\"time\":" + std::to_string(lyric.seconds) + ",";
+            json += "\"line\":" + std::to_string(lyric.lineIndex) + ",";
+            json += "\"startsNewWord\":" + std::string(lyric.startsNewWord ? "true" : "false") + ",";
+            json += "\"endsWord\":" + std::string(lyric.endsWord ? "true" : "false") + ",";
+            json += "\"startsNewLine\":" + std::string(lyric.startsNewLine ? "true" : "false") + ",";
+            json += "\"endsLine\":" + std::string(lyric.endsLine ? "true" : "false") + ",";
+            json += "\"text\":\"" + escapeJson(lyric.text) + "\"}";
+        }
+        json += "],";
+
+        json += "\"chords\":[";
+        for (std::size_t i = 0; i < song->chords.size(); ++i)
+        {
+            if (i != 0) json += ",";
+            const auto& chord = song->chords[i];
+            const std::string label =
+                transpose != 0
+                    ? ChordParser::transposeLabel(chord.label, transpose)
+                    : chord.label;
+
+            json += "{";
+            json += "\"time\":" + std::to_string(chord.seconds) + ",";
+            json += "\"end\":" + std::to_string(chord.endSeconds) + ",";
+            json += "\"label\":\"" + escapeJson(label) + "\"}";
+        }
+        json += "]}";
+    }
+
+    songJsonCache_ = std::move(json);
+    songJsonCacheRevision_ = contentRevision_;
+    return songJsonCache_;
 }
 
 std::string WebServer::createHtml() const
@@ -458,14 +635,18 @@ footer {
     padding: 8px 12px;
     border-radius: 8px;
 
-    background: rgba(0, 0, 0, 0.35);
-    color: #ff4a4a;
+    background: rgba(0, 0, 0, 0.15);
+    color: rgba(255, 74, 74, 0.6);
+    opacity: .55;
+    transition: opacity 150ms ease;
 
     font-size: 15px;
     font-weight: 600;
 
     pointer-events: auto;
 }
+
+#lyricsFontControl:hover { opacity: 1; }
 
 #lyricsFontControl label {
     font-size: 18px;
@@ -562,8 +743,41 @@ footer {
         width 180ms ease,
         opacity 180ms ease;
 }    
+#time .key { margin-left:14px; color:#6aa5ff; }
+#nextSong { margin-top:2px; color:#9ea4b0; font-size:20px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#nextSong:empty { display:none; }
+
+/* Standaard is de pagina alleen-lezen; bediening verschijnt pas met ?key=... */
+body:not(.control) #transport,
+body:not(.control) #familyPanel { display:none; }
+
+/* Transport: verticaal tegen de linkerrand, alleen iconen, heel subtiel */
+#transport {
+    position:fixed; left:6px; top:50%; transform:translateY(-50%); z-index:30;
+    display:flex; flex-direction:column; gap:10px; pointer-events:auto;
+}
+#transport button {
+    width:48px; height:48px; padding:0; border:1px solid rgba(255,255,255,.14);
+    border-radius:12px; background:rgba(255,255,255,.06); color:rgba(255,255,255,.55);
+    font-size:20px; line-height:1; cursor:pointer; opacity:.7;
+    -webkit-tap-highlight-color:transparent;
+    transition:background 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+#transport svg { width:22px; height:22px; fill:currentColor; display:block; margin:0 auto; pointer-events:none; }
+#btnPlay .i-pause { display:none; }
+#btnPlay[data-playing="1"] .i-play { display:none; }
+#btnPlay[data-playing="1"] .i-pause { display:block; }
+#transport button:hover { background:rgba(255,255,255,.14); color:#fff; opacity:1; }
+#transport button:active { background:rgba(255,255,255,.22); }
+#transport button.primary { color:rgba(106,165,255,.95); }
+#transport button.primary:hover { color:#fff; background:rgba(24,118,255,.45); }
+#transport button:focus-visible { outline:2px solid #6aa5ff; outline-offset:2px; }
+
 @media (max-width:600px) {
     header { padding:15px 18px 40px; }
+    #nextSong { font-size:14px; }
+    #transport { left:4px; }
+    #transport button { width:42px; height:42px; }
     #song { font-size:21px; }
     #time { font-size:13px; }
     #lyricsViewport { padding:100px 18px 220px; }
@@ -581,24 +795,24 @@ footer {
 /* ############################################# */
 
 #familyPanel { position: fixed; z-index: 100; top: 0; right: 0; bottom: 0; width: 20%; min-width: 220px; max-width: 340px; transform: translateX(100%); transition: transform 280ms ease; pointer-events: none; }
-#familyPanelContent { position: absolute; inset: 0; padding: 20px 16px; overflow-x: hidden; overflow-y: auto; background: rgba(15,15,28,0.97); border-left: 1px solid #444; pointer-events: auto; }
-#familyToggle { position: absolute; z-index: 101; top: 50%; left: -28px; width: 28px; height: 76px; padding: 0; transform: translateY(-50%); border: 1px solid #555; border-right: none; border-radius: 8px 0 0 8px; background: #181824; color: #ff4a4a; font-size: 28px; cursor: pointer; pointer-events: auto; }
+#familyPanelContent { position: absolute; inset: 0; padding: 20px 16px; overflow-x: hidden; overflow-y: auto; background: rgba(27,29,34,0.97); border-left: 1px solid #30333a; pointer-events: auto; }
+#familyToggle { position: absolute; z-index: 101; top: 50%; left: -28px; width: 28px; height: 76px; padding: 0; transform: translateY(-50%); border: 1px solid #30333a; border-right: none; border-radius: 8px 0 0 8px; background: #1b1d22; color: #9ea4b0; font-size: 28px; cursor: pointer; pointer-events: auto; }
 body.family-panel-open #familyPanel { transform: translateX(0); }
 body.family-panel-open #familyPanelContent { pointer-events: auto; }
 #lyricsViewport { width: 100%; margin-right: 0; transition: width 280ms ease, margin-right 280ms ease; }
 body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
-#familyPanelHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 22px; font-size: 20px; font-weight: 700; color: #ff4a4a; }
-#familyClose { width: 36px; height: 36px; border: 0; border-radius: 6px; background: #30303d; color: #fff; font-size: 24px; cursor: pointer; }
-.family-control { margin-bottom: 5px; padding-bottom: 4px; border-bottom: 1px solid #353543; }
+#familyPanelHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 22px; font-size: 20px; font-weight: 700; color: #fff; }
+#familyClose { width: 36px; height: 36px; border: 0; border-radius: 6px; background: #2e3138; color: #fff; font-size: 24px; cursor: pointer; }
+.family-control { margin-bottom: 5px; padding-bottom: 4px; border-bottom: 1px solid #30333a; }
 .family-control-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .family-name { color: #fff; font-size: 15px; font-weight: 600; }
 .family-enable { appearance: none; -webkit-appearance: none; width: 34px; height: 18px; flex-shrink: 0; border-radius: 9px; background: #555; position: relative; cursor: pointer; transition: background 180ms ease; }
 .family-enable::before { content: ""; position: absolute; width: 14px; height: 14px; top: 2px; left: 2px; border-radius: 50%; background: #fff; transition: transform 180ms ease; }
-.family-enable:checked { background: #ff4a4a; }
+.family-enable:checked { background: #1876ff; }
 .family-enable:checked::before { transform: translateX(16px); }
-.family-enable:focus-visible { outline: 2px solid #ff4a4a; outline-offset: 3px; }
+.family-enable:focus-visible { outline: 2px solid #6aa5ff; outline-offset: 3px; }
 .family-slider-row { display: flex; align-items: center; gap: 3px; }
-.family-slider { width: 100%; min-width: 0; accent-color: #ff4a4a; cursor: pointer; }
+.family-slider { width: 100%; min-width: 0; accent-color: #1876ff; cursor: pointer; }
 .family-value { width: 28px; text-align: right; color: #bbb; font-size: 12px; font-variant-numeric: tabular-nums; }
 .family-control.disabled { opacity: 0.4; }
 @media (max-width: 700px) { #familyPanel { width: 45%; min-width: 200px; } body.family-panel-open #lyricsViewport { width: 55%; margin-right: 45%; } }
@@ -610,7 +824,7 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 <!-- ########################## HTML   ################################# -->
 <!-- ################################################################### -->
 <body>
-<header><div id="song">Merik</div><div id="time">00:00 / 00:00</div></header>
+<header><div id="song">Merik</div><div id="time">00:00 / 00:00</div><div id="nextSong"></div></header>
 <div id="songProgress"><div id="songProgressFill"></div></div>
 <div id="lyricCountdown"></div>
 <main>
@@ -641,6 +855,19 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
         <div id="familyControls"></div>
     </div>
 </aside>
+
+<div id="transport" role="group" aria-label="Transport">
+    <button id="btnPlay" type="button" class="primary" aria-label="Play" data-playing="0">
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+    </button>
+    <button id="btnStop" type="button" aria-label="Stop">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>
+    </button>
+    <button id="btnNext" type="button" aria-label="Volgende nummer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l8 6-8 6zM12 6l8 6-8 6zM19.5 6H22v12h-2.5z"/></svg>
+    </button>
+</div>
 
 <footer>
 
@@ -675,7 +902,7 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
         </span>
 
         <div id="nextProgress1"
-             class="chord-progress" future-progress">
+             class="chord-progress future-progress">
         </div>
 
       </div>
@@ -740,6 +967,14 @@ let initialLyricsPositioned = false;
 let lyricScrollAnimation = null;
 
 let lastSongTitle = "";
+let lastSongRev = -1;
+let lyricsDomBuilt = false;
+let lyricLinesCache = [];
+let lyricSpanEls = [];
+let lyricSpanState = [];
+let lyricLineEls = [];
+let lyricLineOf = [];
+let markedLyricLine = -1;
 let lastPosition = 0;
 
 function formatTime(seconds) {
@@ -860,7 +1095,7 @@ function renderLyrics()
      * Detecteer een nieuw nummer.
      */
     const songChanged =
-        songData.song !== lastSongTitle;
+        songData.songRev !== lastSongRev;
 
     /*
      * Detecteer een restart / terugspoelen naar het begin.
@@ -888,6 +1123,12 @@ function renderLyrics()
 
         lastSongTitle =
             songData.song || "";
+    }
+
+    if (songChanged)
+    {
+        lastSongRev = songData.songRev;
+        lyricsDomBuilt = false;
     }
 
     lastPosition = position;
@@ -920,6 +1161,7 @@ function renderLyrics()
         lastCurrentIndex = -1;
         lastPreparedLineIndex = -1;
         initialLyricsPositioned = false;
+        lyricsDomBuilt = false;
 
         return;
     }
@@ -944,92 +1186,113 @@ function renderLyrics()
     }
 
     /*
-     * Bouw de tekst opnieuw wanneer de actieve lyric
-     * verandert.
+     * De regels en woorden worden maar één keer per nummer opgebouwd.
+     * Daarna worden bij een nieuwe actieve lyric alleen nog de
+     * klassen (past / current / future) bijgewerkt.
      */
-const lyricIndexChanged =
-    currentIndex !== lastCurrentIndex;
-
-const lyricsNeedInitialRender =
-    container.children.length === 0;
-
-if (lyricIndexChanged ||
-    lyricsNeedInitialRender)
-{
-    lastCurrentIndex =
-        currentIndex;
-
-    container.innerHTML = "";
-
-    const lines =
-        buildLines(lyrics);
-
-    for (const line of lines)
+    if (!lyricsDomBuilt ||
+        container.children.length === 0)
     {
-        const lineElement =
-            document.createElement("div");
+        container.innerHTML = "";
 
-        lineElement.className =
-            "lyric-line";
+        lyricLinesCache = buildLines(lyrics);
+        lyricSpanEls = new Array(lyrics.length);
+        lyricSpanState = new Array(lyrics.length).fill("");
+        lyricLineOf = new Array(lyrics.length).fill(0);
+        lyricLineEls = [];
+        markedLyricLine = -1;
 
-        let lineIsCurrent = false;
+        const fragment = document.createDocumentFragment();
 
-        for (let segmentIndex = 0;
-             segmentIndex < line.segments.length;
-             ++segmentIndex)
+        lyricLinesCache.forEach((line, lineNumber) =>
         {
-            const lyric =
-                line.segments[segmentIndex];
+            const lineElement =
+                document.createElement("div");
 
-            const span =
-                document.createElement("span");
+            lineElement.className =
+                "lyric-line";
 
-            span.className =
-                "lyric-part";
-
-            if (lyric.originalIndex < currentIndex)
+            for (let segmentIndex = 0;
+                 segmentIndex < line.segments.length;
+                 ++segmentIndex)
             {
-                span.classList.add("past");
-            }
-            else if (lyric.originalIndex === currentIndex)
-            {
-                span.classList.add("current");
-                lineIsCurrent = true;
-            }
-            else
-            {
-                span.classList.add("future");
-            }
+                const lyric =
+                    line.segments[segmentIndex];
 
-            span.textContent =
-                lyric.text || "";
+                const span =
+                    document.createElement("span");
 
-            lineElement.appendChild(span);
+                span.className =
+                    "lyric-part";
 
-            const nextIndex =
-                segmentIndex + 1;
+                span.textContent =
+                    lyric.text || "";
 
-            if (nextIndex < line.segments.length)
-            {
-                const nextLyric =
-                    line.segments[nextIndex];
+                lineElement.appendChild(span);
 
-                if (nextLyric.startsNewWord ||
-                    lyric.endsWord)
+                lyricSpanEls[lyric.originalIndex] = span;
+                lyricLineOf[lyric.originalIndex] = lineNumber;
+
+                const nextIndex =
+                    segmentIndex + 1;
+
+                if (nextIndex < line.segments.length)
                 {
-                    lineElement.appendChild(
-                        document.createTextNode(" ")
-                    );
+                    const nextLyric =
+                        line.segments[nextIndex];
+
+                    if (nextLyric.startsNewWord ||
+                        lyric.endsWord)
+                    {
+                        lineElement.appendChild(
+                            document.createTextNode(" ")
+                        );
+                    }
                 }
+            }
+
+            lyricLineEls.push(lineElement);
+            fragment.appendChild(lineElement);
+        });
+
+        container.appendChild(fragment);
+
+        lyricsDomBuilt = true;
+        lastCurrentIndex = -2;   // forceer de eerste klassen-update
+    }
+
+    if (currentIndex !== lastCurrentIndex)
+    {
+        lastCurrentIndex = currentIndex;
+
+        for (let i = 0; i < lyricSpanEls.length; ++i)
+        {
+            const state =
+                i < currentIndex ? "past"
+                : i === currentIndex ? "current"
+                : "future";
+
+            if (lyricSpanState[i] !== state)
+            {
+                lyricSpanEls[i].className = "lyric-part " + state;
+                lyricSpanState[i] = state;
             }
         }
 
-        if (lineIsCurrent)
-            lineElement.classList.add("current-line");
+        const currentLine =
+            currentIndex >= 0 ? lyricLineOf[currentIndex] : -1;
 
-        container.appendChild(lineElement);
+        if (currentLine !== markedLyricLine)
+        {
+            if (markedLyricLine >= 0)
+                lyricLineEls[markedLyricLine]?.classList.remove("current-line");
+
+            if (currentLine >= 0)
+                lyricLineEls[currentLine]?.classList.add("current-line");
+
+            markedLyricLine = currentLine;
+        }
     }
-}
 
     /*
      * Bij het starten van een nummer:
@@ -1065,28 +1328,12 @@ if (lyricIndexChanged ||
      * gebruiken we regel 0 als voorbereide regel.
      */
     const lines =
-        buildLines(lyrics);
+        lyricLinesCache;
 
-    let currentLineIndex = 0;
-
-    if (currentIndex >= 0)
-    {
-        for (let i = 0;
-             i < lines.length;
-             ++i)
-        {
-            const segments =
-                lines[i].segments;
-
-            if (segments.some(
-                lyric =>
-                    lyric.originalIndex === currentIndex))
-            {
-                currentLineIndex = i;
-                break;
-            }
-        }
-    }
+    const currentLineIndex =
+        currentIndex >= 0
+            ? lyricLineOf[currentIndex]
+            : 0;
 
     /*
     * De volgende regel.
@@ -1141,11 +1388,8 @@ if (lyricIndexChanged ||
     lastPreparedLineIndex =
         nextLineIndex;
 
-    const lineElements =
-        container.querySelectorAll(".lyric-line");
-
     const nextLineElement =
-        lineElements[nextLineIndex];
+        lyricLineEls[nextLineIndex];
 
     if (!nextLineElement)
         return;
@@ -1672,24 +1916,85 @@ function renderCountdown()
 }
 
 
+// Bediening (transport + mixer) staat standaard uit. Open de pagina als
+// http://host:poort/?key=SLEUTEL om die aan te zetten; de server controleert
+// de sleutel bij elk commando.
+const controlKey = new URLSearchParams(location.search).get("key") || "";
+const keyQuery = controlKey ? "key=" + encodeURIComponent(controlKey) : "";
+
+let stateInFlight = false;
+let songBase = null;
+let lastRevision = -1;
+
+// Haalt iedere 100 ms alleen de kleine toestand op. De zware songdata
+// (lyrics + akkoorden) komt pas binnen als die echt verandert.
 async function update() {
+    if (stateInFlight)
+        return;
+
+    stateInFlight = true;
+
     try {
-        const response=await fetch("/api/song",{cache:"no-store"});
-        if(!response.ok) return;
-        songData=await response.json();
-        document.getElementById("song").textContent=songData.song||"Merik";
-        document.getElementById("time").textContent=formatTime(songData.position)+" / "+formatTime(songData.duration);
- 
+        const stateResponse = await fetch("/api/state" + (keyQuery ? "?" + keyQuery : ""), { cache: "no-store" });
+        if (!stateResponse.ok) return;
+        const state = await stateResponse.json();
+
+        if (!songBase || state.rev !== lastRevision) {
+            const songResponse = await fetch("/api/song", { cache: "no-store" });
+            if (!songResponse.ok) return;
+            songBase = await songResponse.json();
+            lastRevision = songBase.rev;
+        }
+
+        document.body.classList.toggle("control", state.control === true);
+
+        songData = Object.assign({}, songBase, { position: state.position });
+
+        document.getElementById("song").textContent = songData.song || "Merik";
+
+        const keyText = state.transpose
+            ? '<span class="key">Key ' + (state.transpose > 0 ? "+" : "") + state.transpose + "</span>"
+            : "";
+        document.getElementById("time").innerHTML =
+            formatTime(songData.position) + " / " + formatTime(songData.duration) + keyText;
+
+        document.getElementById("nextSong").textContent =
+            state.next ? "Next: " + state.next : "";
+
+        const playButton = document.getElementById("btnPlay");
+        const playingFlag = state.playing ? "1" : "0";
+        if (playButton.dataset.playing !== playingFlag) {
+            playButton.dataset.playing = playingFlag;
+            playButton.setAttribute("aria-label", state.playing ? "Pauze" : "Play");
+        }
+
         const duration = Number(songData.duration) || 0;
         const position = Number(songData.position) || 0;
-        const progress = duration > 0 ? Math.max(0, Math.min(100, position / duration * 100))   : 0;
-            document.getElementById("songProgressFill") .style.width = progress + "%";
+        const progress = duration > 0 ? Math.max(0, Math.min(100, position / duration * 100)) : 0;
+        document.getElementById("songProgressFill").style.width = progress + "%";
+
+        if (window.applyFamilies)
+            window.applyFamilies(state.families);
 
         renderLyrics();
         renderChords();
         renderCountdown();
-    } catch(error) { console.log(error); }
+    } catch (error) { console.log(error); }
+    finally { stateInFlight = false; }
 }
+
+// Transportknoppen
+async function sendControl(command) {
+    try {
+        await fetch("/api/control?cmd=" + command + (keyQuery ? "&" + keyQuery : ""),
+                    { method: "POST", cache: "no-store" });
+        update();
+    } catch (error) { console.log(error); }
+}
+
+document.getElementById("btnPlay").addEventListener("click", () => sendControl("play"));
+document.getElementById("btnStop").addEventListener("click", () => sendControl("stop"));
+document.getElementById("btnNext").addEventListener("click", () => sendControl("next"));
 
 
 // Family mixer gekoppeld aan de FluidSynth-engine.
@@ -1700,58 +2005,54 @@ async function update() {
     const controls = document.getElementById("familyControls");
 
     const families = [
-        "Drums",
-        "Bass",
-        "Guitars",
-        "Keys",
-        "Strings",
-        "Winds",
-        "FX",
-        "Other"
+        "1 Drums",
+        "2 Bass",
+        "3 Guitars",
+        "4 Keys",
+        "5 Strings",
+        "6 Winds",
+        "7 FX",
+        "8 Other"
     ];
 
-    async function syncFamilySettings() {
-        try {
-            const response = await fetch("/api/families", {
-                cache: "no-store"
-            });
+    // Ontvangt de families uit /api/state (geen aparte poll meer).
+    // Een slider die de gebruiker net zelf bewoog wordt niet
+    // overschreven door een iets oudere serverwaarde.
+    function applyFamilies(list) {
+        if (!Array.isArray(list))
+            return;
 
-            if (!response.ok)
+        const now = Date.now();
+
+        list.forEach(function (family, index) {
+            const slider = document.getElementById("familySlider" + index);
+            const control = slider?.closest(".family-control");
+            const enabled = control?.querySelector(".family-enable");
+            const value = control?.querySelector(".family-value");
+
+            if (!slider || !enabled || !value)
                 return;
 
-            const data = await response.json();
-
-            if (!Array.isArray(data.families))
+            if (now - (control._localChange || 0) < 1000)
                 return;
 
-            data.families.forEach(function (family, index) {
-                const slider = document.getElementById("familySlider" + index);
-                const enabled = slider?.closest(".family-control")
-                    ?.querySelector(".family-enable");
-                const value = slider?.closest(".family-control")
-                    ?.querySelector(".family-value");
+            const volume = String(family.volume);
 
-                if (!slider || !enabled || !value)
-                    return;
+            if (slider.value !== volume)
+                slider.value = volume;
 
-                const volume = String(family.volume);
-
-                if (slider.value !== volume)
-                    slider.value = volume;
-
+            if (value.textContent !== volume)
                 value.textContent = volume;
 
-                if (enabled.checked !== family.enabled)
-                    enabled.checked = family.enabled;
+            if (enabled.checked !== family.enabled)
+                enabled.checked = family.enabled;
 
-                slider.disabled = !family.enabled;
-                slider.closest(".family-control")
-                    .classList.toggle("disabled", !family.enabled);
-            });
-        } catch (error) {
-            console.error("Families synchroniseren mislukt:", error);
-        }
+            slider.disabled = !family.enabled;
+            control.classList.toggle("disabled", !family.enabled);
+        });
     }
+
+    window.applyFamilies = applyFamilies;
 
     function setOpen(open) {
         document.body.classList.toggle("family-panel-open", open);
@@ -1813,7 +2114,8 @@ async function update() {
             const parameters = new URLSearchParams({
                 family: String(index),
                 volume: slider.value,
-                enabled: enabled.checked ? "1" : "0"
+                enabled: enabled.checked ? "1" : "0",
+                key: controlKey
             });
 
             try {
@@ -1857,11 +2159,13 @@ async function update() {
         }
 
         slider.addEventListener("input", function () {
+            row._localChange = Date.now();
             value.textContent = slider.value;
             scheduleUpdate(false);
         });
 
         enabled.addEventListener("change", function () {
+            row._localChange = Date.now();
             row.classList.toggle("disabled", !enabled.checked);
             scheduleUpdate(true);
         });
@@ -1873,8 +2177,6 @@ async function update() {
     });
 
     setOpen(false);
-    syncFamilySettings();
-    setInterval(syncFamilySettings, 500);
 })();
 
 update();

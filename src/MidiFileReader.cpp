@@ -1,5 +1,6 @@
 #include "MidiFileReader.h"
 #include "LyricsParser.h"
+#include "TextEncoding.h"
 #include "ChordParser.h"
 #include "TempoMap.h"
 
@@ -227,6 +228,16 @@ Song MidiFileReader::read(
     // Anders verliezen we lineIndex / word boundaries.
     // ------------------------------------------------------------------------
 
+    // Bepaal per nummer of de tekst al UTF-8 is. Zo niet (meestal
+    // Windows-1252), dan zetten we alle lyrics om zodat tekens als
+    // é, ë en ç goed worden weergegeven.
+    std::string allLyricText;
+    for (const auto& segment : lyrics.segments)
+        allLyricText += segment.text;
+
+    const bool lyricsAreUtf8 =
+        TextEncoding::isValidUtf8(allLyricText);
+
     for (const auto& segment : lyrics.segments)
     {
         LyricEvent lyric;
@@ -261,7 +272,9 @@ Song MidiFileReader::read(
             segment.endsLine;
 
         lyric.text =
-            segment.text;
+            lyricsAreUtf8
+                ? segment.text
+                : TextEncoding::windows1252ToUtf8(segment.text);
 
         song.lyrics.push_back(
             std::move(lyric));

@@ -151,6 +151,7 @@ private:
     bool positionSliderDragging = false;
     bool currentSongFromSetlist = false;
     bool wasEnginePlaying = false;
+    juce::String webControlKey { "merik" };
     int transpose = 0;
     void setTranspose(int semitones);
 

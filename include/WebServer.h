@@ -15,7 +15,13 @@
 class WebServer final
 {
 public:
+    static constexpr int defaultPort = 8888;
     static constexpr int familyCount = 8;
+
+    // Commando's vanuit de webpagina: "play" (play/pauze), "stop", "next".
+    // Wordt op de serverthread aangeroepen; de ontvanger moet zelf
+    // naar de juiste thread overschakelen.
+    using ControlCallback = std::function<void(const std::string& command)>;
 
     using FamilyVolumeCallback =
         std::function<void(int family, int volume, bool enabled)>;
@@ -26,7 +32,7 @@ public:
     WebServer(const WebServer&) = delete;
     WebServer& operator=(const WebServer&) = delete;
 
-    bool start(int port = 8080);
+    bool start(int port = defaultPort);
     void stop();
 
     [[nodiscard]] bool isRunning() const;
@@ -36,6 +42,15 @@ public:
 
     // Transpose in halve tonen; wordt op de akkoorden toegepast.
     void setTranspose(int semitones);
+
+    void setControlCallback(ControlCallback callback);
+
+    // Sleutel waarmee de webpagina transport en mixer mag bedienen
+    // (http://host:poort/?key=...). Leeg = bediening staat volledig uit.
+    void setControlKey(const std::string& key);
+
+    // Toestand die de webpagina toont naast de positie.
+    void setTransportInfo(bool playing, const std::string& nextSongTitle);
 
     void setFamilyVolumeCallback(FamilyVolumeCallback callback);
 
@@ -53,7 +68,13 @@ private:
     void handleClient(int socket);
 
     [[nodiscard]] std::string createHtml() const;
+    // Volledige songdata (lyrics + akkoorden); wordt gecachet en alleen
+    // opnieuw opgebouwd bij een nieuw nummer of een andere transpose.
     [[nodiscard]] std::string createJson() const;
+
+    // Kleine, snel gepollde toestand: positie, play-status, families.
+    [[nodiscard]] std::string createStateJson(bool control) const;
+    [[nodiscard]] bool isAuthorized(const std::string& request) const;
     [[nodiscard]] std::string escapeHtml(const std::string& text) const;
     [[nodiscard]] std::string escapeJson(const std::string& text) const;
     [[nodiscard]] std::string currentSongTitle() const;
@@ -61,7 +82,7 @@ private:
 
     std::atomic<bool> running { false };
 
-    int port_ = 8080;
+    int port_ = defaultPort;
     int serverSocket_ = -1;
 
     std::thread thread_;
@@ -72,10 +93,20 @@ private:
 
     FamilyVolumeCallback familyVolumeCallback_;
 
+    ControlCallback controlCallback_;
+    std::string controlKey_;
+
     int transpose_ = 0;
-    mutable std::vector<std::string> transposedChordCache_;
-    mutable int transposedChordCacheKey_ = 0;
-    mutable const Song* transposedChordCacheSong_ = nullptr;
+    bool playing_ = false;
+    std::string nextSongTitle_;
+
+    // Verhoogd bij elke wijziging van de songdata; de pagina haalt de
+    // zware /api/song alleen op als dit getal verandert.
+    std::uint64_t contentRevision_ = 1;
+    std::uint64_t songRevision_ = 1;
+
+    mutable std::string songJsonCache_;
+    mutable std::uint64_t songJsonCacheRevision_ = 0;
 
     std::array<int, familyCount> familyVolumes_ {
         127, 127, 127, 127, 127, 127, 127, 127

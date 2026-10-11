@@ -38,10 +38,10 @@ int main(int argc, char* argv[])
 
         webServer.setSong(song);
 
-        if (webServer.start(8080))
+        if (webServer.start(WebServer::defaultPort))
         {
             std::cout
-                << "Web server started on port 8080\n";
+                << "Web server started on port " << WebServer::defaultPort << "\n";
         }
         else
         {
