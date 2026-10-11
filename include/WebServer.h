@@ -38,6 +38,9 @@ public:
     [[nodiscard]] bool isRunning() const;
 
     void setSong(std::shared_ptr<const Song> song);
+
+    // Eigen weergavenaam (hernoemd in de setlist); leeg = bestandsnaam.
+    void setSongTitle(const std::string& title);
     void setPositionSamples(std::int64_t positionSamples);
 
     // Transpose in halve tonen; wordt op de akkoorden toegepast.
@@ -94,6 +97,7 @@ private:
     FamilyVolumeCallback familyVolumeCallback_;
 
     ControlCallback controlCallback_;
+    std::string songTitleOverride_;
     std::string controlKey_;
 
     int transpose_ = 0;

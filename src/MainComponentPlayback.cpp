@@ -30,7 +30,8 @@ void MainComponent::loadMidi()
             loadMidiFile(file);
         });
 }
-void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist)
+void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
+                                 const SongEntry* entry)
 {
     if (!file.existsAsFile())
         return;
@@ -54,8 +55,11 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist)
         currentMidiFile = file;
 
         // Transpose geldt per nummer: bij elk nieuw nummer (ook via Next
-        // en auto-next) terug naar 0.
-        setTranspose(0);
+        // en auto-next) terug naar 0, of naar de transpose die bij dit
+        // nummer in de setlist is ingesteld.
+        setTranspose(entry != nullptr ? entry->transpose : 0);
+
+        currentDisplayName = entry != nullptr ? entry->displayName : juce::String();
 
         // Alleen een nummer uit de songlijst mag een volgend nummer starten.
         currentSongFromSetlist = fromSetlist;
@@ -63,6 +67,7 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist)
         // Belangrijk: de complete Song inclusief
         // lyrics en akkoorden naar de webserver.
         webServer.setSong(currentSong);
+        webServer.setSongTitle(currentDisplayName.toStdString());
 
         isPlaying = false;
         playButton.setButtonText("Play");
@@ -76,6 +81,9 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist)
 
         updateChannelModel();
         updateSongDisplay();
+
+        // Het "nu geladen"-driehoekje in de songlijst moet meeverhuizen.
+        songBox.repaint();
     }
     catch (const std::exception& e)
     {
@@ -206,13 +214,13 @@ void MainComponent::stop()
 // Setlist: volgend nummer
 // ============================================================================
 
-juce::File MainComponent::nextSetlistFile() const
+const MainComponent::SongEntry* MainComponent::nextSetlistEntry() const
 {
     if (!currentSongFromSetlist ||
         selectedSetlist < 0 ||
         selectedSetlist >= static_cast<int>(setlists.size()))
     {
-        return {};
+        return nullptr;
     }
 
     const auto& songs =
@@ -220,28 +228,30 @@ juce::File MainComponent::nextSetlistFile() const
 
     for (std::size_t i = 0; i + 1 < songs.size(); ++i)
     {
-        if (songs[i] == currentMidiFile)
-            return songs[i + 1];
+        if (songs[i].file == currentMidiFile)
+            return &songs[i + 1];
     }
 
-    return {};
+    return nullptr;
 }
 
 void MainComponent::playNextInSetlist()
 {
-    const auto next = nextSetlistFile();
+    const auto* found = nextSetlistEntry();
 
-    if (!next.existsAsFile())
+    if (found == nullptr || !found->file.existsAsFile())
         return;
 
-    loadMidiFile(next, true);
+    const SongEntry next = *found;
+
+    loadMidiFile(next.file, true, &next);
 
     const auto& songs =
         setlists[static_cast<std::size_t>(selectedSetlist)].songs;
 
     for (std::size_t i = 0; i < songs.size(); ++i)
     {
-        if (songs[i] == next)
+        if (songs[i].file == next.file)
         {
             songBox.selectRow(static_cast<int>(i));
             break;
@@ -270,7 +280,7 @@ void MainComponent::skipToNextSong()
 
     for (std::size_t i = 0; i < songs.size(); ++i)
     {
-        if (songs[i] == currentMidiFile)
+        if (songs[i].file == currentMidiFile)
         {
             index = static_cast<int>(i);
             break;
@@ -287,7 +297,8 @@ void MainComponent::skipToNextSong()
 
     const bool wasPlaying = synthEngine.isPlaying();
 
-    loadMidiFile(songs[static_cast<std::size_t>(nextIndex)], true);
+    const SongEntry nextEntry = songs[static_cast<std::size_t>(nextIndex)];
+    loadMidiFile(nextEntry.file, true, &nextEntry);
     songBox.selectRow(nextIndex);
 
     if (wasPlaying)
@@ -307,17 +318,19 @@ void MainComponent::updateSongDisplay()
     }
 
     auto name =
-        currentMidiFile.getFileNameWithoutExtension();
+        currentDisplayName.isNotEmpty()
+            ? currentDisplayName
+            : currentMidiFile.getFileNameWithoutExtension();
 
     songTitle.setText(
         name,
         juce::dontSendNotification);
 
-    const auto next = nextSetlistFile();
+    const auto* next = nextSetlistEntry();
 
     nextSong.setText(
-        next.existsAsFile()
-            ? "Next: " + next.getFileNameWithoutExtension()
+        next != nullptr
+            ? "Next: " + next->shownName(false)
             : juce::String("Next: -"),
         juce::dontSendNotification);
 

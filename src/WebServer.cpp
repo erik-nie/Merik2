@@ -196,6 +196,17 @@ void WebServer::setSong(std::shared_ptr<const Song> song)
     ++contentRevision_;
 }
 
+void WebServer::setSongTitle(const std::string& title)
+{
+    std::scoped_lock lock(mutex_);
+
+    if (songTitleOverride_ != title)
+    {
+        songTitleOverride_ = title;
+        ++contentRevision_;
+    }
+}
+
 void WebServer::setPositionSamples(std::int64_t positionSamples)
 {
     std::scoped_lock lock(mutex_);
@@ -515,7 +526,8 @@ std::string WebServer::createJson() const
         const auto start = slash == std::string::npos ? 0 : slash + 1;
         const auto dot = path.find_last_of('.');
         const auto end = dot != std::string::npos && dot > start ? dot : path.length();
-        const std::string title = path.substr(start, end - start);
+        const std::string title =
+            songTitleOverride_.empty() ? path.substr(start, end - start) : songTitleOverride_;
 
         json += "\"song\":\"" + escapeJson(title) + "\",";
         json += "\"duration\":" + std::to_string(durationSeconds) + ",";

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DropListBox.h"
 #include "FluidSynthEngine.h"
 #include "MidiFileReader.h"
 #include "WebServer.h"
@@ -18,6 +19,7 @@
 class MainComponent final
     : public juce::AudioAppComponent,
       public juce::FileDragAndDropTarget,
+      public juce::DragAndDropContainer,
       private juce::Timer
 {
 public:
@@ -37,6 +39,9 @@ public:
 
     void paintOverChildren(juce::Graphics& g) override;
 
+    // Kopieer-cursor (+) tijdens het slepen van een song met Command/Ctrl.
+    juce::MouseCursor getMouseCursor() override;
+
     void prepareToPlay(
         int samplesPerBlockExpected,
         double sampleRate) override;
@@ -47,10 +52,28 @@ public:
     void releaseResources() override;
 
 private:
+    // Een nummer in een setlist. Het bestand blijft altijd bestaan onder
+    // de motorkap; displayName is alleen de getoonde naam.
+    struct SongEntry
+    {
+        juce::File file;
+        juce::String displayName;   // leeg = bestandsnaam tonen
+        int transpose = 0;          // standaard transpose bij laden
+
+        [[nodiscard]] juce::String shownName(bool withExtension) const
+        {
+            if (displayName.isNotEmpty())
+                return displayName;
+
+            return withExtension ? file.getFileName()
+                                 : file.getFileNameWithoutExtension();
+        }
+    };
+
     struct SetlistData
     {
         juce::String name;
-        std::vector<juce::File> songs;
+        std::vector<SongEntry> songs;
     };
 
     struct FamilyControl
@@ -118,8 +141,8 @@ private:
     juce::Label songsTitle;
     juce::Label totalTimeTitle;
 
-    juce::ListBox setlistBox;
-    juce::ListBox songBox;
+    DropListBox setlistBox;
+    DropListBox songBox;
 
     juce::TextButton newSetlistButton;
     juce::TextButton deleteSetlistButton;
@@ -144,6 +167,7 @@ private:
     juce::ApplicationProperties appProperties;
 
     juce::File currentMidiFile;
+    juce::String currentDisplayName;   // leeg = bestandsnaam
     juce::File currentSoundFont;
 
     std::atomic<bool> isPlaying{false};
@@ -173,10 +197,23 @@ private:
     void syncFamilySettingsToWebServer();
     void timerCallback() override;
 
-    void loadMidiFile(const juce::File& file, bool fromSetlist = false);
+    void loadMidiFile(const juce::File& file, bool fromSetlist = false,
+                      const SongEntry* entry = nullptr);
     void playNextInSetlist();
     void skipToNextSong();
-    [[nodiscard]] juce::File nextSetlistFile() const;
+    [[nodiscard]] const SongEntry* nextSetlistEntry() const;
+
+    // Setlists en songs: slepen, kopiëren en contextmenu's.
+    void moveSetlist(int from, int insertBefore);
+    void moveSongWithinSetlist(int from, int insertBefore);
+    void moveOrCopySong(int songRow, int targetSetlist, bool copy);
+    void showSetlistMenu(int row);
+    void showSongMenu(int row);
+    void promptRename(const juce::String& title, const juce::String& current,
+                      std::function<void(const juce::String&)> onAccepted);
+    void removeSetlistAt(int row);
+    void removeSongAt(int row);
+    void addSetlist();
 
     void loadPersistentState();
     void savePersistentState();
