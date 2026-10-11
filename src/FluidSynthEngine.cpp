@@ -48,6 +48,9 @@ int FluidSynthEngine::getAdjustedChannelVolume(int channel) const
 
 FluidSynthEngine::FluidSynthEngine()
 {
+    for (auto& channel : soundingNote_)
+        channel.fill(-1);
+
     createSynth();
 }
 
@@ -144,6 +147,26 @@ void FluidSynthEngine::setFamilyEnabled(int family, bool enabled)
 
     updateFamilyFactorLocked(family);
     applyFamilyVolumeLocked(family);
+}
+
+void FluidSynthEngine::setChannelMuted(int channel, bool muted)
+{
+    if (channel < 0 || channel >= 16)
+        return;
+
+    std::scoped_lock lock(mutex_);
+
+    channelMuted_[static_cast<std::size_t>(channel)] = muted;
+
+    if (muted && synth_)
+        fluid_synth_all_sounds_off(synth_, channel);
+}
+
+void FluidSynthEngine::setTranspose(int semitones)
+{
+    std::scoped_lock lock(mutex_);
+
+    transpose_ = std::clamp(semitones, -24, 24);
 }
 
 void FluidSynthEngine::updateFamilyFactorLocked(int family)
@@ -913,6 +936,9 @@ void FluidSynthEngine::resetSynth()
     fluid_synth_all_sounds_off(synth_, -1);
     fluid_synth_system_reset(synth_);
 
+    for (auto& channel : soundingNote_)
+        channel.fill(-1);
+
     constexpr int bufferSize = 512;
     constexpr double flushSeconds = 2.0;
 
@@ -931,6 +957,36 @@ void FluidSynthEngine::resetSynth()
 
         remaining -= count;
     }
+}
+
+int FluidSynthEngine::transposedNote(int channel, int note) const
+{
+    // Kanaal 10 (index 9) is percussie: niet transponeren.
+    if (channel == 9)
+        return note;
+
+    return std::clamp(note + transpose_, 0, 127);
+}
+
+int FluidSynthEngine::pressNote(int channel, int note)
+{
+    const int actual = transposedNote(channel, note);
+
+    soundingNote_[static_cast<std::size_t>(channel)]
+                 [static_cast<std::size_t>(note)] = static_cast<std::int8_t>(actual);
+
+    return actual;
+}
+
+int FluidSynthEngine::releaseNote(int channel, int note)
+{
+    auto& slot = soundingNote_[static_cast<std::size_t>(channel)]
+                              [static_cast<std::size_t>(note)];
+
+    const int actual = slot >= 0 ? slot : transposedNote(channel, note);
+    slot = -1;
+
+    return actual;
 }
 
 void FluidSynthEngine::sendMidiEvent(
@@ -988,7 +1044,7 @@ void FluidSynthEngine::sendMidiEvent(
                 fluid_synth_noteoff(
                     synth_,
                     channel,
-                    data1);
+                    releaseNote(channel, data1));
             }
 
             break;
@@ -1004,11 +1060,21 @@ void FluidSynthEngine::sendMidiEvent(
                         0,
                         127);
 
-                fluid_synth_noteon(
-                    synth_,
-                    channel,
-                    data1,
-                    velocity);
+                if (velocity == 0)
+                {
+                    fluid_synth_noteoff(
+                        synth_,
+                        channel,
+                        releaseNote(channel, data1));
+                }
+                else if (!channelMuted_[static_cast<std::size_t>(channel)])
+                {
+                    fluid_synth_noteon(
+                        synth_,
+                        channel,
+                        pressNote(channel, data1),
+                        velocity);
+                }
             }
 
             break;
@@ -1027,7 +1093,7 @@ void FluidSynthEngine::sendMidiEvent(
                 fluid_synth_key_pressure(
                     synth_,
                     channel,
-                    data1,
+                    transposedNote(channel, data1),
                     value);
             }
 

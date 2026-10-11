@@ -79,6 +79,7 @@ juce_add_gui_app(
     PRODUCT_NAME "Merik"
     COMPANY_NAME "Erik Nieuwlands"
     BUNDLE_ID "nl.eriknieuwlands.merik"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.png"
 )
 
 

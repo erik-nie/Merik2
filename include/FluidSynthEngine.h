@@ -53,6 +53,13 @@ public:
 
     void setFamilyVolumeFactor(int family, float factor);
 
+    // Kanaal dempen: nieuwe noten worden niet meer gestart en
+    // klinkende noten stoppen direct. Andere events lopen door.
+    void setChannelMuted(int channel, bool muted);
+
+    // Transponeert alle noten behalve kanaal 10 (drums), in halve tonen.
+    void setTranspose(int semitones);
+
     [[nodiscard]] bool isPlaying() const;
 
     [[nodiscard]] MidiChannelState getChannelState(int channel) const;
@@ -74,6 +81,10 @@ private:
     void createSynth();
 
     void sendMidiEvent(const RawMidiEvent& event);
+
+    [[nodiscard]] int transposedNote(int channel, int note) const;
+    int pressNote(int channel, int note);
+    int releaseNote(int channel, int note);
     void resetSynth();
 
     void rebuildSynthStateAt(std::int64_t samplePosition);
@@ -103,6 +114,12 @@ private:
     std::array<ChannelPlaybackState, 16> playbackState {};
 
     std::array<FamilySettings, familyCount> familySettings_ {};
+    std::array<bool, 16> channelMuted_ {};
+    int transpose_ = 0;
+
+    // Klinkende (getransponeerde) noot per ingedrukte noot, zodat een
+    // Note Off de juiste noot stopt ook als transpose tussendoor wijzigt.
+    std::array<std::array<std::int8_t, 128>, 16> soundingNote_ {};
 
     MidiTransformer midiTransformer_;
 

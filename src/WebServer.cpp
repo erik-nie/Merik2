@@ -1,4 +1,5 @@
 #include "WebServer.h"
+#include "ChordParser.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -88,6 +89,12 @@ void WebServer::stop()
 }
 
 bool WebServer::isRunning() const { return running.load(); }
+
+void WebServer::setTranspose(int semitones)
+{
+    const std::scoped_lock lock(mutex_);
+    transpose_ = semitones;
+}
 
 void WebServer::setSong(std::shared_ptr<const Song> song)
 {
@@ -287,11 +294,34 @@ std::string WebServer::createJson() const
 {
     std::shared_ptr<const Song> song;
     std::int64_t positionSamples = 0;
+    int transpose = 0;
+    std::vector<std::string> chordLabels;
 
     {
         std::scoped_lock lock(mutex_);
         song = song_;
         positionSamples = positionSamples_;
+        transpose = transpose_;
+
+        // Getransponeerde akkoorden cachen: de client pollt 10x/s.
+        if (song && transpose != 0
+            && (transposedChordCacheSong_ != song.get()
+                || transposedChordCacheKey_ != transpose
+                || transposedChordCache_.size() != song->chords.size()))
+        {
+            transposedChordCache_.clear();
+            transposedChordCache_.reserve(song->chords.size());
+
+            for (const auto& chord : song->chords)
+                transposedChordCache_.push_back(
+                    ChordParser::transposeLabel(chord.label, transpose));
+
+            transposedChordCacheSong_ = song.get();
+            transposedChordCacheKey_ = transpose;
+        }
+
+        if (song && transpose != 0)
+            chordLabels = transposedChordCache_;
     }
 
     if (!song)
@@ -344,7 +374,9 @@ std::string WebServer::createJson() const
         json += "{";
         json += "\"time\":" + std::to_string(chord.seconds) + ",";
         json += "\"end\":" + std::to_string(chord.endSeconds) + ",";
-        json += "\"label\":\"" + escapeJson(chord.label) + "\"}";
+        const std::string& label =
+            transpose != 0 && i < chordLabels.size() ? chordLabels[i] : chord.label;
+        json += "\"label\":\"" + escapeJson(label) + "\"}";
     }
     json += "]}";
     return json;
@@ -700,6 +732,7 @@ let songData = null;
 
 let lastCurrentIndex = -1;
 let lastChordIndex = -2;
+let lastChordSignature = "";
 let chordAnimation = null;
 
 let lastPreparedLineIndex = -1;
@@ -1365,6 +1398,9 @@ function renderChords()
 
         renderChordProgress(null);
 
+        lastChordIndex = -2;
+        lastChordSignature = "";
+
         return;
     }
 
@@ -1392,46 +1428,34 @@ function renderChords()
     }
 
     /*
-     * Nog vóór het eerste akkoord.
+     * Nog vóór het eerste akkoord (intro): toon het eerste akkoord
+     * alvast als huidig akkoord. De voortgangsbalk blijft dan vol
+     * tot het akkoord echt begint. Voorheen bleef de plek leeg met
+     * alleen een klein streepje.
      */
     if (currentIndex < 0)
-    {
-        document.getElementById(
-            "currentChord")
-            .textContent = "";
-
-        renderFutureChord(
-            1,
-            chords[0]);
-
-        renderFutureChord(
-            2,
-            chords[1]);
-
-        renderFutureChord(
-            3,
-            chords[2]);
-
-        renderFutureChord(
-            4,
-            chords[3]);
-
-        renderChordProgress(null);
-
-        return;
-    }
+        currentIndex = 0;
 
     /*
-     * De labels hoeven alleen bij een akkoordwissel
-     * opnieuw te worden ingevuld.
+     * De labels worden opnieuw ingevuld als het akkoord wisselt, maar
+     * ook als de getoonde akkoorden zelf veranderen terwijl de index
+     * gelijk blijft (nieuw nummer, transpose). Dat laatste ontbrak:
+     * een nieuw nummer dat op index 0 begon toonde dan de akkoorden van
+     * het vorige nummer.
      *
-     * De voortgangsbalk wordt wel bij iedere update
-     * aangepast.
+     * De voortgangsbalk wordt bij iedere update aangepast.
      */
-    const chordChanged =
+    const signature =
+        [0, 1, 2, 3, 4]
+            .map(offset =>
+                chords[currentIndex + offset]?.label || "")
+            .join("|");
+
+    const indexChanged =
         currentIndex !== lastChordIndex;
 
-    if (chordChanged)
+    if (indexChanged ||
+        signature !== lastChordSignature)
     {
         document.getElementById(
             "currentChord")
@@ -1458,7 +1482,11 @@ function renderChords()
         lastChordIndex =
             currentIndex;
 
-        animateChordChange();
+        lastChordSignature =
+            signature;
+
+        if (indexChanged)
+            animateChordChange();
     }
 
     renderChordProgress(

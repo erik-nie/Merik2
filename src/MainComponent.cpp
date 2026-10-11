@@ -265,6 +265,20 @@ public:
         auto bounds =
             button.getLocalBounds().toFloat().reduced(0.5f);
 
+        // "Flat": geen eigen vlak, alleen een tint bij hover/klik
+        // (gebruikt voor de transpose-capsule).
+        if (button.getProperties().getWithDefault("flat", false))
+        {
+            if (shouldDrawButtonAsDown || shouldDrawButtonAsHighlighted)
+            {
+                g.setColour(juce::Colours::white.withAlpha(
+                    shouldDrawButtonAsDown ? 0.18f : 0.09f));
+                g.fillRoundedRectangle(bounds.reduced(2.0f),
+                                       bounds.getHeight() * 0.5f - 2.0f);
+            }
+            return;
+        }
+
         // Actieve knop = MerikBlue, normale knop = effen donker vlak.
         auto colour =
             button.getToggleState()
@@ -469,16 +483,64 @@ private:
 namespace
 {
 class SettingsContent final : public juce::Component,
-                              private juce::ComponentListener
+                              private juce::ComponentListener,
+                              private juce::Timer
 {
 public:
     SettingsContent(juce::AudioDeviceManager& deviceManager,
+                    juce::ComboBox& midiIn,
+                    juce::ComboBox& midiOut,
+                    juce::TextButton& soundFont,
                     juce::TextButton& directPlay,
                     juce::TextButton& normalize,
                     juce::TextButton& autoNext)
-        : sources { &directPlay, &normalize, &autoNext }
+        : sources { &directPlay, &normalize, &autoNext },
+          midiSources { &midiIn, &midiOut },
+          soundFontSource(&soundFont)
     {
         setLookAndFeel(&merikLookAndFeel);
+
+        // MIDI / SoundFont: werken op dezelfde (verborgen) controls van het
+        // hoofdscherm, zodat de bestaande afhandeling gebruikt blijft.
+        static const char* midiLabels[2] = { "MIDI control in", "MIDI out" };
+
+        for (std::size_t i = 0; i < 2; ++i)
+        {
+            auto& box = midiBoxes[i];
+            auto* source = midiSources[i];
+
+            midiRowLabels[i].setText(midiLabels[i], juce::dontSendNotification);
+            midiRowLabels[i].setJustificationType(juce::Justification::centredRight);
+            addAndMakeVisible(midiRowLabels[i]);
+
+            for (int item = 0; item < source->getNumItems(); ++item)
+                box.addItem(source->getItemText(item), source->getItemId(item));
+
+            box.setSelectedId(source->getSelectedId(), juce::dontSendNotification);
+
+            box.onChange = [source, &box]
+            {
+                source->setSelectedId(box.getSelectedId(), juce::sendNotification);
+            };
+
+            addAndMakeVisible(box);
+        }
+
+        soundFontLabel.setText("SoundFont", juce::dontSendNotification);
+        soundFontLabel.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(soundFontLabel);
+
+        soundFontCopy.setButtonText(soundFont.getButtonText());
+        soundFontCopy.onClick = [this]
+        {
+            if (soundFontSource->onClick != nullptr)
+                soundFontSource->onClick();
+        };
+        addAndMakeVisible(soundFontCopy);
+
+        // De SoundFont-keuze is asynchroon (bestandskiezer); houd de
+        // naam op de knop gelijk met het hoofdscherm.
+        startTimer(300);
 
         selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
             deviceManager,
@@ -523,6 +585,7 @@ public:
 
     ~SettingsContent() override
     {
+        stopTimer();
         selector->removeComponentListener(this);
         setLookAndFeel(nullptr);
     }
@@ -541,11 +604,39 @@ public:
 
         const juce::ScopedValueSetter<bool> guard(inLayout, true);
 
-        selector->setBounds(0, 6, getWidth(), 3000);
+        // Bovenaan MIDI in / MIDI out / SoundFont, daaronder de
+        // audio-apparaten van de selector, onderaan de opties.
+        const int controlX = proportionOfWidth(0.35f);
+        const int controlWidth = proportionOfWidth(0.6f);
+        int y = 12;
+
+        for (std::size_t i = 0; i < 2; ++i)
+        {
+            midiRowLabels[i].setBounds(0, y, controlX - 8, 28);
+            midiBoxes[i].setBounds(controlX, y, controlWidth, 28);
+            y += 34;
+        }
+
+        soundFontLabel.setBounds(0, y, controlX - 8, 28);
+        soundFontCopy.setBounds(controlX, y, controlWidth, 28);
+        y += 34;
+
+        selector->setBounds(0, y, getWidth(), 3000);
         layoutOptions();
     }
 
 private:
+    void timerCallback() override
+    {
+        if (soundFontCopy.getButtonText() != soundFontSource->getButtonText())
+            soundFontCopy.setButtonText(soundFontSource->getButtonText());
+
+        for (std::size_t i = 0; i < 2; ++i)
+            if (midiBoxes[i].getSelectedId() != midiSources[i]->getSelectedId())
+                midiBoxes[i].setSelectedId(midiSources[i]->getSelectedId(),
+                                           juce::dontSendNotification);
+    }
+
     void componentMovedOrResized(juce::Component& component, bool, bool wasResized) override
     {
         if (&component != selector.get() || !wasResized || inLayout)
@@ -586,6 +677,14 @@ private:
     };
 
     std::array<juce::TextButton*, 3> sources;
+    std::array<juce::ComboBox*, 2> midiSources;
+    juce::TextButton* soundFontSource;
+
+    std::array<juce::Label, 2> midiRowLabels;
+    std::array<juce::ComboBox, 2> midiBoxes;
+    juce::Label soundFontLabel;
+    juce::TextButton soundFontCopy;
+
     std::array<juce::ToggleButton, 3> copies;
     std::unique_ptr<juce::AudioDeviceSelectorComponent> selector;
 };
@@ -626,6 +725,9 @@ void MainComponent::showAudioSettings()
 
     auto* content = new SettingsContent(
         deviceManager,
+        midiControlBox,
+        midiOutBox,
+        soundFontButton,
         doubleClickToggle,
         normalizeToggle,
         continuousToggle);
@@ -959,6 +1061,61 @@ class MainComponent::ChannelModel
     : public juce::TableListBoxModel
 {
 public:
+    enum class Active { on, offThisSong, off };
+
+    // Wordt aangeroepen als een kanaal gedempt/ontdempt moet worden.
+    void setMuteCallback(std::function<void(int, bool)> callback)
+    {
+        muteCallback = std::move(callback);
+    }
+
+    // Nieuw nummer: "uit voor dit nummer" gaat terug naar aan.
+    void resetThisSongOnly()
+    {
+        for (int ch = 0; ch < 16; ++ch)
+        {
+            auto& a = active[static_cast<std::size_t>(ch)];
+
+            if (a == Active::offThisSong)
+            {
+                a = Active::on;
+
+                if (muteCallback)
+                    muteCallback(ch, false);
+            }
+        }
+    }
+
+    void cellClicked(int rowNumber, int columnId, const juce::MouseEvent&) override
+    {
+        if (columnId != 1 || rowNumber < 0 || rowNumber >= 16)
+            return;
+
+        auto& a = active[static_cast<std::size_t>(rowNumber)];
+
+        a = a == Active::on          ? Active::offThisSong
+          : a == Active::offThisSong ? Active::off
+                                     : Active::on;
+
+        if (muteCallback)
+            muteCallback(rowNumber, a != Active::on);
+    }
+
+    juce::String getCellTooltip(int rowNumber, int columnId) override
+    {
+        if (columnId != 1 || rowNumber < 0 || rowNumber >= 16)
+            return {};
+
+        switch (active[static_cast<std::size_t>(rowNumber)])
+        {
+            case Active::on:          return "Channel ON";
+            case Active::offThisSong: return "Channel OFF (This Song only)";
+            case Active::off:         return "Channel OFF";
+        }
+
+        return {};
+    }
+
     ChannelModel()
     {
         lastProgram.fill(-1);
@@ -1140,8 +1297,35 @@ public:
             // --------------------------------------------------------
 
             case 1:
-                value = "✓";
-                break;
+            {
+                constexpr float d = 12.0f;
+                const float x = 7.0f;
+                const float y = (static_cast<float>(height) - d) * 0.5f;
+                const juce::Rectangle<float> r(x, y, d, d);
+
+                switch (active[static_cast<std::size_t>(rowNumber)])
+                {
+                    case Active::on:
+                        g.setColour(juce::Colour::fromRGB(46, 204, 113));
+                        g.fillEllipse(r);
+                        break;
+
+                    case Active::offThisSong:
+                        g.setColour(juce::Colour::fromRGB(245, 166, 35));
+                        g.drawEllipse(r.reduced(1.0f), 1.6f);
+                        g.fillEllipse(r.reduced(4.0f));
+                        break;
+
+                    case Active::off:
+                        g.setColour(juce::Colour::fromRGB(235, 64, 52));
+                        g.drawEllipse(r.reduced(1.0f), 1.6f);
+                        g.drawLine(r.getX() + 2.2f, r.getBottom() - 2.2f,
+                                   r.getRight() - 2.2f, r.getY() + 2.2f, 1.6f);
+                        break;
+                }
+
+                return;
+            }
 
             // --------------------------------------------------------
             // Channel
@@ -1301,6 +1485,9 @@ private:
     using Clock = std::chrono::steady_clock;
 
     std::shared_ptr<const Song> song;
+
+    std::array<Active, 16> active { };
+    std::function<void(int, bool)> muteCallback;
 
     std::array<int, 16> lastProgram {};
 
@@ -1464,10 +1651,25 @@ private:
     }
 };
 
+void MainComponent::setTranspose(int semitones)
+{
+    transpose = juce::jlimit(-12, 12, semitones);
+
+    transposeValue.setText(
+        transpose > 0 ? "+" + juce::String(transpose) : juce::String(transpose),
+        juce::dontSendNotification);
+
+    synthEngine.setTranspose(transpose);
+    webServer.setTranspose(transpose);
+}
+
 void MainComponent::updateChannelModel()
 {
     if (channelModel != nullptr)
+    {
         channelModel->setSong(currentSong);
+        channelModel->resetThisSongOnly();
+    }
 
     channelTable.updateContent();
 }
@@ -1572,12 +1774,13 @@ MainComponent::MainComponent()
     // -------------------------------------------------------------------------
 
     midiControlLabel.setText(
-        "MIDI Control",
+        "MIDI control in",
         juce::dontSendNotification);
 
     midiControlLabel.setColour(
         juce::Label::textColourId,
         secondaryTextColour);
+
 
     midiControlBox.addItem("Default", 1);
     midiControlBox.addItem("None", 2);
@@ -1587,7 +1790,6 @@ MainComponent::MainComponent()
 
     midiControlBox.setLookAndFeel(&merikLookAndFeel);
 
-    addAndMakeVisible(midiControlBox);
 
     // -------------------------------------------------------------------------
     // MIDI Out
@@ -1601,7 +1803,6 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         secondaryTextColour);
 
-    addAndMakeVisible(midiOutLabel);
 
     midiOutBox.addItem("Default", 1);
     midiOutBox.addItem("None", 2);
@@ -1611,7 +1812,6 @@ MainComponent::MainComponent()
 
     midiOutBox.setLookAndFeel(&merikLookAndFeel);
 
-    addAndMakeVisible(midiOutBox);
 
     // -------------------------------------------------------------------------
     // SoundFont
@@ -1625,7 +1825,6 @@ MainComponent::MainComponent()
         juce::Label::textColourId,
         secondaryTextColour);
 
-    addAndMakeVisible(soundFontLabel);
 
     soundFontButton.setButtonText(
         "Select SoundFont...");
@@ -1643,7 +1842,6 @@ MainComponent::MainComponent()
         selectSoundFont();
     };
 
-    addAndMakeVisible(soundFontButton);
 
     settingsButton.setButtonText("Settings");
     settingsButton.setTooltip("Audio Settings");
@@ -2031,62 +2229,27 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(nextButton);
 
-    transposeDownButton.setButtonText("-");
-
-    transposeDownButton.setColour(
-        juce::TextButton::buttonColourId,
-        panelLightColour);
-
-    transposeDownButton.setColour(
-        juce::TextButton::textColourOffId,
-        textColour);
-
-    transposeDownButton.onClick = [this]
-    {
-        --transpose;
-
-        transposeValue.setText(
-            juce::String(transpose),
-            juce::dontSendNotification);
-    };
-
-    addAndMakeVisible(transposeDownButton);
-
-    transposeValue.setText(
-        "0",
-        juce::dontSendNotification);
-
-    transposeValue.setColour(
-        juce::Label::textColourId,
-        textColour);
-
-    transposeValue.setFont(makeNotoFont(16.0f));
-
-    transposeValue.setJustificationType(
-        juce::Justification::centred);
-
-    addAndMakeVisible(transposeValue);
-
+    // Transpose: één afgeronde capsule met - / waarde / +
+    transposeDownButton.setButtonText(juce::String::fromUTF8("\xe2\x88\x92"));
     transposeUpButton.setButtonText("+");
 
-    transposeUpButton.setColour(
-        juce::TextButton::buttonColourId,
-        panelLightColour);
-
-    transposeUpButton.setColour(
-        juce::TextButton::textColourOffId,
-        textColour);
-
-    transposeUpButton.onClick = [this]
+    for (auto* button : { &transposeDownButton, &transposeUpButton })
     {
-        ++transpose;
+        button->getProperties().set("flat", true);
+        button->setColour(juce::TextButton::textColourOffId, textColour);
+        button->setTooltip("Transpose (semitones)");
+        addAndMakeVisible(*button);
+    }
 
-        transposeValue.setText(
-            juce::String(transpose),
-            juce::dontSendNotification);
-    };
+    transposeDownButton.onClick = [this] { setTranspose(transpose - 1); };
+    transposeUpButton.onClick   = [this] { setTranspose(transpose + 1); };
 
-    addAndMakeVisible(transposeUpButton);
+    transposeValue.setText("0", juce::dontSendNotification);
+    transposeValue.setColour(juce::Label::textColourId, textColour);
+    transposeValue.setFont(merikLookAndFeel.getMediumFont(17.0f));
+    transposeValue.setJustificationType(juce::Justification::centred);
+    transposeValue.setTooltip("Transpose (semitones)");
+    addAndMakeVisible(transposeValue);
 
     panicButton.setButtonText("Panic");
 
@@ -2455,6 +2618,11 @@ MainComponent::MainComponent()
     channelModel =
         std::make_unique<ChannelModel>();
     channelModel->setSynthEngine(&synthEngine);
+    channelModel->setMuteCallback(
+        [this](int channel, bool muted)
+        {
+            synthEngine.setChannelMuted(channel, muted);
+        });
 
     channelTable.setModel(
         channelModel.get());
@@ -2768,6 +2936,14 @@ void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(backgroundColour);
 
+    // Transpose-capsule
+    if (!transposeBounds.isEmpty())
+    {
+        g.setColour(panelLightColour);
+        g.fillRoundedRectangle(transposeBounds.toFloat(),
+                               static_cast<float>(transposeBounds.getHeight()) * 0.5f);
+    }
+
     // Family-blokken als afgeronde kaarten
     for (const auto& block : familyBlockBounds)
     {
@@ -2793,55 +2969,9 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto header =
-        bounds.removeFromTop(135).reduced(10,0);
+        bounds.removeFromTop(86).reduced(10,0);
 
-    // First row: MIDI Control / MIDI Out / SoundFont / Settings
-
-    auto topRow =
-        header.removeFromTop(50);
-
-    auto midiControlArea =
-        topRow.removeFromLeft(155);
-
-    midiControlLabel.setBounds(
-        midiControlArea.removeFromTop(18));
-
-    midiControlBox.setBounds(
-        midiControlArea.removeFromTop(28));
-
-    topRow.removeFromLeft(12);
-
-    auto midiOutArea =
-        topRow.removeFromLeft(155);
-
-    midiOutLabel.setBounds(
-        midiOutArea.removeFromTop(18));
-
-    midiOutBox.setBounds(
-        midiOutArea.removeFromTop(28));
-
-    topRow.removeFromLeft(12);
-
-    auto soundFontArea =
-        topRow.removeFromLeft(285);
-
-    soundFontLabel.setBounds(
-        soundFontArea.removeFromTop(18));
-
-    auto soundFontRow =
-        soundFontArea.removeFromTop(28);
-
-    soundFontButton.setBounds(
-        soundFontRow.removeFromLeft(190));
-
-    soundFontRow.removeFromLeft(5);
-
-    settingsButton.setBounds(
-        soundFontRow.removeFromLeft(90));
-
-    // Second row: family controls
-
-    header.removeFromTop(5);
+    header.removeFromTop(6);
 
     auto familyArea = header;
 
@@ -2933,18 +3063,16 @@ void MainComponent::resized()
 
     transport.removeFromLeft(12);
 
-    transposeDownButton.setBounds(
-        transport.removeFromLeft(32)
-            .withHeight(buttonHeight));
+    transposeBounds =
+        transport.removeFromLeft(112).withHeight(buttonHeight);
 
-    transposeValue.setBounds(
-        transport.removeFromLeft(35)
-            .withHeight(buttonHeight));
+    {
+        auto area = transposeBounds;
 
-    transposeUpButton.setBounds(
-        transport.removeFromLeft(32)
-            .withHeight(buttonHeight));
-
+        transposeDownButton.setBounds(area.removeFromLeft(34));
+        transposeUpButton.setBounds(area.removeFromRight(34));
+        transposeValue.setBounds(area);
+    }
 
     // ------------------------------------------------------------
     // Rechts: Panic / Lyrics / Channels
@@ -2954,9 +3082,12 @@ void MainComponent::resized()
     constexpr int channelsWidth = 80;
     constexpr int lyricsWidth = 80;
     constexpr int panicWidth = 80;
+    constexpr int settingsWidth = 80;
 
     const int rightGroupWidth =
-        panicWidth
+        settingsWidth
+        + rightButtonGap
+        + panicWidth
         + rightButtonGap
         + lyricsWidth
         + rightButtonGap
@@ -2964,6 +3095,12 @@ void MainComponent::resized()
 
     auto rightGroup =
         transport.removeFromRight(rightGroupWidth);
+
+    settingsButton.setBounds(
+        rightGroup.removeFromLeft(settingsWidth)
+            .withHeight(buttonHeight));
+
+    rightGroup.removeFromLeft(rightButtonGap);
 
     panicButton.setBounds(
         rightGroup.removeFromLeft(panicWidth)

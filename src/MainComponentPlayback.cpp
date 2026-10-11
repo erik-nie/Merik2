@@ -53,6 +53,10 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist)
 
         currentMidiFile = file;
 
+        // Transpose geldt per nummer: bij elk nieuw nummer (ook via Next
+        // en auto-next) terug naar 0.
+        setTranspose(0);
+
         // Alleen een nummer uit de songlijst mag een volgend nummer starten.
         currentSongFromSetlist = fromSetlist;
 

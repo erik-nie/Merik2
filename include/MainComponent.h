@@ -64,6 +64,7 @@ private:
     int selectedSetlist = 0;
 
     std::array<juce::Rectangle<int>, 8> familyBlockBounds;
+    juce::Rectangle<int> transposeBounds;
 
     WebServer webServer;
 
@@ -89,6 +90,7 @@ private:
     juce::Label soundFontLabel;
     juce::TextButton soundFontButton;
     juce::TextButton settingsButton;
+    juce::TooltipWindow tooltipWindow { this, 400 };
 
     std::array<FamilyControl, 8> familyControls;
 
@@ -150,6 +152,7 @@ private:
     bool currentSongFromSetlist = false;
     bool wasEnginePlaying = false;
     int transpose = 0;
+    void setTranspose(int semitones);
 
     void loadMidi();
     void selectSoundFont();
