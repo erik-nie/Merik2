@@ -11,31 +11,31 @@
 namespace
 {
     const juce::Colour backgroundColour =
-        juce::Colour::fromRGB(25, 25, 25);
+        juce::Colour::fromRGB(17, 18, 22);
 
     const juce::Colour panelColour =
-        juce::Colour::fromRGB(38, 38, 38);
+        juce::Colour::fromRGB(27, 29, 34);
 
     const juce::Colour panelDarkColour =
-        juce::Colour::fromRGB(28, 28, 28);
+        juce::Colour::fromRGB(22, 23, 27);
 
         const juce::Colour panelLightColour =
-        juce::Colour::fromRGB(58, 58, 58);
+        juce::Colour::fromRGB(46, 49, 56);
 
     const juce::Colour merikBlue =
-        juce::Colour::fromRGB(0, 100, 255);
+        juce::Colour::fromRGB(24, 118, 255);
 
     const juce::Colour textColour =
         juce::Colours::white;
 
     const juce::Colour secondaryTextColour =
-        juce::Colour::fromRGB(190, 190, 190);
+        juce::Colour::fromRGB(158, 164, 176);
 
     const juce::Colour familyBlockColour =
-        juce::Colour::fromRGB(32, 32, 32);
+        juce::Colour::fromRGB(27, 29, 34);
 
     const juce::Colour familyBorderColour =
-        juce::Colour::fromRGB(65, 65, 65);
+        juce::Colour::fromRGB(48, 51, 58);
 
 }
 
@@ -78,6 +78,9 @@ public:
         setColour(juce::ComboBox::textColourId, textColour);
         setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
         setColour(juce::ComboBox::arrowColourId, secondaryTextColour);
+
+        // Scrollbars: smal en rustig
+        setColour(juce::ScrollBar::thumbColourId, juce::Colour::fromRGB(84, 88, 98));
 
         // Uitklapmenu
         setColour(juce::PopupMenu::backgroundColourId, panelColour);
@@ -223,13 +226,13 @@ public:
             isMouseDown,
             columnFlags);
 
-        g.setColour(juce::Colour::fromRGB(75, 75, 75));
+        g.setColour(juce::Colour::fromRGB(38, 41, 47));
         g.fillRect(0, 0, width, height);
 
-        g.setColour(juce::Colour::fromRGB(110, 110, 110));
+        g.setColour(juce::Colour::fromRGB(52, 55, 62));
         g.fillRect(width - 1, 0, 1, height);
 
-        g.setColour(juce::Colours::white);
+        g.setColour(textColour);
         g.setFont(getMediumFont(15.0f));
 
         g.drawText(
@@ -248,39 +251,116 @@ public:
     {
         juce::ignoreUnused(header);
 
-        g.setColour(juce::Colour::fromRGB(75, 75, 75));
+        g.setColour(juce::Colour::fromRGB(38, 41, 47));
         g.fillAll();
     }
 
     void drawButtonBackground(
         juce::Graphics& g,
         juce::Button& button,
-        const juce::Colour& backgroundColour,
+        const juce::Colour&,
         bool shouldDrawButtonAsHighlighted,
         bool shouldDrawButtonAsDown) override
     {
-        juce::ignoreUnused(
-            shouldDrawButtonAsHighlighted,
-            shouldDrawButtonAsDown);
-
         auto bounds =
             button.getLocalBounds().toFloat().reduced(0.5f);
 
-        const bool isOn =
-            button.getToggleState();
-
-        // Actieve/ingeschakelde knop = MerikBlue
-        // Normale knop = één egale donkere kleur
-        const auto colour =
-            isOn
+        // Actieve knop = MerikBlue, normale knop = effen donker vlak.
+        auto colour =
+            button.getToggleState()
                 ? merikBlue
                 : panelLightColour;
 
-        g.setColour(colour);
+        if (shouldDrawButtonAsDown)
+            colour = colour.darker(0.15f);
+        else if (shouldDrawButtonAsHighlighted)
+            colour = colour.brighter(0.10f);
 
-        g.fillRoundedRectangle(
-            bounds,
-            7.0f);
+        g.setColour(colour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.45f));
+        g.fillRoundedRectangle(bounds, 6.0f);
+    }
+
+    void drawLinearSlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPos, float, float,
+                          juce::Slider::SliderStyle style,
+                          juce::Slider& slider) override
+    {
+        if (style != juce::Slider::LinearHorizontal)
+        {
+            juce::LookAndFeel_V4::drawLinearSlider(
+                g, x, y, width, height, sliderPos, 0.0f, 0.0f, style, slider);
+            return;
+        }
+
+        constexpr float trackHeight = 4.0f;
+        constexpr float thumbSize = 14.0f;
+
+        const float cy = static_cast<float>(y) + static_cast<float>(height) * 0.5f;
+        const float left = static_cast<float>(x) + thumbSize * 0.5f;
+        const float right = static_cast<float>(x + width) - thumbSize * 0.5f;
+
+        // sliderPos is gebaseerd op de volle breedte; reken om naar het spoor.
+        const float t = juce::jlimit(
+            0.0f, 1.0f,
+            (sliderPos - static_cast<float>(x))
+                / juce::jmax(1.0f, static_cast<float>(width)));
+        const float thumbX = left + t * (right - left);
+
+        g.setColour(juce::Colour::fromRGB(52, 55, 62));
+        g.fillRoundedRectangle(left, cy - trackHeight * 0.5f,
+                               right - left, trackHeight, trackHeight * 0.5f);
+
+        g.setColour(merikBlue);
+        g.fillRoundedRectangle(left, cy - trackHeight * 0.5f,
+                               thumbX - left, trackHeight, trackHeight * 0.5f);
+
+        const bool active = slider.isMouseOverOrDragging();
+
+        g.setColour(juce::Colours::white);
+        g.fillEllipse(thumbX - thumbSize * 0.5f, cy - thumbSize * 0.5f,
+                      thumbSize, thumbSize);
+
+        if (active)
+        {
+            g.setColour(merikBlue.withAlpha(0.35f));
+            g.drawEllipse(thumbX - thumbSize * 0.5f - 2.0f,
+                          cy - thumbSize * 0.5f - 2.0f,
+                          thumbSize + 4.0f, thumbSize + 4.0f, 2.0f);
+        }
+    }
+
+    int getDefaultScrollbarWidth() override
+    {
+        return 10;
+    }
+
+    void drawScrollbar(juce::Graphics& g, juce::ScrollBar& bar,
+                       int x, int y, int width, int height,
+                       bool isVertical, int thumbStart, int thumbSize,
+                       bool isMouseOver, bool isMouseDown) override
+    {
+        juce::ignoreUnused(bar, x, y);
+
+        if (thumbSize <= 0)
+            return;
+
+        auto thumb = isVertical
+            ? juce::Rectangle<float>(static_cast<float>(width) - 7.0f,
+                                     static_cast<float>(thumbStart),
+                                     5.0f, static_cast<float>(thumbSize))
+            : juce::Rectangle<float>(static_cast<float>(thumbStart),
+                                     static_cast<float>(height) - 7.0f,
+                                     static_cast<float>(thumbSize), 5.0f);
+
+        auto colour = juce::Colour::fromRGB(84, 88, 98);
+        if (isMouseDown)
+            colour = merikBlue;
+        else if (isMouseOver)
+            colour = colour.brighter(0.25f);
+
+        g.setColour(colour);
+        g.fillRoundedRectangle(thumb, 2.5f);
     }
 
     juce::Typeface::Ptr getNotoSansTypeface() const
@@ -364,9 +444,9 @@ public:
         if (rowIsSelected)
             g.setColour(merikBlue);
         else if (rowNumber % 2 == 0)
-            g.setColour(juce::Colour::fromRGB(47, 47, 47));
+            g.setColour(juce::Colour::fromRGB(32, 34, 39));
         else
-            g.setColour(juce::Colour::fromRGB(39, 39, 39));
+            g.setColour(juce::Colour::fromRGB(27, 29, 34));
 
         g.fillRect(0, 0, width, height);
 
@@ -1031,7 +1111,7 @@ public:
         // ------------------------------------------------------------
 
         g.setColour(
-            juce::Colour::fromRGB(45, 45, 45));
+            juce::Colour::fromRGB(40, 43, 49));
 
         g.fillRect(
             0,
@@ -1208,7 +1288,7 @@ public:
 
         // Verticale scheidingslijn
         g.setColour(
-            juce::Colour::fromRGB(45, 45, 45));
+            juce::Colour::fromRGB(40, 43, 49));
 
         g.fillRect(
             width - 1,
@@ -1394,16 +1474,14 @@ void MainComponent::updateChannelModel()
 
 void MainComponent::paintOverChildren(juce::Graphics& g)
 {
+    g.setColour(familyBorderColour);
+
     for (const auto& block : familyBlockBounds)
     {
-        auto r = block.reduced(1, 1);
+        if (block.isEmpty())
+            continue;
 
-        g.setColour(familyBorderColour);
-
-        g.drawRoundedRectangle(
-            r.toFloat(),
-            1.0f, // radius
-            4.0f); // width
+        g.drawRoundedRectangle(block.toFloat().reduced(0.5f), 8.0f, 1.0f);
     }
 }
 
@@ -1702,7 +1780,7 @@ MainComponent::MainComponent()
 
         control.slider.setColour(
             juce::Slider::backgroundColourId,
-            juce::Colour(70, 70, 70));
+            juce::Colour(52, 55, 62));
 
         control.slider.onValueChange = [this, i]
         {
@@ -1814,7 +1892,7 @@ MainComponent::MainComponent()
 
     positionSlider.setColour(
         juce::Slider::backgroundColourId,
-        juce::Colour::fromRGB(70, 70, 70));
+        juce::Colour::fromRGB(52, 55, 62));
 
     positionSlider.onDragStart = [this]
     {
@@ -1945,6 +2023,11 @@ MainComponent::MainComponent()
     nextButton.setColour(
         juce::TextButton::textColourOffId,
         textColour);
+
+    nextButton.onClick = [this]
+    {
+        skipToNextSong();
+    };
 
     addAndMakeVisible(nextButton);
 
@@ -2084,7 +2167,7 @@ MainComponent::MainComponent()
 
     setlistsTitle.setColour(
         juce::Label::backgroundColourId,
-        juce::Colour::fromRGB(75, 75, 75));
+        juce::Colour::fromRGB(38, 41, 47));
 
     setlistsTitle.setJustificationType(
         juce::Justification::centredLeft);
@@ -2104,7 +2187,7 @@ MainComponent::MainComponent()
 
     songsTitle.setColour(
         juce::Label::backgroundColourId,
-        juce::Colour::fromRGB(75, 75, 75));
+        juce::Colour::fromRGB(38, 41, 47));
 
     songsTitle.setJustificationType(
         juce::Justification::centredLeft);
@@ -2151,7 +2234,7 @@ MainComponent::MainComponent()
 
         button->setClickingTogglesState(true);
 
-        addAndMakeVisible(*button);
+        // Alleen toestand-houders; bediening zit in het settingsvenster.
     }
 
     // Eerst opgeslagen toestand laden.
@@ -2400,11 +2483,11 @@ MainComponent::MainComponent()
 
     channelTable.setColour(
         juce::ListBox::outlineColourId,
-        juce::Colour::fromRGB(65, 65, 65));
+        juce::Colour::fromRGB(48, 51, 58));
 
     channelTable.getHeader().setColour(
         juce::TableHeaderComponent::backgroundColourId,
-        juce::Colour::fromRGB(75, 75, 75));
+        juce::Colour::fromRGB(38, 41, 47));
 
     channelTable.getHeader().setColour(
         juce::TableHeaderComponent::textColourId,
@@ -2412,10 +2495,12 @@ MainComponent::MainComponent()
 
     channelTable.getHeader().setColour(
         juce::TableHeaderComponent::outlineColourId,
-        juce::Colour::fromRGB(110, 110, 110));
+        juce::Colour::fromRGB(52, 55, 62));
         
     
     channelTable.setRowHeight(14);
+    channelTable.getHeader().setStretchToFitActive(false);
+    channelTable.setHeaderHeight(20);
 
     addAndMakeVisible(channelTable);
 
@@ -2683,32 +2768,16 @@ void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(backgroundColour);
 
-    auto bounds = getLocalBounds();
+    // Family-blokken als afgeronde kaarten
+    for (const auto& block : familyBlockBounds)
+    {
+        if (block.isEmpty())
+            continue;
 
-    // Header now contains:
-    // row 1 = MIDI Control / MIDI Out / SoundFont
-    // row 2 = family controls
+        g.setColour(familyBlockColour);
+        g.fillRoundedRectangle(block.toFloat(), 8.0f);
+    }
 
-    auto header =
-        bounds.removeFromTop(1);
-
-    g.setColour(panelColour);
-    g.fillRect(header);
-
-    auto player =
-        bounds.removeFromTop(175);
-
-    g.setColour(panelColour);
-    g.fillRect(player);
-
-    auto lists =
-        bounds.removeFromTop(215);
-
-    g.setColour(panelColour);
-    g.fillRect(lists);
-
-    g.setColour(panelColour);
-    g.fillRect(bounds);
 }
 
 // ============================================================================
@@ -2724,7 +2793,7 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto header =
-        bounds.removeFromTop(145).reduced(10,0);
+        bounds.removeFromTop(135).reduced(10,0);
 
     // First row: MIDI Control / MIDI Out / SoundFont / Settings
 
@@ -2798,7 +2867,7 @@ void MainComponent::resized()
         area.removeFromTop(-10);
 
         control.slider.setBounds(
-            area.reduced(4, 0));
+            area.reduced(1, 0));
 
         if (i < familyControls.size() - 1)
             familyArea.removeFromLeft(familyGap);
@@ -3052,21 +3121,6 @@ void MainComponent::resized()
 
     removeButton.setBounds(
         songButtons.removeFromLeft(35));
-
-    songButtons.removeFromLeft(15);
-
-    doubleClickToggle.setBounds(
-        songButtons.removeFromLeft(80));
-
-    songButtons.removeFromLeft(6);
-
-    normalizeToggle.setBounds(
-        songButtons.removeFromLeft(80));
-
-    songButtons.removeFromLeft(6);
-
-    continuousToggle.setBounds(
-        songButtons.removeFromLeft(80));
 
     songBox.setBounds(
         songArea);

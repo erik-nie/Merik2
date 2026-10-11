@@ -247,6 +247,49 @@ void MainComponent::playNextInSetlist()
     play();
 }
 
+// Next-knop: tijdens afspelen start het volgende nummer meteen,
+// bij stop of pauze wordt het volgende nummer alleen klaargezet.
+void MainComponent::skipToNextSong()
+{
+    if (selectedSetlist < 0 ||
+        selectedSetlist >= static_cast<int>(setlists.size()))
+    {
+        return;
+    }
+
+    const auto& songs =
+        setlists[static_cast<std::size_t>(selectedSetlist)].songs;
+
+    // Huidige positie in de lijst; staat het nummer er niet in
+    // (bijv. via Load), dan geldt de geselecteerde rij als "huidig".
+    int index = -1;
+
+    for (std::size_t i = 0; i < songs.size(); ++i)
+    {
+        if (songs[i] == currentMidiFile)
+        {
+            index = static_cast<int>(i);
+            break;
+        }
+    }
+
+    if (index < 0)
+        index = songBox.getSelectedRow();
+
+    const int nextIndex = index + 1;
+
+    if (nextIndex < 0 || nextIndex >= static_cast<int>(songs.size()))
+        return;
+
+    const bool wasPlaying = synthEngine.isPlaying();
+
+    loadMidiFile(songs[static_cast<std::size_t>(nextIndex)], true);
+    songBox.selectRow(nextIndex);
+
+    if (wasPlaying)
+        play();
+}
+
 // ============================================================================
 // Song display
 // ============================================================================

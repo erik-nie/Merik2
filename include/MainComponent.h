@@ -171,6 +171,7 @@ private:
 
     void loadMidiFile(const juce::File& file, bool fromSetlist = false);
     void playNextInSetlist();
+    void skipToNextSong();
     [[nodiscard]] juce::File nextSetlistFile() const;
 
     void loadPersistentState();

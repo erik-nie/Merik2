@@ -907,19 +907,30 @@ void FluidSynthEngine::resetSynth()
     if (!synth_)
         return;
 
-    // system_reset stopt alle voices en wist reverb/chorus.
-    // Een kort blokje renderen verwerkt de reset; 2 seconden
-    // "uitrenderen" onder de lock liet de audio-callback stilvallen.
+    // Eerst alle voices direct laten stoppen, daarna resetten en de
+    // reverb/chorus-staart uitrenderen. Een te korte flush liet na
+    // stop + play nog restgeluid van het vorige nummer horen.
     fluid_synth_all_sounds_off(synth_, -1);
     fluid_synth_system_reset(synth_);
 
-    constexpr int flushSamples = 256;
+    constexpr int bufferSize = 512;
+    constexpr double flushSeconds = 2.0;
 
-    float left[flushSamples];
-    float right[flushSamples];
+    float left[bufferSize];
+    float right[bufferSize];
 
-    fluid_synth_write_float(
-        synth_, flushSamples, left, 0, 1, right, 0, 1);
+    auto remaining = static_cast<int>(
+        std::ceil(sampleRate_ * flushSeconds));
+
+    while (remaining > 0)
+    {
+        const int count = std::min(remaining, bufferSize);
+
+        fluid_synth_write_float(
+            synth_, count, left, 0, 1, right, 0, 1);
+
+        remaining -= count;
+    }
 }
 
 void FluidSynthEngine::sendMidiEvent(
