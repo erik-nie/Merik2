@@ -180,6 +180,16 @@ Without further settings the app is signed ad hoc. For a Developer ID signature 
 
 ---
 
+## Support Merik
+
+Merik is free and developed in spare time. If it helps your band or your gigs, you can support its development on Ko-fi:
+
+<p align="center">
+  <a href="https://ko-fi.com/eriknie"><img src="https://img.shields.io/badge/Support%20Merik%20on-Ko--fi-ff5e5b?logo=ko-fi&logoColor=white" alt="Support Merik on Ko-fi"></a>
+</p>
+
+---
+
 ## Credits
 
 Merik uses [JUCE](https://juce.com), [FluidSynth](https://www.fluidsynth.org), [midifile](https://github.com/craigsapp/midifile) by Craig Stuart Sapp and the Noto Sans typeface. Their licenses apply to their respective parts, see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
