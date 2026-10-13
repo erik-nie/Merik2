@@ -68,6 +68,55 @@ const std::array<const char*, 35> XF_TYPES =
     "cc"         // 34
 };
 
+// Midisoft-bestanden (.KAR-achtig) bewaren tekstregels als SysEx:
+//   F0 .. 00 20 24 00 <regel> <ascii> 0A F7
+// Regel 1 bevat de akkoorden (bijv. "Am", "D7"); de andere regels zijn lyrics.
+bool decodeMidisoftChordLine(const smf::MidiEvent& event, std::vector<std::string>& tokens)
+{
+    if (event.size() < 8 || event[0] != 0xf0)
+        return false;
+
+    std::size_t signature = 0;
+
+    for (std::size_t i = 1; i + 5 < event.size(); ++i)
+    {
+        if (event[i] == 0x00 && event[i + 1] == 0x20 && event[i + 2] == 0x24 && event[i + 3] == 0x00)
+        {
+            signature = i;
+            break;
+        }
+    }
+
+    if (signature == 0 || event[signature + 4] != 0x01)
+        return false;
+
+    std::string current;
+
+    const auto flush = [&]
+    {
+        if (!current.empty())
+            tokens.push_back(current);
+
+        current.clear();
+    };
+
+    for (std::size_t i = signature + 5; i < event.size(); ++i)
+    {
+        const auto value = static_cast<unsigned char>(event[i]);
+
+        if (value == 0x0a || value == 0xf7)
+            break;
+
+        if (value > 0x20 && value < 0x7f)
+            current.push_back(static_cast<char>(value));
+        else
+            flush();
+    }
+
+    flush();
+    return !tokens.empty();
+}
+
 int mod12(int value)
 {
     value %= 12;
@@ -144,6 +193,7 @@ ChordData ChordParser::parse(smf::MidiFile& midi, double songEndSeconds) const
     midi.doTimeAnalysis();
 
     std::vector<Candidate> xf;
+    std::vector<Candidate> midisoft;
     std::vector<Candidate> markers;
     std::vector<Candidate> text;
     std::vector<Candidate> lyrics;
@@ -171,6 +221,27 @@ ChordData ChordParser::parse(smf::MidiFile& midi, double songEndSeconds) const
         for (int i = 0; i < midi.getEventCount(track); ++i)
         {
             const auto& event = midi[track][i];
+
+            // Akkoorden in Midisoft-SysEx.
+            if (event.size() >= 8 && event[0] == 0xf0)
+            {
+                std::vector<std::string> tokens;
+
+                if (decodeMidisoftChordLine(event, tokens))
+                {
+                    for (const auto& token : tokens)
+                    {
+                        if (looksLikeChord(token))
+                            midisoft.push_back(Candidate{
+                                event.seconds, event.tick, track, event.seq,
+                                ChordSource::Midisoft, normalizeLabel(token), "Midisoft"
+                            });
+                    }
+                }
+
+                continue;
+            }
+
             if (event.size() < 3 || event[0] != 0xff)
                 continue;
 
@@ -233,6 +304,7 @@ ChordData ChordParser::parse(smf::MidiFile& midi, double songEndSeconds) const
     // Priority prevents ordinary lyrics/text from being mixed with an authoritative XF stream.
     std::vector<Candidate>* selected = nullptr;
     if (!xf.empty()) selected = &xf;
+    else if (!midisoft.empty()) selected = &midisoft;
     else if (!markers.empty()) selected = &markers;
     else if (!text.empty()) selected = &text;
     else if (!lyrics.empty()) selected = &lyrics;
@@ -291,6 +363,7 @@ std::string ChordParser::sourceName(ChordSource source)
     switch (source)
     {
         case ChordSource::YamahaXF: return "YamahaXF";
+        case ChordSource::Midisoft: return "Midisoft";
         case ChordSource::Marker: return "Marker";
         case ChordSource::Text: return "Text";
         case ChordSource::Lyric: return "Lyric";
@@ -413,17 +486,9 @@ bool ChordParser::decodeYamahaXFChord(
         rootName +
         XF_TYPES[typeCode];
 
-    // Geen basakkoord.
-    if (bassRootCode == 0x7f ||
-        bassTypeCode == 0x7f)
-    {
+    // Geen basnoot.
+    if (bassRootCode == 0x7f)
         return true;
-    }
-
-    if (bassTypeCode >= XF_TYPES.size())
-    {
-        return true;
-    }
 
     std::string bassRootName;
 
@@ -443,9 +508,11 @@ bool ChordParser::decodeYamahaXFChord(
     label += "/";
     label += bassRootName;
 
-    // Alleen toevoegen wanneer de bass chord quality
-    // betekenisvol afwijkt van een standaard majeurvorm.
-    if (bassTypeCode != 0)
+    // Alleen toevoegen wanneer de bass chord quality bekend is en
+    // betekenisvol afwijkt van een standaard majeurvorm. Veel bestanden
+    // zetten het bastype op 0x7f ("geen") terwijl de basnoot wel klopt
+    // (bijv. Dm6/B); die slash-akkoorden werden eerder weggelaten.
+    if (bassTypeCode != 0 && bassTypeCode != 0x7f && bassTypeCode < XF_TYPES.size())
     {
         label += XF_TYPES[bassTypeCode];
     }

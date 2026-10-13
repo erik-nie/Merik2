@@ -124,35 +124,3 @@ target_compile_definitions(
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
 )
-
-# ---------------------------------------------------------------------------
-# Keep the old console player available for testing.
-# ---------------------------------------------------------------------------
-
-add_executable(
-    merik-cli
-    src/cli_main.cpp
-    src/MidiFileReader.cpp
-    src/TempoMap.cpp
-    src/LyricsParser.cpp
-    src/ChordParser.cpp
-    src/ConsoleEventSink.cpp
-    src/MidiPlayer.cpp
-    src/FluidSynthEventSink.cpp
-    src/MidiTransformer.cpp
-    src/WebServer.cpp
-)
-
-target_include_directories(
-    merik-cli
-    PRIVATE
-        include
-       
-)
-
-target_link_libraries(
-    merik-cli
-    PRIVATE
-        midifile
-        PkgConfig::FLUIDSYNTH
-)

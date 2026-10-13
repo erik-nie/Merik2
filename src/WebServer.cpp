@@ -1583,6 +1583,44 @@ function chordDurationWidth(chord)
            90 * normalized/4;
 }
 
+/*
+ * Een lang akkoord (bijv. F#maj7/Bb) past niet in het plekje dat het
+ * krijgt. De tekst wordt dan horizontaal ingedrukt totdat hij past; bij
+ * heel lange namen wordt hij daarnaast iets kleiner.
+ */
+function fitChordLabel(element)
+{
+    if (!element)
+        return;
+
+    element.style.width = "max-content";
+    element.style.transform = "";
+
+    const slot = element.parentElement;
+    const available = slot ? slot.clientWidth : 0;
+    const needed = element.offsetWidth;
+
+    if (available <= 0 || needed <= available)
+        return;
+
+    const ratio = available / needed;
+    const squeeze = 0.55;
+
+    element.style.transformOrigin = "center";
+    element.style.transform =
+        ratio >= squeeze
+            ? "scaleX(" + ratio + ")"
+            : "scale(" + (ratio / squeeze) + ") scaleX(" + squeeze + ")";
+}
+
+function refitChordLabels()
+{
+    for (const id of ["currentChord", "next1", "next2", "next3", "next4"])
+        fitChordLabel(document.getElementById(id));
+}
+
+window.addEventListener("resize", refitChordLabels);
+
 function renderFutureChord(
     chordIndex,
     chord)
@@ -1610,6 +1648,8 @@ function renderFutureChord(
 
     labelElement.textContent =
         chord.label || "";
+
+    fitChordLabel(labelElement);
 
     progressElement.style.width =
         chordDurationWidth(chord) + "%";
@@ -1718,6 +1758,9 @@ function renderChords()
             .textContent =
                 chords[currentIndex]
                     ?.label || "";
+
+        fitChordLabel(
+            document.getElementById("currentChord"));
 
         renderFutureChord(
             1,

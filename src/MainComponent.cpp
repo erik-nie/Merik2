@@ -752,9 +752,9 @@ private:
 
         webHint.setText(
             key.isEmpty()
-                ? "Leeg: de webpagina is alleen-lezen en kan nooit bedienen."
-                : "Bediening aan via http://" + ip + ":" + juce::String(WebServer::defaultPort)
-                    + "/?key=" + key + "  (zonder sleutel: alleen kijken)",
+                ? "Empty: the web page is view-only and can never control Merik."
+                : "Remote control: http://" + ip + ":" + juce::String(WebServer::defaultPort)
+                    + "/?key=" + key + "  (without the key: view only)",
             juce::dontSendNotification);
     }
 
@@ -2170,10 +2170,13 @@ public:
 
                 if (program >= 0 && program < 128)
                 {
+                    // Kanaal 10 is percussie: daar is het programma een drumkit
+                    // (Standard, Room, Power, ...) en geen instrument.
                     value =
                         juce::String(program + 1)
                         + " "
-                        + getGMProgramName(program);
+                        + (rowNumber == 9 ? getDrumKitName(program)
+                                          : juce::String(getGMProgramName(program)));
                 }
                 else
                 {
@@ -2258,6 +2261,45 @@ private:
 
     std::array<std::uint64_t, 16> lastEventCounter {};
     std::array<Clock::time_point, 16> eventTimes {};
+
+    // Drumkits op kanaal 10, op programmanummer (GM, GM2 en Roland GS).
+    static juce::String getDrumKitName(int program)
+    {
+        switch (program)
+        {
+            case 0:   return "Standard Kit";
+            case 1:   return "Standard Kit 2";
+            case 2:   return "Standard Kit 3";
+            case 8:   return "Room Kit";
+            case 16:  return "Power Kit";
+            case 24:  return "Electronic Kit";
+            case 25:  return "TR-808 / Analog Kit";
+            case 26:  return "Dance Kit";
+            case 27:  return "CR-78 Kit";
+            case 28:  return "TR-606 Kit";
+            case 29:  return "TR-707 Kit";
+            case 30:  return "TR-909 Kit";
+            case 32:  return "Jazz Kit";
+            case 40:  return "Brush Kit";
+            case 48:  return "Orchestra Kit";
+            case 49:  return "Ethnic Kit";
+            case 50:  return "Kick & Snare Kit";
+            case 56:  return "SFX Kit";
+            case 127: return "CM-64/CM-32L Kit";
+            default:  break;
+        }
+
+        // Onbekend programma: de dichtstbijzijnde bekende kit eronder
+        // (bij GS valt een variant onder de kit ervoor), anders algemeen.
+        static constexpr int known[] = { 0, 8, 16, 24, 32, 40, 48, 56 };
+        int base = -1;
+
+        for (const int kit : known)
+            if (kit <= program)
+                base = kit;
+
+        return base >= 0 ? getDrumKitName(base) + " (variation)" : juce::String("Drum Kit");
+    }
 
     static const char* getGMProgramName(int program)
     {

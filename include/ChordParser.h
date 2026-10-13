@@ -9,6 +9,7 @@
 enum class ChordSource
 {
     YamahaXF,
+    Midisoft,
     Marker,
     Text,
     Lyric,
