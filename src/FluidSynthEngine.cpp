@@ -51,6 +51,8 @@ FluidSynthEngine::FluidSynthEngine()
     for (auto& channel : soundingNote_)
         channel.fill(-1);
 
+    clearExternalCache();
+
     createSynth();
 }
 
@@ -92,7 +94,68 @@ void FluidSynthEngine::createSynth()
     }
 
     fluid_synth_set_polyphony(synth_, 256);
-    fluid_synth_set_gain(synth_, 0.5);
+    applySynthSettingsLocked();
+}
+
+void FluidSynthEngine::applySynthSettingsLocked()
+{
+    if (synth_ == nullptr)
+        return;
+
+    const auto& v = synthSettings_;
+    const auto unit = [](int value) { return std::clamp(value, 0, 100) / 100.0; };
+
+    fluid_synth_set_gain(synth_, static_cast<float>(unit(v.gain)));
+
+    fluid_synth_set_reverb_group_roomsize(synth_, -1, unit(v.reverbRoom));
+    fluid_synth_set_reverb_group_damp(synth_, -1, unit(v.reverbDamp));
+    fluid_synth_set_reverb_group_width(synth_, -1, std::clamp(v.reverbWidth, 0, 100));
+    fluid_synth_set_reverb_group_level(synth_, -1, unit(v.reverbLevel));
+
+    // Chorus staat altijd uit.
+    fluid_synth_set_chorus_group_nr(synth_, -1, 0);
+    fluid_synth_set_chorus_group_level(synth_, -1, 0.0);
+    fluid_synth_chorus_on(synth_, -1, 0);
+}
+
+void FluidSynthEngine::setSynthSettings(const SynthSettings& settings)
+{
+    std::scoped_lock lock(mutex_);
+
+    synthSettings_ = settings;
+    applySynthSettingsLocked();
+}
+
+SynthSettings FluidSynthEngine::getSynthSettings() const
+{
+    std::scoped_lock lock(mutex_);
+    return synthSettings_;
+}
+
+void FluidSynthEngine::applyDirtyFamiliesLocked()
+{
+    const auto dirty = dirtyFamilies_.load(std::memory_order_relaxed);
+
+    if (dirty == 0)
+        return;
+
+    // Extern: hooguit eens per 30 ms (de laatste waarde blijft gewoon staan
+    // en gaat bij de volgende gelegenheid mee).
+    if (external_ != nullptr)
+    {
+        const auto now = std::chrono::steady_clock::now();
+
+        if (now - lastFamilyApply_ < std::chrono::milliseconds(30))
+            return;
+
+        lastFamilyApply_ = now;
+    }
+
+    dirtyFamilies_.fetch_and(~dirty, std::memory_order_relaxed);
+
+    for (int family = 0; family < familyCount; ++family)
+        if ((dirty & (1u << family)) != 0)
+            applyFamilyVolumeLocked(family);
 }
 
 
@@ -128,7 +191,7 @@ void FluidSynthEngine::setFamilyVolume(int family, int volume)
     settings.volume = std::clamp(volume, 0, 127);
 
     updateFamilyFactorLocked(family);
-    applyFamilyVolumeLocked(family);
+    dirtyFamilies_.fetch_or(1u << family, std::memory_order_relaxed);
 }
 
 void FluidSynthEngine::setFamilyEnabled(int family, bool enabled)
@@ -146,7 +209,7 @@ void FluidSynthEngine::setFamilyEnabled(int family, bool enabled)
     settings.enabled = enabled;
 
     updateFamilyFactorLocked(family);
-    applyFamilyVolumeLocked(family);
+    dirtyFamilies_.fetch_or(1u << family, std::memory_order_relaxed);
 }
 
 void FluidSynthEngine::setChannelMuted(int channel, bool muted)
@@ -159,7 +222,7 @@ void FluidSynthEngine::setChannelMuted(int channel, bool muted)
     channelMuted_[static_cast<std::size_t>(channel)] = muted;
 
     if (muted && synth_)
-        fluid_synth_all_sounds_off(synth_, channel);
+        outAllSoundsOff(channel);
 }
 
 void FluidSynthEngine::setTranspose(int semitones)
@@ -201,8 +264,8 @@ void FluidSynthEngine::applyFamilyVolumeLocked(int family)
         const int expression =
             midiTransformer_.getAdjustedChannelExpression(channel);
 
-        fluid_synth_cc(synth_, channel, 7, volume);
-        fluid_synth_cc(synth_, channel, 11, expression);
+        outCC(channel, 7, volume);
+        outCC(channel, 11, expression);
     }
 }
 
@@ -846,11 +909,8 @@ void FluidSynthEngine::rebuildSynthStateAt(
                 bewust maar één voice. Dat voorkomt dat een seek
                 een enorme hoeveelheid polyfonie consumeert.
             */
-            fluid_synth_noteon(
-                synth_,
-                channel,
-                note,
-                velocity);
+            if (!channelMuted_[static_cast<std::size_t>(channel)])
+                outNoteOn(channel, pressNote(channel, note), velocity);
         }
     }
 }
@@ -871,7 +931,7 @@ void FluidSynthEngine::setFamilyVolumeFactor(int family, float factor)
         static_cast<int>(std::lround(factor * 127.0f));
 
     updateFamilyFactorLocked(family);
-    applyFamilyVolumeLocked(family);
+    dirtyFamilies_.fetch_or(1u << family, std::memory_order_relaxed);
 }
 
 bool FluidSynthEngine::isPlaying() const
@@ -936,8 +996,17 @@ void FluidSynthEngine::resetSynth()
     fluid_synth_all_sounds_off(synth_, -1);
     fluid_synth_system_reset(synth_);
 
+    if (external_ != nullptr)
+        external_->allNotesOff(-1);
+
     for (auto& channel : soundingNote_)
         channel.fill(-1);
+
+    clearExternalCache();
+
+    // Een extern apparaat klinkt niet via FluidSynth: geen staart uitrenderen.
+    if (external_ != nullptr)
+        return;
 
     constexpr int bufferSize = 512;
     constexpr double flushSeconds = 2.0;
@@ -957,6 +1026,155 @@ void FluidSynthEngine::resetSynth()
 
         remaining -= count;
     }
+}
+
+void FluidSynthEngine::outExternal(std::uint8_t status, int data1, int data2, int size)
+{
+    const std::uint8_t data[3] = {
+        status,
+        static_cast<std::uint8_t>(data1 & 0x7F),
+        static_cast<std::uint8_t>(data2 & 0x7F)
+    };
+
+    if (inRender_)
+        external_->push(data, size, renderBlockStart_ + renderOffsetSamples_);
+    else
+        external_->pushNow(data, size);
+}
+
+void FluidSynthEngine::clearExternalCache()
+{
+    for (auto& channel : lastExternalCC_)
+        channel.fill(-1);
+
+    lastExternalBend_.fill(-1);
+}
+
+void FluidSynthEngine::outNoteOn(int channel, int note, int velocity)
+{
+    if (external_ != nullptr)
+        outExternal(static_cast<std::uint8_t>(0x90 | channel), note, velocity, 3);
+    else
+        fluid_synth_noteon(synth_, channel, note, velocity);
+}
+
+void FluidSynthEngine::outNoteOff(int channel, int note)
+{
+    if (external_ != nullptr)
+        outExternal(static_cast<std::uint8_t>(0x80 | channel), note, 0, 3);
+    else
+        fluid_synth_noteoff(synth_, channel, note);
+}
+
+void FluidSynthEngine::outKeyPressure(int channel, int note, int value)
+{
+    if (external_ != nullptr)
+        outExternal(static_cast<std::uint8_t>(0xA0 | channel), note, value, 3);
+    else
+        fluid_synth_key_pressure(synth_, channel, note, value);
+}
+
+void FluidSynthEngine::outCC(int channel, int controller, int value)
+{
+    if (external_ != nullptr)
+    {
+        // Doorlopende controllers (volume, expression, modulation, ...)
+        // worden vaak herhaald zonder dat de waarde verandert.
+        const bool continuous =
+            controller == 1 || controller == 7 || controller == 10 || controller == 11
+            || (controller >= 71 && controller <= 74) || controller == 91 || controller == 93;
+
+        auto& last = lastExternalCC_[static_cast<std::size_t>(channel)][static_cast<std::size_t>(controller)];
+
+        if (continuous && last == value)
+            return;
+
+        last = static_cast<std::int16_t>(value);
+
+        outExternal(static_cast<std::uint8_t>(0xB0 | channel), controller, value, 3);
+    }
+    else
+        fluid_synth_cc(synth_, channel, controller, value);
+}
+
+void FluidSynthEngine::outProgram(int channel, int program)
+{
+    if (external_ != nullptr)
+        outExternal(static_cast<std::uint8_t>(0xC0 | channel), program, 0, 2);
+    else
+        fluid_synth_program_change(synth_, channel, program);
+}
+
+void FluidSynthEngine::outChannelPressure(int channel, int value)
+{
+    if (external_ != nullptr)
+        outExternal(static_cast<std::uint8_t>(0xD0 | channel), value, 0, 2);
+    else
+        fluid_synth_channel_pressure(synth_, channel, value);
+}
+
+void FluidSynthEngine::outPitchBend(int channel, int value14)
+{
+    if (external_ != nullptr)
+    {
+        auto& last = lastExternalBend_[static_cast<std::size_t>(channel)];
+
+        if (last == value14)
+            return;
+
+        last = value14;
+
+        outExternal(static_cast<std::uint8_t>(0xE0 | channel), value14 & 0x7F, (value14 >> 7) & 0x7F, 3);
+    }
+    else
+    {
+        fluid_synth_pitch_bend(synth_, channel, value14);
+    }
+}
+
+void FluidSynthEngine::outAllSoundsOff(int channel)
+{
+    if (external_ != nullptr)
+        external_->allNotesOff(channel);
+    else
+        fluid_synth_all_sounds_off(synth_, channel);
+}
+
+void FluidSynthEngine::setExternalOutput(ExternalMidiOutput* output)
+{
+    std::scoped_lock lock(mutex_);
+
+    if (external_ != nullptr)
+        external_->allNotesOff(-1);
+
+    external_ = output;
+    clearExternalCache();
+
+    // Alles wat nog klinkt in de interne synth stopt; het nieuwe doel
+    // krijgt programma's, volumes en controllers van het huidige punt.
+    if (synth_ != nullptr)
+    {
+        fluid_synth_all_sounds_off(synth_, -1);
+
+        if (song_ != nullptr)
+            rebuildSynthStateAt(currentSample_.load());
+    }
+}
+
+void FluidSynthEngine::panic()
+{
+    std::scoped_lock lock(mutex_);
+
+    if (synth_ != nullptr)
+        fluid_synth_all_sounds_off(synth_, -1);
+
+    if (external_ != nullptr)
+        external_->allNotesOff(-1);
+
+    for (auto& channel : soundingNote_)
+        channel.fill(-1);
+
+    clearExternalCache();
 }
 
 int FluidSynthEngine::transposedNote(int channel, int note) const
@@ -1040,12 +1258,7 @@ void FluidSynthEngine::sendMidiEvent(
         case 0x80:
         {
             if (size >= 3)
-            {
-                fluid_synth_noteoff(
-                    synth_,
-                    channel,
-                    releaseNote(channel, data1));
-            }
+                outNoteOff(channel, releaseNote(channel, data1));
 
             break;
         }
@@ -1055,26 +1268,12 @@ void FluidSynthEngine::sendMidiEvent(
             if (size >= 3)
             {
                 const int velocity =
-                    std::clamp(
-                        static_cast<int>(bytes[2]),
-                        0,
-                        127);
+                    std::clamp(static_cast<int>(bytes[2]), 0, 127);
 
                 if (velocity == 0)
-                {
-                    fluid_synth_noteoff(
-                        synth_,
-                        channel,
-                        releaseNote(channel, data1));
-                }
+                    outNoteOff(channel, releaseNote(channel, data1));
                 else if (!channelMuted_[static_cast<std::size_t>(channel)])
-                {
-                    fluid_synth_noteon(
-                        synth_,
-                        channel,
-                        pressNote(channel, data1),
-                        velocity);
-                }
+                    outNoteOn(channel, pressNote(channel, data1), velocity);
             }
 
             break;
@@ -1083,19 +1282,9 @@ void FluidSynthEngine::sendMidiEvent(
         case 0xA0:
         {
             if (size >= 3)
-            {
-                const int value =
-                    std::clamp(
-                        static_cast<int>(bytes[2]),
-                        0,
-                        127);
-
-                fluid_synth_key_pressure(
-                    synth_,
-                    channel,
-                    transposedNote(channel, data1),
-                    value);
-            }
+                outKeyPressure(channel,
+                               transposedNote(channel, data1),
+                               std::clamp(static_cast<int>(bytes[2]), 0, 127));
 
             break;
         }
@@ -1103,40 +1292,20 @@ void FluidSynthEngine::sendMidiEvent(
         case 0xB0:
         {
             if (size >= 3)
-            {
-                const int value =
-                    std::clamp(
-                        static_cast<int>(bytes[2]),
-                        0,
-                        127);
-
-                fluid_synth_cc(
-                    synth_,
-                    channel,
-                    data1,
-                    value);
-            }
+                outCC(channel, data1, std::clamp(static_cast<int>(bytes[2]), 0, 127));
 
             break;
         }
 
         case 0xC0:
         {
-            fluid_synth_program_change(
-                synth_,
-                channel,
-                data1);
-
+            outProgram(channel, data1);
             break;
         }
 
         case 0xD0:
         {
-            fluid_synth_channel_pressure(
-                synth_,
-                channel,
-                data1);
-
+            outChannelPressure(channel, data1);
             break;
         }
 
@@ -1144,25 +1313,10 @@ void FluidSynthEngine::sendMidiEvent(
         {
             if (size >= 3)
             {
-                const int lsb =
-                    std::clamp(
-                        static_cast<int>(bytes[1]),
-                        0,
-                        127);
+                const int lsb = std::clamp(static_cast<int>(bytes[1]), 0, 127);
+                const int msb = std::clamp(static_cast<int>(bytes[2]), 0, 127);
 
-                const int msb =
-                    std::clamp(
-                        static_cast<int>(bytes[2]),
-                        0,
-                        127);
-
-                const int bend =
-                    lsb | (msb << 7);
-
-                fluid_synth_pitch_bend(
-                    synth_,
-                    channel,
-                    bend);
+                outPitchBend(channel, lsb | (msb << 7));
             }
 
             break;
@@ -1197,10 +1351,22 @@ void FluidSynthEngine::render(
 
     int rendered = 0;
 
+    // Voor een extern apparaat: begin van dit blok op de songtijdlijn, zodat
+    // elk event een eigen, vooruit ingepland tijdstip krijgt.
+    renderBlockStart_ = currentSample_.load();
+    inRender_ = true;
+
+    if (external_ != nullptr)
+        external_->beginBlock(renderBlockStart_, numSamples, sampleRate_);
+
+    applyDirtyFamiliesLocked();
+
     while (rendered < numSamples)
     {
         const auto blockPosition =
             currentSample_ + rendered;
+
+        renderOffsetSamples_ = rendered;
 
         while (
             nextEvent_ < song_->playbackEvents.size() &&
@@ -1269,6 +1435,9 @@ void FluidSynthEngine::render(
 
         rendered += chunk;
     }
+
+    renderOffsetSamples_ = 0;
+    inRender_ = false;
 
     currentSample_ += numSamples;
 

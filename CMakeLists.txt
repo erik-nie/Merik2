@@ -94,6 +94,7 @@ target_sources(
         src/ChordParser.cpp
         src/FluidSynthEngine.cpp
         src/MidiTransformer.cpp
+        src/MidiOutSink.cpp
         src/WebServer.cpp
         src/MainComponent.cpp
         src/MainComponentAudio.cpp

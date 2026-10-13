@@ -79,6 +79,12 @@ public:
         setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
         setColour(juce::ComboBox::arrowColourId, secondaryTextColour);
 
+        // Getalvelden van de sliders (CC-nummers, synth-waarden)
+        setColour(juce::Slider::textBoxTextColourId, textColour);
+        setColour(juce::Slider::textBoxBackgroundColourId, panelLightColour);
+        setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        setColour(juce::Slider::textBoxHighlightColourId, merikBlue);
+
         // Scrollbars: smal en rustig
         setColour(juce::ScrollBar::thumbColourId, juce::Colour::fromRGB(84, 88, 98));
 
@@ -344,6 +350,33 @@ public:
         }
     }
 
+    int getTabButtonBestWidth(juce::TabBarButton&, int) override
+    {
+        return 120;
+    }
+
+    void drawTabAreaBehindFrontButton(juce::TabbedButtonBar&, juce::Graphics&, int, int) override
+    {
+    }
+
+    void drawTabButton(juce::TabBarButton& button, juce::Graphics& g,
+                       bool isMouseOver, bool) override
+    {
+        auto area = button.getLocalBounds().toFloat().reduced(3.0f, 4.0f);
+
+        auto fill = button.isFrontTab() ? merikBlue : panelLightColour;
+
+        if (!button.isFrontTab() && isMouseOver)
+            fill = fill.brighter(0.08f);
+
+        g.setColour(fill);
+        g.fillRoundedRectangle(area, 7.0f);
+
+        g.setColour(juce::Colours::white);
+        g.setFont(getMediumFont(17.0f));
+        g.drawText(button.getButtonText(), area.toNearestInt(), juce::Justification::centred);
+    }
+
     int getDefaultScrollbarWidth() override
     {
         return 10;
@@ -482,35 +515,156 @@ private:
 
 namespace
 {
+// Pagina met een eigen indeling (de eigenaar geeft een layout-functie).
+class SettingsPage : public juce::Component
+{
+public:
+    std::function<void(juce::Rectangle<int>)> layout;
+
+    void resized() override
+    {
+        if (layout)
+            layout(getLocalBounds());
+    }
+};
+
+// Pagina die verticaal scrollt als de inhoud hoger is dan het venster.
+class ScrollPage : public juce::Component
+{
+public:
+    ScrollPage()
+    {
+        viewport.setViewedComponent(&content, false);
+        viewport.setScrollBarsShown(true, false);
+        addAndMakeVisible(viewport);
+    }
+
+    juce::Component content;
+
+    // Krijgt de beschikbare breedte; geeft de benodigde hoogte terug.
+    std::function<int(int width)> layoutContent;
+
+    void resized() override
+    {
+        viewport.setBounds(getLocalBounds());
+        relayout();
+    }
+
+    void relayout()
+    {
+        const int width = viewport.getMaximumVisibleWidth();
+        const int height = layoutContent ? layoutContent(width) : 0;
+
+        content.setSize(width, juce::jmax(height, viewport.getHeight()));
+    }
+
+private:
+    juce::Viewport viewport;
+};
+
+struct SettingsContext
+{
+    juce::AudioDeviceManager& deviceManager;
+    juce::ComboBox& midiIn;
+    juce::ComboBox& midiOut;
+    juce::ComboBox& ledOut;
+    juce::TextButton& soundFont;
+    juce::TextButton& directPlay;
+    juce::TextButton& normalize;
+    juce::TextButton& autoNext;
+
+    std::function<juce::String()> midiInActivity;
+
+    juce::String webKey;
+    std::function<void(const juce::String&)> webKeyChanged;
+
+    MidiMapping& mapping;
+    std::function<void()> mappingChanged;
+
+    SynthSettings synth;
+    std::function<void(const SynthSettings&)> synthChanged;
+};
+
 class SettingsContent final : public juce::Component,
                               private juce::ComponentListener,
                               private juce::Timer
 {
 public:
-    SettingsContent(juce::AudioDeviceManager& deviceManager,
-                    juce::ComboBox& midiIn,
-                    juce::ComboBox& midiOut,
-                    juce::TextButton& soundFont,
-                    const juce::String& webKey,
-                    std::function<void(const juce::String&)> webKeyChanged,
-                    juce::TextButton& directPlay,
-                    juce::TextButton& normalize,
-                    juce::TextButton& autoNext)
-        : sources { &directPlay, &normalize, &autoNext },
-          midiSources { &midiIn, &midiOut },
-          soundFontSource(&soundFont),
-          onWebKeyChanged(std::move(webKeyChanged))
+    explicit SettingsContent(SettingsContext contextToUse)
+        : context(std::move(contextToUse)),
+          sources { &context.directPlay, &context.normalize, &context.autoNext },
+          comboSources { &context.midiIn, &context.midiOut, &context.ledOut }
     {
         setLookAndFeel(&merikLookAndFeel);
 
-        // Sleutel voor bediening via de webpagina (standaard alleen-lezen).
-        webKeyLabel.setText("Web control key", juce::dontSendNotification);
-        webKeyLabel.setJustificationType(juce::Justification::centredRight);
-        addAndMakeVisible(webKeyLabel);
+        buildGeneral();
+        buildAudio();
+        buildMidi();
+
+        tabs.setTabBarDepth(38);
+        tabs.setOutline(0);
+        tabs.setIndent(0);
+        tabs.addTab("General", backgroundColour, &generalPage, false);
+        tabs.addTab("Audio", backgroundColour, &audioPage, false);
+        tabs.addTab("Midi", backgroundColour, &midiPage, false);
+        addAndMakeVisible(tabs);
+
+        refresh();
+        setSize(700, 640);
+        startTimer(300);
+    }
+
+    ~SettingsContent() override
+    {
+        stopTimer();
+
+        if (selector != nullptr)
+            selector->removeComponentListener(this);
+
+        setLookAndFeel(nullptr);
+    }
+
+    // De drie opties van het hoofdscherm gelijkhouden met deze kopieën.
+    void refresh()
+    {
+        for (std::size_t i = 0; i < optionCopies.size(); ++i)
+            optionCopies[i].setToggleState(sources[i]->getToggleState(), juce::dontSendNotification);
+    }
+
+    void resized() override
+    {
+        tabs.setBounds(getLocalBounds().reduced(10, 8));
+    }
+
+private:
+    static constexpr int rowHeight = 28;
+    static constexpr int rowStep = 34;
+
+    static void styleLabel(juce::Label& label, const juce::String& text,
+                           juce::Justification justification = juce::Justification::centredRight)
+    {
+        label.setText(text, juce::dontSendNotification);
+        label.setJustificationType(justification);
+    }
+
+    static void styleHeading(juce::Label& label, const juce::String& text)
+    {
+        label.setText(text, juce::dontSendNotification);
+        label.setFont(merikLookAndFeel.getBoldFont(16.0f));
+        label.setColour(juce::Label::textColourId, textColour);
+        label.setJustificationType(juce::Justification::centredLeft);
+    }
+
+    // ---------------------------------------------------------------- General
+
+    void buildGeneral()
+    {
+        styleLabel(webKeyLabel, "Web control key");
+        generalPage.addAndMakeVisible(webKeyLabel);
 
         webKeyEditor.setInputRestrictions(
             32, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_");
-        webKeyEditor.setText(webKey, juce::dontSendNotification);
+        webKeyEditor.setText(context.webKey, juce::dontSendNotification);
         webKeyEditor.setColour(juce::TextEditor::backgroundColourId, panelLightColour);
         webKeyEditor.setColour(juce::TextEditor::textColourId, textColour);
         webKeyEditor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
@@ -522,150 +676,64 @@ public:
         {
             updateWebHint();
 
-            if (onWebKeyChanged)
-                onWebKeyChanged(webKeyEditor.getText());
+            if (context.webKeyChanged)
+                context.webKeyChanged(webKeyEditor.getText());
         };
-        addAndMakeVisible(webKeyEditor);
+        generalPage.addAndMakeVisible(webKeyEditor);
 
         webHint.setColour(juce::Label::textColourId, secondaryTextColour);
         webHint.setFont(merikLookAndFeel.getMediumFont(13.0f));
         webHint.setMinimumHorizontalScale(1.0f);
-        addAndMakeVisible(webHint);
+        generalPage.addAndMakeVisible(webHint);
         updateWebHint();
 
-        // MIDI / SoundFont: werken op dezelfde (verborgen) controls van het
-        // hoofdscherm, zodat de bestaande afhandeling gebruikt blijft.
-        static const char* midiLabels[2] = { "MIDI control in", "MIDI out" };
-
-        for (std::size_t i = 0; i < 2; ++i)
-        {
-            auto& box = midiBoxes[i];
-            auto* source = midiSources[i];
-
-            midiRowLabels[i].setText(midiLabels[i], juce::dontSendNotification);
-            midiRowLabels[i].setJustificationType(juce::Justification::centredRight);
-            addAndMakeVisible(midiRowLabels[i]);
-
-            for (int item = 0; item < source->getNumItems(); ++item)
-                box.addItem(source->getItemText(item), source->getItemId(item));
-
-            box.setSelectedId(source->getSelectedId(), juce::dontSendNotification);
-
-            box.onChange = [source, &box]
-            {
-                source->setSelectedId(box.getSelectedId(), juce::sendNotification);
-            };
-
-            addAndMakeVisible(box);
-        }
-
-        soundFontLabel.setText("SoundFont", juce::dontSendNotification);
-        soundFontLabel.setJustificationType(juce::Justification::centredRight);
-        addAndMakeVisible(soundFontLabel);
-
-        soundFontCopy.setButtonText(soundFont.getButtonText());
-        soundFontCopy.onClick = [this]
-        {
-            if (soundFontSource->onClick != nullptr)
-                soundFontSource->onClick();
+        static const char* optionLabels[3] = {
+            "Doubleclick starts playing",
+            "Normalize based on drumchannel level",
+            "Auto play next song in setlist"
         };
-        addAndMakeVisible(soundFontCopy);
 
-        // De SoundFont-keuze is asynchroon (bestandskiezer); houd de
-        // naam op de knop gelijk met het hoofdscherm.
-        startTimer(300);
-
-        selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
-            deviceManager,
-            0, 0,   // geen audio-input
-            1, 2,   // 1-2 outputkanalen
-            false,  // geen MIDI input
-            false,  // geen MIDI output
-            true,   // stereo pairs
-            false); // advanced settings
-
-        addAndMakeVisible(*selector);
-
-        // De selector bepaalt zelf zijn hoogte (hangt af van het gekozen
-        // apparaat); de opties eronder en het venster volgen daarop.
-        selector->addComponentListener(this);
-
-        for (std::size_t i = 0; i < copies.size(); ++i)
+        for (std::size_t i = 0; i < optionCopies.size(); ++i)
         {
-            auto& copy = copies[i];
+            auto& copy = optionCopies[i];
             auto* source = sources[i];
 
-            copy.setButtonText(labels[i]);
+            copy.setButtonText(optionLabels[i]);
             copy.setClickingTogglesState(true);
 
             copy.onClick = [source, &copy]
             {
-                source->setToggleState(copy.getToggleState(),
-                                       juce::dontSendNotification);
+                source->setToggleState(copy.getToggleState(), juce::dontSendNotification);
 
-                // Zelfde afhandeling als een klik in het hoofdscherm
-                // (opslaan, normalize doorgeven, ...).
+                // Zelfde afhandeling als een klik in het hoofdscherm.
                 if (source->onClick != nullptr)
                     source->onClick();
             };
 
-            addAndMakeVisible(copy);
+            generalPage.addAndMakeVisible(copy);
         }
 
-        refresh();
-        setSize(600, 400);
-    }
-
-    ~SettingsContent() override
-    {
-        stopTimer();
-        selector->removeComponentListener(this);
-        setLookAndFeel(nullptr);
-    }
-
-    void refresh()
-    {
-        for (std::size_t i = 0; i < copies.size(); ++i)
-            copies[i].setToggleState(sources[i]->getToggleState(),
-                                     juce::dontSendNotification);
-    }
-
-    void resized() override
-    {
-        if (inLayout)
-            return;
-
-        const juce::ScopedValueSetter<bool> guard(inLayout, true);
-
-        // Bovenaan MIDI in / MIDI out / SoundFont, daaronder de
-        // audio-apparaten van de selector, onderaan de opties.
-        const int controlX = proportionOfWidth(0.35f);
-        const int controlWidth = proportionOfWidth(0.6f);
-        int y = 12;
-
-        for (std::size_t i = 0; i < 2; ++i)
+        generalPage.layout = [this](juce::Rectangle<int> bounds)
         {
-            midiRowLabels[i].setBounds(0, y, controlX - 8, 28);
-            midiBoxes[i].setBounds(controlX, y, controlWidth, 28);
-            y += 34;
-        }
+            const int controlX = bounds.proportionOfWidth(0.30f);
+            const int controlWidth = bounds.proportionOfWidth(0.66f);
+            int y = 18;
 
-        soundFontLabel.setBounds(0, y, controlX - 8, 28);
-        soundFontCopy.setBounds(controlX, y, controlWidth, 28);
-        y += 34;
+            webKeyLabel.setBounds(0, y, controlX - 10, rowHeight);
+            webKeyEditor.setBounds(controlX, y, controlWidth, rowHeight);
+            y += rowStep - 2;
 
-        webKeyLabel.setBounds(0, y, controlX - 8, 28);
-        webKeyEditor.setBounds(controlX, y, controlWidth, 28);
-        y += 30;
+            webHint.setBounds(controlX, y, controlWidth, 34);
+            y += 52;
 
-        webHint.setBounds(controlX, y, controlWidth, 34);
-        y += 42;
-
-        selector->setBounds(0, y, getWidth(), 3000);
-        layoutOptions();
+            for (auto& copy : optionCopies)
+            {
+                copy.setBounds(controlX, y, controlWidth, 30);
+                y += 34;
+            }
+        };
     }
 
-private:
     void updateWebHint()
     {
         juce::String ip = "<ip>";
@@ -689,72 +757,385 @@ private:
             juce::dontSendNotification);
     }
 
-    void timerCallback() override
-    {
-        if (soundFontCopy.getButtonText() != soundFontSource->getButtonText())
-            soundFontCopy.setButtonText(soundFontSource->getButtonText());
+    // ------------------------------------------------------------------ Audio
 
-        for (std::size_t i = 0; i < 2; ++i)
-            if (midiBoxes[i].getSelectedId() != midiSources[i]->getSelectedId())
-                midiBoxes[i].setSelectedId(midiSources[i]->getSelectedId(),
-                                           juce::dontSendNotification);
+    struct SliderRow
+    {
+        juce::Label label;
+        juce::Slider slider;
+    };
+
+    void buildAudio()
+    {
+        selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
+            context.deviceManager,
+            0, 0,   // geen audio-input
+            1, 2,   // 1-2 outputkanalen
+            false,  // geen MIDI input
+            false,  // geen MIDI output
+            true,   // stereo pairs
+            false); // advanced settings
+
+        audioPage.content.addAndMakeVisible(*selector);
+        selector->addComponentListener(this);
+
+        styleLabel(soundFontLabel, "SoundFont");
+        audioPage.content.addAndMakeVisible(soundFontLabel);
+
+        soundFontCopy.setButtonText(context.soundFont.getButtonText());
+        soundFontCopy.onClick = [this]
+        {
+            if (context.soundFont.onClick != nullptr)
+                context.soundFont.onClick();
+        };
+        audioPage.content.addAndMakeVisible(soundFontCopy);
+
+        styleHeading(soundHeading, "Soundfont player: sound");
+        styleHeading(reverbHeading, "Reverb");
+
+        for (auto* heading : { &soundHeading, &reverbHeading })
+            audioPage.content.addAndMakeVisible(heading);
+
+        struct Definition
+        {
+            const char* name;
+            int SynthSettings::* member;
+            int minimum, maximum;
+        };
+
+        static const Definition definitions[] = {
+            { "Gain",        &SynthSettings::gain,         0, 100 },
+            { "Room size",   &SynthSettings::reverbRoom,   0, 100 },
+            { "Damping",     &SynthSettings::reverbDamp,   0, 100 },
+            { "Width",       &SynthSettings::reverbWidth,  0, 100 },
+            { "Level",       &SynthSettings::reverbLevel,  0, 100 }
+        };
+
+        for (std::size_t i = 0; i < synthRows.size(); ++i)
+        {
+            auto& row = synthRows[i];
+            const auto& definition = definitions[i];
+
+            styleLabel(row.label, definition.name);
+            audioPage.content.addAndMakeVisible(row.label);
+
+            row.slider.setSliderStyle(juce::Slider::LinearHorizontal);
+            row.slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 24);
+            row.slider.setRange(definition.minimum, definition.maximum, 1.0);
+            row.slider.setValue(context.synth.*(definition.member), juce::dontSendNotification);
+            row.slider.setDoubleClickReturnValue(false, 0.0);
+
+            row.slider.onValueChange = [this, &row, member = definition.member]
+            {
+                context.synth.*member = juce::roundToInt(row.slider.getValue());
+
+                if (context.synthChanged)
+                    context.synthChanged(context.synth);
+            };
+
+            audioPage.content.addAndMakeVisible(row.slider);
+        }
+
+        audioPage.layoutContent = [this](int width)
+        {
+            const int controlX = juce::roundToInt(static_cast<float>(width) * 0.30f);
+            const int controlWidth = juce::roundToInt(static_cast<float>(width) * 0.62f);
+
+            // SoundFont bovenaan, daaronder het audio-apparaat (bepaalt zijn
+            // eigen hoogte) en de klank van de interne synth.
+            soundFontLabel.setBounds(0, 18, controlX - 10, rowHeight);
+            soundFontCopy.setBounds(controlX, 18, controlWidth, rowHeight);
+
+            selector->setBounds(0, 18 + rowStep + 4, width, 3000);
+            int y = selector->getBottom() + 14;
+
+            soundHeading.setBounds(controlX, y, controlWidth, 24);
+            y += 30;
+
+            const auto place = [&](SliderRow& row)
+            {
+                row.label.setBounds(0, y, controlX - 10, rowHeight);
+                row.slider.setBounds(controlX, y, controlWidth, rowHeight);
+                y += rowStep - 4;
+            };
+
+            place(synthRows[0]);                // gain
+            y += 8;
+
+            reverbHeading.setBounds(controlX, y, controlWidth, 24);
+            y += 30;
+
+            for (std::size_t i = 1; i <= 4; ++i)
+                place(synthRows[i]);
+
+            y += 14;
+
+            return y;
+        };
     }
 
     void componentMovedOrResized(juce::Component& component, bool, bool wasResized) override
     {
-        if (&component != selector.get() || !wasResized || inLayout)
-            return;
-
-        const juce::ScopedValueSetter<bool> guard(inLayout, true);
-        layoutOptions();
+        if (&component == selector.get() && wasResized && !inAudioLayout)
+        {
+            const juce::ScopedValueSetter<bool> guard(inAudioLayout, true);
+            audioPage.relayout();
+        }
     }
 
-    // Opties staan in dezelfde kolom als de keuzelijsten van de selector
-    // (die beginnen op 35% van de breedte en zijn 60% breed).
-    void layoutOptions()
+    // ------------------------------------------------------------------- Midi
+
+    void buildMidi()
     {
-        constexpr int rowHeight = 30;
+        static const char* comboLabels[3] = { "MIDI control in", "MIDI out", "Controller LEDs" };
 
-        const int x = selector->proportionOfWidth(0.35f);
-        const int width = selector->proportionOfWidth(0.6f);
-        int y = selector->getBottom() + 4;
-
-        for (auto& copy : copies)
+        for (std::size_t i = 0; i < comboCopies.size(); ++i)
         {
-            copy.setBounds(x, y, width, rowHeight);
-            y += rowHeight;
+            auto& box = comboCopies[i];
+            auto* source = comboSources[i];
+
+            styleLabel(comboLabels_[i], comboLabels[i]);
+            midiPage.content.addAndMakeVisible(comboLabels_[i]);
+
+            for (int item = 0; item < source->getNumItems(); ++item)
+                box.addItem(source->getItemText(item), source->getItemId(item));
+
+            box.setSelectedId(source->getSelectedId(), juce::dontSendNotification);
+
+            box.onChange = [source, &box]
+            {
+                source->setSelectedId(box.getSelectedId(), juce::sendNotification);
+            };
+
+            midiPage.content.addAndMakeVisible(box);
         }
 
-        const int wantedHeight = y + 14;
+        // Laatste CC van de controller (zoals "CC41:127" in Merik 1).
+        midiInActivityLabel.setJustificationType(juce::Justification::centredRight);
+        midiInActivityLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        midiInActivityLabel.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        midiPage.content.addAndMakeVisible(midiInActivityLabel);
 
-        if (getHeight() != wantedHeight)
-            setSize(getWidth(), wantedHeight);
+        ledHint.setColour(juce::Label::textColourId, secondaryTextColour);
+        ledHint.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        ledHint.setMinimumHorizontalScale(1.0f);
+        ledHint.setText("LEDs: set the nanoKONTROL2 LED mode to \"External\" in the Korg Kontrol Editor.",
+                        juce::dontSendNotification);
+        midiPage.content.addAndMakeVisible(ledHint);
+
+        styleHeading(assignHeading, "Controller assignments (CC numbers)");
+        midiPage.content.addAndMakeVisible(assignHeading);
+
+        styleLabel(faderTitle, "Fader (volume)", juce::Justification::centred);
+        styleLabel(enableTitle, "R button (on/off)", juce::Justification::centred);
+        styleLabel(buttonTitle, "Transport buttons", juce::Justification::centred);
+
+        for (auto* title : { &faderTitle, &enableTitle, &buttonTitle })
+        {
+            title->setColour(juce::Label::textColourId, secondaryTextColour);
+            title->setFont(merikLookAndFeel.getMediumFont(13.0f));
+            midiPage.content.addAndMakeVisible(title);
+        }
+
+        static const char* familyNames[MidiMapping::families] = {
+            "1 Drums", "2 Bass", "3 Guitars", "4 Keys", "5 Strings", "6 Winds", "7 FX", "8 Other"
+        };
+
+        const auto setupCc = [this](juce::Slider& slider, std::atomic<int>& value)
+        {
+            slider.setSliderStyle(juce::Slider::IncDecButtons);
+            slider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 46, 26);
+            slider.setRange(0, 127, 1);
+            slider.setValue(value.load(), juce::dontSendNotification);
+            slider.onValueChange = [this, &slider, &value]
+            {
+                value = juce::roundToInt(slider.getValue());
+
+                if (context.mappingChanged)
+                    context.mappingChanged();
+            };
+            midiPage.content.addAndMakeVisible(slider);
+        };
+
+        for (std::size_t i = 0; i < MidiMapping::families; ++i)
+        {
+            styleLabel(familyLabels[i], familyNames[i]);
+            midiPage.content.addAndMakeVisible(familyLabels[i]);
+
+            setupCc(faderSliders[i], context.mapping.fader[i]);
+            setupCc(enableSliders[i], context.mapping.enable[i]);
+        }
+
+        struct Button
+        {
+            const char* name;
+            std::atomic<int>* value;
+        };
+
+        const Button buttons[4] = {
+            { "Play / Pause", &context.mapping.play },
+            { "Stop", &context.mapping.stop },
+            { "Next", &context.mapping.next },
+            { "Panic", &context.mapping.panic }
+        };
+
+        for (std::size_t i = 0; i < buttonSliders.size(); ++i)
+        {
+            styleLabel(buttonLabels[i], buttons[i].name);
+            midiPage.content.addAndMakeVisible(buttonLabels[i]);
+            setupCc(buttonSliders[i], *buttons[i].value);
+        }
+
+        resetMapping.setButtonText("Reset to nanoKONTROL2 defaults");
+        resetMapping.onClick = [this]
+        {
+            MidiMapping defaults;
+
+            for (std::size_t i = 0; i < MidiMapping::families; ++i)
+            {
+                faderSliders[i].setValue(defaults.fader[i].load(), juce::sendNotification);
+                enableSliders[i].setValue(defaults.enable[i].load(), juce::sendNotification);
+            }
+
+            buttonSliders[0].setValue(defaults.play.load(), juce::sendNotification);
+            buttonSliders[1].setValue(defaults.stop.load(), juce::sendNotification);
+            buttonSliders[2].setValue(defaults.next.load(), juce::sendNotification);
+            buttonSliders[3].setValue(defaults.panic.load(), juce::sendNotification);
+        };
+        midiPage.content.addAndMakeVisible(resetMapping);
+
+        midiPage.layoutContent = [this](int width)
+        {
+            const int controlX = juce::roundToInt(static_cast<float>(width) * 0.30f);
+            const int controlWidth = juce::roundToInt(static_cast<float>(width) * 0.62f);
+            int y = 18;
+
+            for (std::size_t i = 0; i < comboCopies.size(); ++i)
+            {
+                comboLabels_[i].setBounds(0, y, controlX - 10, rowHeight);
+
+                // Eerste rij: ruimte voor het activiteitslabel.
+                const int boxWidth = i == 0 ? controlWidth - 84 : controlWidth;
+                comboCopies[i].setBounds(controlX, y, boxWidth, rowHeight);
+
+                if (i == 0)
+                    midiInActivityLabel.setBounds(controlX + controlWidth - 80, y, 80, rowHeight);
+
+                y += rowStep;
+            }
+
+            ledHint.setBounds(controlX, y - 4, controlWidth + 20, 20);
+            y += 34;
+
+            assignHeading.setBounds(controlX - 70, y, controlWidth + 70, 24);
+            y += 32;
+
+            // Drie kolommen: fader | R-knop | transportknoppen (naast de eerste vier rijen).
+            const int columnWidth = 104;
+            const int labelWidth = 92;
+            const int faderX = labelWidth + 12;
+            const int enableX = faderX + columnWidth + 22;
+            const int buttonLabelX = enableX + columnWidth + 26;
+            const int buttonX = buttonLabelX + labelWidth + 8;
+
+            faderTitle.setBounds(faderX - 10, y, columnWidth + 20, 18);
+            enableTitle.setBounds(enableX - 10, y, columnWidth + 20, 18);
+            buttonTitle.setBounds(buttonLabelX, y, labelWidth + 8 + columnWidth, 18);
+            y += 22;
+
+            for (std::size_t i = 0; i < MidiMapping::families; ++i)
+            {
+                familyLabels[i].setBounds(0, y, labelWidth, rowHeight);
+                faderSliders[i].setBounds(faderX, y, columnWidth, rowHeight - 2);
+                enableSliders[i].setBounds(enableX, y, columnWidth, rowHeight - 2);
+
+                if (i < buttonSliders.size())
+                {
+                    buttonLabels[i].setBounds(buttonLabelX, y, labelWidth, rowHeight);
+                    buttonSliders[i].setBounds(buttonX, y, columnWidth, rowHeight - 2);
+                }
+
+                y += rowStep - 4;
+            }
+
+            y += 12;
+            resetMapping.setBounds(faderX, y, 250, rowHeight);
+            y += rowStep + 12;
+
+            return y;
+        };
     }
 
-    bool inLayout = false;
+    // ------------------------------------------------------------------ Timer
 
-    static inline const std::array<const char*, 3> labels {
-        "Doubleclick starts playing",
-        "Normalize based on drumchannel level",
-        "Auto play next song in setlist"
-    };
+    void timerCallback() override
+    {
+        if (context.midiInActivity)
+        {
+            const auto text = context.midiInActivity();
 
-    std::array<juce::TextButton*, 3> sources;
-    std::array<juce::ComboBox*, 2> midiSources;
-    juce::TextButton* soundFontSource;
-    std::function<void(const juce::String&)> onWebKeyChanged;
+            if (midiInActivityLabel.getText() != text)
+                midiInActivityLabel.setText(text, juce::dontSendNotification);
+        }
 
-    juce::Label webKeyLabel;
+        if (soundFontCopy.getButtonText() != context.soundFont.getButtonText())
+            soundFontCopy.setButtonText(context.soundFont.getButtonText());
+
+        for (std::size_t i = 0; i < comboCopies.size(); ++i)
+        {
+            auto& box = comboCopies[i];
+            const auto& source = *comboSources[i];
+
+            // De apparatenlijst kan veranderen terwijl dit venster openstaat
+            // (MIDI-apparaat in- of uitgestoken): neem de items opnieuw over.
+            bool sameItems = box.getNumItems() == source.getNumItems();
+
+            for (int item = 0; sameItems && item < source.getNumItems(); ++item)
+                sameItems = box.getItemText(item) == source.getItemText(item);
+
+            if (!sameItems)
+            {
+                box.clear(juce::dontSendNotification);
+
+                for (int item = 0; item < source.getNumItems(); ++item)
+                    box.addItem(source.getItemText(item), source.getItemId(item));
+            }
+
+            if (box.getSelectedId() != source.getSelectedId())
+                box.setSelectedId(source.getSelectedId(), juce::dontSendNotification);
+        }
+    }
+
+    SettingsContext context;
+
+    juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
+
+    // General
+    SettingsPage generalPage;
+    juce::Label webKeyLabel, webHint;
     juce::TextEditor webKeyEditor;
-    juce::Label webHint;
+    std::array<juce::ToggleButton, 3> optionCopies;
+    std::array<juce::TextButton*, 3> sources;
 
-    std::array<juce::Label, 2> midiRowLabels;
-    std::array<juce::ComboBox, 2> midiBoxes;
-    juce::Label soundFontLabel;
-    juce::TextButton soundFontCopy;
-
-    std::array<juce::ToggleButton, 3> copies;
+    // Audio
+    ScrollPage audioPage;
     std::unique_ptr<juce::AudioDeviceSelectorComponent> selector;
+    juce::Label soundFontLabel, soundHeading, reverbHeading;
+    juce::TextButton soundFontCopy;
+    std::array<SliderRow, 5> synthRows;
+    bool inAudioLayout = false;
+
+    // Midi
+    ScrollPage midiPage;
+    std::array<juce::ComboBox*, 3> comboSources;
+    std::array<juce::ComboBox, 3> comboCopies;
+    std::array<juce::Label, 3> comboLabels_;
+    juce::Label midiInActivityLabel, ledHint, assignHeading, faderTitle, enableTitle, buttonTitle;
+    std::array<juce::Label, MidiMapping::families> familyLabels;
+    std::array<juce::Slider, MidiMapping::families> faderSliders, enableSliders;
+    std::array<juce::Label, 4> buttonLabels;
+    std::array<juce::Slider, 4> buttonSliders;
+    juce::TextButton resetMapping;
 };
 
 class AudioSettingsWindow final : public juce::DialogWindow
@@ -791,11 +1172,24 @@ void MainComponent::showAudioSettings()
         return;
     }
 
-    auto* content = new SettingsContent(
+    SettingsContext context {
         deviceManager,
         midiControlBox,
         midiOutBox,
+        ledOutBox,
         soundFontButton,
+        doubleClickToggle,
+        normalizeToggle,
+        continuousToggle,
+
+        [this]
+        {
+            const int cc = lastMidiInCc.load();
+
+            return cc < 0 ? juce::String()
+                          : "CC" + juce::String(cc).paddedLeft('0', 2) + ":" + juce::String(lastMidiInValue.load());
+        },
+
         webControlKey,
         [this](const juce::String& key)
         {
@@ -808,9 +1202,19 @@ void MainComponent::showAudioSettings()
                 properties->saveIfNeeded();
             }
         },
-        doubleClickToggle,
-        normalizeToggle,
-        continuousToggle);
+
+        midiMapping,
+        [this] { saveMidiMapping(); },
+
+        synthEngine.getSynthSettings(),
+        [this](const SynthSettings& settings)
+        {
+            synthEngine.setSynthSettings(settings);
+            saveSynthSettings(settings);
+        }
+    };
+
+    auto* content = new SettingsContent(std::move(context));
 
     juce::Component::SafePointer<SettingsContent> safeContent(content);
 
@@ -1938,6 +2342,11 @@ void MainComponent::timerCallback()
                 juce::dontSendNotification);
         }
     }
+
+    // Ook wijzigingen van buiten de GUI (MIDI-controller) naar de webpagina.
+    syncFamilySettingsToWebServer();
+
+    updateControllerLeds();
 }
 // ============================================================================
 // MainComponent
@@ -2007,9 +2416,43 @@ MainComponent::MainComponent()
         secondaryTextColour);
 
 
-    midiControlBox.addItem("Default", 1);
-    midiControlBox.addItem("None", 2);
-    midiControlBox.setSelectedId(1);
+    // Gevuld door refreshMidiInputs(): "None" + beschikbare MIDI-ingangen.
+    midiControlBox.onChange = [this]
+    {
+        const int id = midiControlBox.getSelectedId();
+
+        desiredMidiIn = (id >= 2 && id - 2 < midiInIdentifiers.size())
+                            ? midiInIdentifiers[id - 2]
+                            : juce::String();
+
+        if (auto* properties = appProperties.getUserSettings())
+        {
+            properties->setValue("midiInIdentifier", desiredMidiIn);
+            properties->saveIfNeeded();
+        }
+
+        applyMidiInput();
+    };
+
+    if (auto* properties = appProperties.getUserSettings())
+    {
+        if (properties->containsKey("midiInIdentifier"))
+        {
+            desiredMidiIn = properties->getValue("midiInIdentifier", "");
+        }
+        else
+        {
+            // Eerste keer: een nanoKONTROL vanzelf kiezen als die aangesloten is.
+            for (const auto& device : juce::MidiInput::getAvailableDevices())
+            {
+                if (device.name.containsIgnoreCase("nanokontrol"))
+                {
+                    desiredMidiIn = device.identifier;
+                    break;
+                }
+            }
+        }
+    }
 
     midiControlBox.setColour(juce::ComboBox::textColourId, textColour);
 
@@ -2029,9 +2472,76 @@ MainComponent::MainComponent()
         secondaryTextColour);
 
 
-    midiOutBox.addItem("Default", 1);
-    midiOutBox.addItem("None", 2);
-    midiOutBox.setSelectedId(1);
+    // Gevuld door refreshMidiOutputs(): "Soundfont player" + beschikbare apparaten.
+    midiOutBox.setTooltip("Soundfont player = interne FluidSynth; anders gaat de MIDI naar het gekozen apparaat");
+    midiOutBox.onChange = [this]
+    {
+        const int id = midiOutBox.getSelectedId();
+
+        desiredMidiOut = (id >= 2 && id - 2 < midiOutIdentifiers.size())
+                             ? midiOutIdentifiers[id - 2]
+                             : juce::String();
+
+        if (auto* properties = appProperties.getUserSettings())
+        {
+            properties->setValue("midiOutIdentifier", desiredMidiOut);
+            properties->saveIfNeeded();
+        }
+
+        applyMidiOutput();
+    };
+
+    if (auto* properties = appProperties.getUserSettings())
+        desiredMidiOut = properties->getValue("midiOutIdentifier", "");
+
+    // LED-uitgang van de controller (Auto = dezelfde controller als de ingang).
+    ledOutBox.onChange = [this]
+    {
+        const int id = ledOutBox.getSelectedId();
+
+        ledChoice = id == 2 ? juce::String("none")
+                  : (id >= 3 && id - 3 < ledIdentifiers.size()) ? ledIdentifiers[id - 3]
+                                                                : juce::String("auto");
+
+        if (auto* properties = appProperties.getUserSettings())
+        {
+            properties->setValue("ledOutChoice", ledChoice);
+            properties->saveIfNeeded();
+        }
+
+        applyLedOutput();
+    };
+
+    if (auto* properties = appProperties.getUserSettings())
+        ledChoice = properties->getValue("ledOutChoice", "auto");
+
+    ledLast.fill(-1);
+
+    loadMidiMapping();
+
+    // Klank van de interne synth (reverb, chorus, gain).
+    if (auto* properties = appProperties.getUserSettings())
+    {
+        SynthSettings synth;
+        synth.gain          = properties->getIntValue("synth.gain", synth.gain);
+        synth.reverbRoom    = properties->getIntValue("synth.reverbRoom", synth.reverbRoom);
+        synth.reverbDamp    = properties->getIntValue("synth.reverbDamp", synth.reverbDamp);
+        synth.reverbWidth   = properties->getIntValue("synth.reverbWidth", synth.reverbWidth);
+        synth.reverbLevel   = properties->getIntValue("synth.reverbLevel", synth.reverbLevel);
+        synthEngine.setSynthSettings(synth);
+    }
+
+    midiDeviceListConnection =
+        juce::MidiDeviceListConnection::make([this]
+        {
+            refreshMidiOutputs();
+            refreshMidiInputs();
+            refreshLedOutputs();
+        });
+
+    refreshMidiOutputs();
+    refreshMidiInputs();
+    refreshLedOutputs();
 
     midiOutBox.setColour(juce::ComboBox::textColourId, textColour);
 
@@ -2485,6 +2995,9 @@ MainComponent::MainComponent()
     panicButton.setColour(
         juce::TextButton::textColourOffId,
         textColour);
+
+    panicButton.setTooltip("Stop all sounding notes immediately");
+    panicButton.onClick = [this] { panic(); };
 
     addAndMakeVisible(panicButton);
 
@@ -2995,6 +3508,18 @@ MainComponent::~MainComponent()
     synthEngine.stop();
 
     shutdownAudio();
+
+    // De engine mag het MIDI-uitgangsobject niet meer gebruiken als dat verdwijnt.
+    synthEngine.setExternalOutput(nullptr);
+    midiOutSink.reset();
+
+    if (midiIn != nullptr)
+        midiIn->stop();
+
+    midiIn.reset();
+
+    ledsAllOff();
+    ledOut.reset();
 }
 
 void MainComponent::loadPersistentState()
@@ -3980,4 +4505,435 @@ void MainComponent::showSongMenu(int row)
             songBox.repaint();
             savePersistentState();
         });
+}
+
+
+// ============================================================================
+// MIDI out: Soundfont player of extern apparaat
+// ============================================================================
+
+void MainComponent::refreshMidiOutputs()
+{
+    const auto devices = juce::MidiOutput::getAvailableDevices();
+
+    midiOutBox.clear(juce::dontSendNotification);
+    midiOutIdentifiers.clear();
+
+    midiOutBox.addItem("Soundfont player", 1);
+
+    int id = 2;
+
+    for (const auto& device : devices)
+    {
+        midiOutBox.addItem(device.name, id++);
+        midiOutIdentifiers.add(device.identifier);
+    }
+
+    // Terug naar de gewenste keuze; een apparaat dat (nog) niet bestaat
+    // valt tijdelijk terug op de interne synth en wordt automatisch weer
+    // gebruikt zodra het opnieuw verschijnt.
+    const int index = midiOutIdentifiers.indexOf(desiredMidiOut);
+
+    midiOutBox.setSelectedId(index >= 0 ? index + 2 : 1, juce::dontSendNotification);
+
+    applyMidiOutput();
+}
+
+void MainComponent::applyMidiOutput()
+{
+    const bool available = desiredMidiOut.isNotEmpty()
+                           && midiOutIdentifiers.contains(desiredMidiOut);
+
+    if (!available)
+    {
+        synthEngine.setExternalOutput(nullptr);
+        midiOutSink.reset();
+        openedMidiOut = {};
+        return;
+    }
+
+    // Al open? Dan niets doen (de lijst met apparaten ververst vaker).
+    if (midiOutSink != nullptr && midiOutSink->isOpen() && openedMidiOut == desiredMidiOut)
+        return;
+
+    auto newSink = std::make_unique<MidiOutSink>();
+
+    if (!newSink->open(desiredMidiOut))
+    {
+        desiredMidiOut = {};
+        midiOutBox.setSelectedId(1, juce::dontSendNotification);
+        synthEngine.setExternalOutput(nullptr);
+        midiOutSink.reset();
+        openedMidiOut = {};
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "MIDI out",
+            "Could not open this MIDI output. The Soundfont player is used instead.");
+        return;
+    }
+
+    // Eerst de engine omzetten, dan pas de vorige uitgang opruimen.
+    synthEngine.setExternalOutput(newSink.get());
+    midiOutSink = std::move(newSink);
+    openedMidiOut = desiredMidiOut;
+}
+
+
+// ============================================================================
+// Panic
+// ============================================================================
+
+void MainComponent::panic()
+{
+    synthEngine.panic();
+}
+
+
+// ============================================================================
+// MIDI control in (nanoKONTROL2): zelfde toewijzing als Merik 1
+//
+//   CC 0..7                    -> volume van family 1..8 (de faders)
+//   CC 41 (waarde 127)         -> Play / Pauze
+//   CC 42 (waarde 127)         -> Stop
+//   CC 44 (waarde 127)         -> Next
+//   CC 45 (waarde 127)         -> Panic
+// ============================================================================
+
+void MainComponent::refreshMidiInputs()
+{
+    const auto devices = juce::MidiInput::getAvailableDevices();
+
+    midiControlBox.clear(juce::dontSendNotification);
+    midiInIdentifiers.clear();
+
+    midiControlBox.addItem("None", 1);
+
+    int id = 2;
+
+    for (const auto& device : devices)
+    {
+        midiControlBox.addItem(device.name, id++);
+        midiInIdentifiers.add(device.identifier);
+    }
+
+    const int index = midiInIdentifiers.indexOf(desiredMidiIn);
+
+    midiControlBox.setSelectedId(index >= 0 ? index + 2 : 1, juce::dontSendNotification);
+
+    applyMidiInput();
+}
+
+void MainComponent::applyMidiInput()
+{
+    const bool available = desiredMidiIn.isNotEmpty()
+                           && midiInIdentifiers.contains(desiredMidiIn);
+
+    if (!available)
+    {
+        if (midiIn != nullptr)
+            midiIn->stop();
+
+        midiIn.reset();
+        openedMidiIn = {};
+        applyLedOutput();
+        return;
+    }
+
+    if (midiIn != nullptr && openedMidiIn == desiredMidiIn)
+        return;
+
+    if (midiIn != nullptr)
+        midiIn->stop();
+
+    midiIn = juce::MidiInput::openDevice(desiredMidiIn, this);
+
+    if (midiIn == nullptr)
+    {
+        openedMidiIn = {};
+        desiredMidiIn = {};
+        midiControlBox.setSelectedId(1, juce::dontSendNotification);
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "MIDI control in",
+            "Could not open this MIDI input.");
+        return;
+    }
+
+    midiIn->start();
+    openedMidiIn = desiredMidiIn;
+
+    applyLedOutput();
+}
+
+// Draait op de MIDI-thread van het systeem.
+void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message)
+{
+    if (!message.isController())
+        return;
+
+    const int cc = message.getControllerNumber();
+    const int value = message.getControllerValue();
+
+    lastMidiInCc = cc;
+    lastMidiInValue = value;
+
+    // Faders -> family-volume (de slider volgt via de GUI-timer).
+    for (int i = 0; i < MidiMapping::families; ++i)
+        if (cc == midiMapping.fader[static_cast<std::size_t>(i)].load())
+            synthEngine.setFamilyVolume(i, value);
+
+    // Knoppen sturen 127 bij indrukken en 0 bij loslaten.
+    if (value != 127)
+        return;
+
+    // 'R'-knoppen: family aan/uit.
+    for (int i = 0; i < MidiMapping::families; ++i)
+    {
+        if (cc == midiMapping.enable[static_cast<std::size_t>(i)].load())
+        {
+            synthEngine.setFamilyEnabled(i, !synthEngine.getFamilySettings(i).enabled);
+            return;
+        }
+    }
+
+    const char* command = cc == midiMapping.play.load()  ? "play"
+                        : cc == midiMapping.stop.load()  ? "stop"
+                        : cc == midiMapping.next.load()  ? "next"
+                        : cc == midiMapping.panic.load() ? "panic"
+                                                         : nullptr;
+
+    if (command == nullptr)
+        return;
+
+    juce::MessageManager::callAsync(
+        [safeThis = juce::Component::SafePointer<MainComponent>(this), cmd = juce::String(command)]
+        {
+            if (safeThis == nullptr)
+                return;
+
+            if (cmd == "play")
+                safeThis->play();
+            else if (cmd == "stop")
+                safeThis->stop();
+            else if (cmd == "next")
+                safeThis->skipToNextSong();
+            else if (cmd == "panic")
+                safeThis->panic();
+        });
+}
+
+
+// ============================================================================
+// Controller-toewijzing en synth-klank bewaren
+// ============================================================================
+
+void MainComponent::loadMidiMapping()
+{
+    auto* properties = appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    for (int i = 0; i < MidiMapping::families; ++i)
+    {
+        const auto index = static_cast<std::size_t>(i);
+        midiMapping.fader[index] = properties->getIntValue("midi.fader." + juce::String(i), i);
+        midiMapping.enable[index] = properties->getIntValue("midi.enable." + juce::String(i), 64 + i);
+    }
+
+    midiMapping.play = properties->getIntValue("midi.play", 41);
+    midiMapping.stop = properties->getIntValue("midi.stop", 42);
+    midiMapping.next = properties->getIntValue("midi.next", 44);
+    midiMapping.panic = properties->getIntValue("midi.panic", 45);
+}
+
+void MainComponent::saveMidiMapping()
+{
+    auto* properties = appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    for (int i = 0; i < MidiMapping::families; ++i)
+    {
+        const auto index = static_cast<std::size_t>(i);
+        properties->setValue("midi.fader." + juce::String(i), midiMapping.fader[index].load());
+        properties->setValue("midi.enable." + juce::String(i), midiMapping.enable[index].load());
+    }
+
+    properties->setValue("midi.play", midiMapping.play.load());
+    properties->setValue("midi.stop", midiMapping.stop.load());
+    properties->setValue("midi.next", midiMapping.next.load());
+    properties->setValue("midi.panic", midiMapping.panic.load());
+    properties->saveIfNeeded();
+}
+
+void MainComponent::saveSynthSettings(const SynthSettings& synth)
+{
+    auto* properties = appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    properties->setValue("synth.gain", synth.gain);
+    properties->setValue("synth.reverbRoom", synth.reverbRoom);
+    properties->setValue("synth.reverbDamp", synth.reverbDamp);
+    properties->setValue("synth.reverbWidth", synth.reverbWidth);
+    properties->setValue("synth.reverbLevel", synth.reverbLevel);
+    properties->saveIfNeeded();
+}
+
+
+// ============================================================================
+// LEDs van de controller
+// ============================================================================
+
+void MainComponent::refreshLedOutputs()
+{
+    const auto devices = juce::MidiOutput::getAvailableDevices();
+
+    ledOutBox.clear(juce::dontSendNotification);
+    ledIdentifiers.clear();
+
+    ledOutBox.addItem("Auto (same controller)", 1);
+    ledOutBox.addItem("None", 2);
+
+    int id = 3;
+
+    for (const auto& device : devices)
+    {
+        ledOutBox.addItem(device.name, id++);
+        ledIdentifiers.add(device.identifier);
+    }
+
+    int selected = 1;
+
+    if (ledChoice == "none")
+        selected = 2;
+    else if (ledChoice != "auto" && ledIdentifiers.contains(ledChoice))
+        selected = 3 + ledIdentifiers.indexOf(ledChoice);
+
+    ledOutBox.setSelectedId(selected, juce::dontSendNotification);
+
+    applyLedOutput();
+}
+
+void MainComponent::applyLedOutput()
+{
+    juce::String target;
+
+    if (ledChoice == "auto")
+    {
+        // Zoek de uitgang die bij de gekozen ingang hoort (zelfde naam, of
+        // allebei "nanoKONTROL").
+        juce::String inputName;
+
+        for (const auto& device : juce::MidiInput::getAvailableDevices())
+            if (device.identifier == openedMidiIn)
+                inputName = device.name;
+
+        if (inputName.isNotEmpty())
+        {
+            const auto outputs = juce::MidiOutput::getAvailableDevices();
+            const auto firstWord = inputName.upToFirstOccurrenceOf(" ", false, false);
+
+            for (const auto& output : outputs)
+                if (output.name == inputName) { target = output.identifier; break; }
+
+            if (target.isEmpty() && inputName.containsIgnoreCase("nanokontrol"))
+                for (const auto& output : outputs)
+                    if (output.name.containsIgnoreCase("nanokontrol")) { target = output.identifier; break; }
+
+            if (target.isEmpty() && firstWord.isNotEmpty())
+                for (const auto& output : outputs)
+                    if (output.name.upToFirstOccurrenceOf(" ", false, false).equalsIgnoreCase(firstWord))
+                    {
+                        target = output.identifier;
+                        break;
+                    }
+        }
+    }
+    else if (ledChoice != "none" && ledIdentifiers.contains(ledChoice))
+    {
+        target = ledChoice;
+    }
+
+    if (target.isEmpty())
+    {
+        ledsAllOff();
+        ledOut.reset();
+        openedLedOut = {};
+        return;
+    }
+
+    if (ledOut != nullptr && openedLedOut == target)
+        return;
+
+    ledsAllOff();
+    ledOut = juce::MidiOutput::openDevice(target);
+    openedLedOut = ledOut != nullptr ? target : juce::String();
+    ledLast.fill(-1);
+}
+
+void MainComponent::ledsAllOff()
+{
+    if (ledOut == nullptr)
+        return;
+
+    for (int cc = 0; cc < 128; ++cc)
+        if (ledLast[static_cast<std::size_t>(cc)] > 0)
+            ledOut->sendMessageNow(juce::MidiMessage::controllerEvent(1, cc, 0));
+
+    ledLast.fill(-1);
+}
+
+void MainComponent::updateControllerLeds()
+{
+    if (ledOut == nullptr)
+        return;
+
+    std::array<int, 128> want;
+    want.fill(-1);
+
+    const auto set = [&want](int cc, int value)
+    {
+        if (cc >= 0 && cc < 128)
+            want[static_cast<std::size_t>(cc)] = value;
+    };
+
+    const bool playing = synthEngine.isPlaying();
+    const auto position = synthEngine.positionSamples();
+    const bool paused = !playing && currentSong != nullptr
+                        && position > 0 && position < synthEngine.lengthSamples();
+
+    // Pauze: een halve seconde aan, een halve seconde uit.
+    const bool blinkOn = (juce::Time::getMillisecondCounter() / 500) % 2 == 0;
+
+    set(midiMapping.next.load(), 127);
+    set(midiMapping.stop.load(), 127);
+    set(midiMapping.play.load(), playing ? 127 : (paused && blinkOn ? 127 : 0));
+
+    const auto families = synthEngine.getAllFamilySettings();
+
+    for (int i = 0; i < MidiMapping::families; ++i)
+        set(midiMapping.enable[static_cast<std::size_t>(i)].load(),
+            families[static_cast<std::size_t>(i)].enabled ? 127 : 0);
+
+    for (int cc = 0; cc < 128; ++cc)
+    {
+        auto& last = ledLast[static_cast<std::size_t>(cc)];
+
+        // Een LED die niet meer bij een functie hoort (toewijzing gewijzigd) gaat uit.
+        const int target = want[static_cast<std::size_t>(cc)] >= 0
+                               ? want[static_cast<std::size_t>(cc)]
+                               : (last > 0 ? 0 : -1);
+
+        if (target >= 0 && target != last)
+        {
+            ledOut->sendMessageNow(juce::MidiMessage::controllerEvent(1, cc, target));
+            last = target;
+        }
+    }
 }

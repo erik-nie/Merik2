@@ -1,6 +1,8 @@
 #pragma once
 
 #include "DropListBox.h"
+#include "MidiMapping.h"
+#include "MidiOutSink.h"
 #include "FluidSynthEngine.h"
 #include "MidiFileReader.h"
 #include "WebServer.h"
@@ -20,6 +22,7 @@ class MainComponent final
     : public juce::AudioAppComponent,
       public juce::FileDragAndDropTarget,
       public juce::DragAndDropContainer,
+      private juce::MidiInputCallback,
       private juce::Timer
 {
 public:
@@ -176,6 +179,48 @@ private:
     bool currentSongFromSetlist = false;
     bool wasEnginePlaying = false;
     juce::String webControlKey { "merik" };
+
+    // MIDI out: de interne synth ("Soundfont player") of een extern apparaat.
+    std::unique_ptr<MidiOutSink> midiOutSink;
+    juce::StringArray midiOutIdentifiers;       // index = combo-id - 2
+    juce::String desiredMidiOut;                // leeg = Soundfont player
+    juce::String openedMidiOut;                 // apparaat dat nu echt open is
+    juce::MidiDeviceListConnection midiDeviceListConnection;
+    void refreshMidiOutputs();
+
+    // MIDI control in (bijv. nanoKONTROL2): faders = family-volumes,
+    // knoppen = Play/Stop/Next/Panic, net als in Merik 1.
+    std::unique_ptr<juce::MidiInput> midiIn;
+    juce::StringArray midiInIdentifiers;        // index = combo-id - 2
+    juce::String desiredMidiIn;                 // leeg = geen
+    juce::String openedMidiIn;
+    std::atomic<int> lastMidiInCc { -1 };
+    std::atomic<int> lastMidiInValue { 0 };
+    void refreshMidiInputs();
+    void applyMidiInput();
+    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
+    void panic();
+
+    // Toewijzing van de controller (instelbaar in Settings > Midi).
+    MidiMapping midiMapping;
+    void loadMidiMapping();
+    void saveMidiMapping();
+    void saveSynthSettings(const SynthSettings& settings);
+
+    // LEDs van de controller (nanoKONTROL2 in "External" LED-modus):
+    // Next en Stop altijd aan, Play aan bij spelen en knipperend bij pauze,
+    // de R-knoppen volgen aan/uit van de families.
+    juce::ComboBox ledOutBox;
+    std::unique_ptr<juce::MidiOutput> ledOut;
+    juce::StringArray ledIdentifiers;           // index = combo-id - 3
+    juce::String ledChoice { "auto" };          // "auto", "none" of een identifier
+    juce::String openedLedOut;
+    std::array<int, 128> ledLast {};
+    void refreshLedOutputs();
+    void applyLedOutput();
+    void updateControllerLeds();
+    void ledsAllOff();
+    void applyMidiOutput();
     int transpose = 0;
     void setTranspose(int semitones);
 

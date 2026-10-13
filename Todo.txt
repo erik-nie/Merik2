@@ -1,0 +1,42 @@
+Ik heb de Python-code van Merik 1 (`Src/`: `gui_main`, `gui_setlist`, `gui_player`, `midi_router`, `merik_lyrics`, `merik_core`, enzovoort) doorgenomen en vergeleken met Merik 2. Dit zit wel in Merik 1 en niet of slechter in Merik 2. Per punt staat erbij of ik het in de code van Merik 2 heb bevestigd.
+
+## Aansturing en MIDI
+1. **MIDI control in (nanoKONTROL).** In Merik 1 sturen de CC's de family-volumes aan, met instelbare start-CC. CC 41/42/44/45 doen Play/Pauze, Stop, Next en Panic, en een klein label toont de activiteit (`CC01:43`). In Merik 2 zijn de dropdowns nog placeholders met alleen "Default" en "None".
+2. **MIDI out naar echte hardware of een virtuele poort.** Merik 1 kan ook naar meerdere uitgangen tegelijk (`MultiOutputPicker`). Merik 2 heeft alleen de interne FluidSynth.
+3. **Panic-knop.** In Merik 1 doet die all-notes-off en een hard reset van de kanalen. In Merik 2 heeft de Panic-knop geen functie (bevestigd: geen `onClick`).
+
+## Geluid
+4. **Reverb, chorus en gain instelbaar en opgeslagen.** Merik 1 heeft per instelling een regelaar: room, damping, width en level voor de reverb, en nr, level, speed, depth en type voor de chorus. Merik 2 gebruikt vaste waarden (gain 0,5 en de standaard FluidSynth-reverb en -chorus).
+
+## Setlists en songs
+5. **Songduur en totale tijd.** Merik 1 toont per song de duur (op de achtergrond uitgelezen) en per setlist de totale tijd, met `(+3?)` als er nog duren onbekend zijn. Merik 2 toont alleen het aantal nummers.
+6. **Positie in de setlist** ("6/10") in het spelergebied. Dat ontbreekt in Merik 2.
+7. **Ontbrekende bestanden.** In Merik 1 staan ze rood in de lijst en geeft de tooltip het volledige pad. In Merik 2 zie je niets, en bij het laden gebeurt er stil niets.
+8. **Meerdere songs tegelijk** selecteren voor verwijderen, kopiëren en verplaatsen. Merik 2 werkt met één song.
+9. **Setlist-menu:**
+   - Merik 1 heeft Duplicate setlist, Remove all songs en Move up/down.
+   - Merik 2 heeft alleen Rename en Remove, en slepen.
+10. **Song-menu:** Merik 1 heeft "Show in Finder" en transpose van −11 tot +11, plus "Reset (no fixed)". Dat onderscheidt "geen vaste transpose" van een vaste 0. Merik 2 gaat van −6 tot +6 en heeft geen Finder-optie.
+11. **Next-knop.** In Merik 1 is hij uitgeschakeld als er geen volgend nummer is. In Merik 2 doet hij dan stil niets.
+
+## Bestanden en systeem
+12. **Robuuster MIDI-lezen.** Merik 1 repareert kapotte key-signature meta-events en heeft een eigen SMF-fallback. Of Merik 2 met zulke bestanden overweg kan, weet ik niet. Test dat met jouw lastige bestanden.
+13. **Een .mid openen vanuit Finder** ("Open met" of dubbelklik) opent het bestand in de lopende app. Merik 2 doet dat niet (de `anotherInstanceStarted` in `main.cpp` is leeg).
+14. **About-venster en update-check.** Merik 1 heeft een Help-menu met About, en een update-check die een banner met een "Info…"-knop toont. Merik 2 heeft beide niet.
+15. **Licht en donker thema.** Merik 2 is alleen donker.
+16. **Windows-build en release-scripts.** Merik 1 had beide (DMG en Windows-zip). In Merik 2 gebruikt de webserver POSIX-sockets, dus die compileert niet zonder aanpassing op Windows. Er zijn ook geen release-scripts.
+17. **Logbestand** (`merik.log`) voor foutopsporing bij gebruikers. Merik 2 heeft dat niet.
+
+## Webpagina
+18. **Transpose op de webpagina** (+, waarde, −, reset). Merik 2 heeft wel Play/Stop/Next en de mixer, maar geen transpose.
+19. **Status-indicator** (PLAYING/STOPPED) en korte meldingen (toast). In Merik 2 wisselt alleen het Play-icoon.
+
+## Hoofdscherm
+20. **Lyrics in de app zelf.** Merik 1 toont de huidige (rood) en de volgende lyric-regel in het hoofdvenster. In Merik 2 zie je lyrics alleen op de webpagina.
+21. **Drumnamen in de kanalentabel.** Merik 1 toont voor kanaal 10 de drumkit-namen (Standard Kit enzovoort). Merik 2 toont de gewone GM-instrumentnamen, zonder aparte behandeling van drums (bevestigd in de code).
+
+## Wat al gelijk of beter is in Merik 2
+Dit heb ik niet uitgebreid vergeleken, maar het hoort bij het overzicht. Beide hebben Yamaha XF-akkoorden en Midisoft-sysex-lyrics, normalize, dubbelklik-speelt en auto-next. Merik 2 voegt toe: slepen en kopiëren, hernoemen van songs, per-song transpose, beveiligde webbediening met sleutel, en tempo-nauwkeurig afspelen op de audioklok.
+
+## Aanbevolen volgorde
+Voor optreden is dit het waardevolst: **(3)** Panic werkend maken (klein), **(1)** MIDI control in voor de nanoKONTROL, **(5)** songduren en totalen, **(18)** transpose op het web, en **(4)** reverb/chorus-regelaars. Zeg welke ik moet oppakken.

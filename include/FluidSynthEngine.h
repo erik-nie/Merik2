@@ -6,12 +6,48 @@
 #include <fluidsynth.h>
 
 #include <array>
+#include <chrono>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
+
+// Doel voor MIDI-events buiten de interne synth (echte of virtuele MIDI-uitgang).
+// Alle aanroepen komen onder de mutex van de engine; push() en beginBlock()
+// vanuit de audio-thread en mogen dus niet blokkeren.
+class ExternalMidiOutput
+{
+public:
+    virtual ~ExternalMidiOutput() = default;
+
+    // Begin van een audioblok: samplepositie (op de songtijdlijn) van de
+    // eerste sample van het blok. Hiermee wordt de kloktoewijzing bijgehouden.
+    virtual void beginBlock(std::int64_t sampleAtBlockStart, int numSamples, double sampleRate) = 0;
+
+    // Bericht dat op deze samplepositie (songtijdlijn) moet klinken.
+    virtual void push(const std::uint8_t* data, int size, std::int64_t sampleTime) = 0;
+
+    // Bericht dat meteen verstuurd moet worden (reset, volume van de GUI, ...).
+    virtual void pushNow(const std::uint8_t* data, int size) = 0;
+
+    // Alle noten uit; channel -1 = alle kanalen.
+    virtual void allNotesOff(int channel) = 0;
+};
+
+// Klank van de interne synth, in dezelfde eenheden als de sliders in Settings
+// (zoals in Merik 1). De standaardwaarden geven het geluid van FluidSynth zelf.
+// Chorus staat altijd uit en is dus geen instelling.
+struct SynthSettings
+{
+    int gain = 50;                   // 0..100  -> 0.0 .. 1.0
+
+    int reverbRoom = 20;             // 0..100  -> 0.0 .. 1.0
+    int reverbDamp = 0;              // 0..100  -> 0.0 .. 1.0
+    int reverbWidth = 50;            // 0..100
+    int reverbLevel = 90;            // 0..100  -> 0.0 .. 1.0
+};
 
 struct FamilySettings
 {
@@ -57,6 +93,18 @@ public:
     // klinkende noten stoppen direct. Andere events lopen door.
     void setChannelMuted(int channel, bool muted);
 
+    void setSynthSettings(const SynthSettings& settings);
+    [[nodiscard]] SynthSettings getSynthSettings() const;
+
+    // nullptr = interne synth (Soundfont player); anders gaan alle
+    // MIDI-events naar dit apparaat en blijft de interne synth stil.
+    // De engine bezit het object niet; zet eerst nullptr voor het wordt vernietigd.
+    void setExternalOutput(ExternalMidiOutput* output);
+
+    // Panic: alle klinkende noten direct stoppen (intern en extern), zonder
+    // het afspelen te stoppen.
+    void panic();
+
     // Transponeert alle noten behalve kanaal 10 (drums), in halve tonen.
     void setTranspose(int semitones);
 
@@ -82,6 +130,17 @@ private:
 
     void sendMidiEvent(const RawMidiEvent& event);
 
+    // Alle uitgaande events lopen hierlangs: interne synth of extern apparaat.
+    void outNoteOn(int channel, int note, int velocity);
+    void outNoteOff(int channel, int note);
+    void outKeyPressure(int channel, int note, int value);
+    void outCC(int channel, int controller, int value);
+    void outProgram(int channel, int program);
+    void outChannelPressure(int channel, int value);
+    void outPitchBend(int channel, int value14);
+    void outAllSoundsOff(int channel);
+    void outExternal(std::uint8_t status, int data1, int data2, int size);
+
     [[nodiscard]] int transposedNote(int channel, int note) const;
     int pressNote(int channel, int note);
     int releaseNote(int channel, int note);
@@ -91,6 +150,17 @@ private:
 
     void updateFamilyFactorLocked(int family);
     void applyFamilyVolumeLocked(int family);
+    void applySynthSettingsLocked();
+
+    // Volume-wijzigingen van de families worden verzameld en per audioblok
+    // (extern: maximaal elke 30 ms) uitgestuurd. Een fader die snel beweegt
+    // gaf anders per stap CC7 + CC11 op elk kanaal van de family, onder het
+    // slot van de engine: dat blokkeerde de audio en overspoelde een
+    // DIN-uitgang.
+    std::atomic<std::uint32_t> dirtyFamilies_ { 0 };
+    std::chrono::steady_clock::time_point lastFamilyApply_ {};
+    void applyDirtyFamiliesLocked();
+    SynthSettings synthSettings_;
 
 
 
@@ -116,6 +186,17 @@ private:
     std::array<FamilySettings, familyCount> familySettings_ {};
     std::array<bool, 16> channelMuted_ {};
     int transpose_ = 0;
+
+    ExternalMidiOutput* external_ = nullptr;
+    int renderOffsetSamples_ = 0;   // positie van het huidige event in het audioblok
+    std::int64_t renderBlockStart_ = 0;
+    bool inRender_ = false;
+
+    // Laatst naar het externe apparaat gestuurde waarden: herhalingen die
+    // niets veranderen worden niet verstuurd (spaart DIN-bandbreedte).
+    std::array<std::array<std::int16_t, 128>, 16> lastExternalCC_ {};
+    std::array<std::int32_t, 16> lastExternalBend_ {};
+    void clearExternalCache();
 
     // Klinkende (getransponeerde) noot per ingedrukte noot, zodat een
     // Note Off de juiste noot stopt ook als transpose tussendoor wijzigt.
