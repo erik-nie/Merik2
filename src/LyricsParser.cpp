@@ -130,8 +130,6 @@ std::string decodeMidisoftSysEx(
         }
     }
 
-    std::cout << "Midisoft lyric: " << text << '\n';
-
     return text;
 }
 

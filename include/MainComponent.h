@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DropListBox.h"
+#include "ListSplitter.h"
 #include "MidiMapping.h"
 #include "MidiOutSink.h"
 #include "FluidSynthEngine.h"
@@ -15,6 +16,7 @@
 #include <functional>
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <vector>
 #include <atomic>
 
@@ -62,6 +64,13 @@ private:
         juce::File file;
         juce::String displayName;   // leeg = bestandsnaam tonen
         int transpose = 0;          // standaard transpose bij laden
+
+        // Achtergrondinformatie over het bestand (onthouden in de instellingen).
+        double lengthSeconds = -1.0;    // < 0: nog niet bekend
+        int hasLyrics = -1;             // -1 onbekend, 0 nee, 1 ja
+        int hasChords = -1;
+        juce::int64 fileTime = 0;       // wijzigingstijd waarvoor dit geldt
+        bool missing = false;           // bestand bestaat niet (meer)
 
         [[nodiscard]] juce::String shownName(bool withExtension) const
         {
@@ -122,6 +131,7 @@ private:
 
     juce::Label songTitle;
     juce::Label nextSong;
+    juce::Label setlistIndexLabel;   // bijv. "6/10"
     juce::Label elapsedTime;
     juce::Label totalTime;
 
@@ -148,14 +158,12 @@ private:
     DropListBox songBox;
 
     juce::TextButton newSetlistButton;
-    juce::TextButton deleteSetlistButton;
 
     juce::TextButton doubleClickToggle;
     juce::TextButton normalizeToggle;
     juce::TextButton continuousToggle;
 
     juce::TextButton addButton;
-    juce::TextButton removeButton;
 
     juce::TableListBox channelTable;
 
@@ -177,6 +185,14 @@ private:
     bool positionSliderWasPlaying = false;
     bool positionSliderDragging = false;
     bool currentSongFromSetlist = false;
+    int playingRow = -1;            // rij van het geladen nummer in de setlist (dubbele nummers)
+    int playingSetlist = -1;        // setlist waaruit het geladen nummer komt
+    [[nodiscard]] int currentRowInPlayingSetlist() const;
+
+    // Verdeling tussen setlists en songs; bij elke start 1/3 - 2/3.
+    ListSplitter listSplitter;
+    float setlistFraction = 1.0f / 3.0f;
+    juce::Rectangle<int> listsBounds;
     bool wasEnginePlaying = false;
     juce::String webControlKey { "merik" };
 
@@ -243,22 +259,38 @@ private:
     void timerCallback() override;
 
     void loadMidiFile(const juce::File& file, bool fromSetlist = false,
-                      const SongEntry* entry = nullptr);
+                      const SongEntry* entry = nullptr, int setlistRow = -1,
+                      int setlistIndex = -1);
     void playNextInSetlist();
     void skipToNextSong();
     [[nodiscard]] const SongEntry* nextSetlistEntry() const;
 
     // Setlists en songs: slepen, kopiëren en contextmenu's.
     void moveSetlist(int from, int insertBefore);
-    void moveSongWithinSetlist(int from, int insertBefore);
-    void moveOrCopySong(int songRow, int targetSetlist, bool copy);
+    void moveSongsWithinSetlist(juce::Array<int> rows, int insertBefore);
+    void moveOrCopySongs(juce::Array<int> rows, int targetSetlist, bool copy);
+    void duplicateSetlist(int row);
+    void clearSetlist(int row);
     void showSetlistMenu(int row);
     void showSongMenu(int row);
     void promptRename(const juce::String& title, const juce::String& current,
                       std::function<void(const juce::String&)> onAccepted);
     void removeSetlistAt(int row);
-    void removeSongAt(int row);
+    void removeSongs(juce::Array<int> rows);
+    [[nodiscard]] juce::Array<int> selectedSongRows() const;
     void addSetlist();
+
+    // Duur, lyrics en akkoorden van de nummers: op de achtergrond uitgelezen.
+    std::mutex midiReadMutex;       // de MIDI-lezer wordt niet door twee threads tegelijk gebruikt
+    std::unique_ptr<class SongInfoScanner> songScanner;
+    void scanSongInfo();
+    bool songInfoDirty = false;
+    int songInfoSaveTicks = 0;
+    void applySongInfo(const juce::File& file, double length, int lyrics, int chords);
+    void updateMissingFlags();
+    [[nodiscard]] bool hasNextSong() const;
+    void confirmDialog(const juce::String& title, const juce::String& message,
+                       const juce::String& okText, std::function<void()> onOk);
 
     void loadPersistentState();
     void savePersistentState();

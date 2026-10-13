@@ -31,10 +31,16 @@ void MainComponent::loadMidi()
         });
 }
 void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
-                                 const SongEntry* entry)
+                                 const SongEntry* entry, int setlistRow, int setlistIndex)
 {
     if (!file.existsAsFile())
+    {
+        // Geen stille mislukking meer: laat zien welk bestand ontbreekt.
+        confirmDialog("File not found",
+                      "This MIDI file can no longer be found:\n" + file.getFullPathName(),
+                      "OK", nullptr);
         return;
+    }
 
     try
     {
@@ -43,10 +49,15 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
                 ? audioSampleRate
                 : 48000.0;
 
-        const Song song =
-            midiReader.read(
+        Song song;
+
+        {
+            const std::scoped_lock lock(midiReadMutex);
+
+            song = midiReader.read(
                 file.getFullPathName().toStdString(),
                 sampleRate);
+        }
 
         currentSong =
             std::make_shared<Song>(
@@ -63,6 +74,8 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
 
         // Alleen een nummer uit de songlijst mag een volgend nummer starten.
         currentSongFromSetlist = fromSetlist;
+        playingRow = fromSetlist ? setlistRow : -1;
+        playingSetlist = fromSetlist ? setlistIndex : -1;
 
         // Belangrijk: de complete Song inclusief
         // lyrics en akkoorden naar de webserver.
@@ -82,8 +95,9 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
         updateChannelModel();
         updateSongDisplay();
 
-        // Het "nu geladen"-driehoekje in de songlijst moet meeverhuizen.
+        // De "nu geladen"-driehoekjes in beide lijsten moeten meeverhuizen.
         songBox.repaint();
+        setlistBox.repaint();
     }
     catch (const std::exception& e)
     {
@@ -214,49 +228,63 @@ void MainComponent::stop()
 // Setlist: volgend nummer
 // ============================================================================
 
-const MainComponent::SongEntry* MainComponent::nextSetlistEntry() const
+// Rij van het geladen nummer in de getoonde setlist. Een nummer mag er
+// meerdere keren in staan, dus eerst de onthouden rij; anders de eerste
+// rij met hetzelfde bestand.
+int MainComponent::currentRowInPlayingSetlist() const
 {
     if (!currentSongFromSetlist ||
-        selectedSetlist < 0 ||
-        selectedSetlist >= static_cast<int>(setlists.size()))
+        playingSetlist < 0 ||
+        playingSetlist >= static_cast<int>(setlists.size()))
     {
-        return nullptr;
+        return -1;
     }
 
-    const auto& songs =
-        setlists[static_cast<std::size_t>(selectedSetlist)].songs;
+    const auto& songs = setlists[static_cast<std::size_t>(playingSetlist)].songs;
 
-    for (std::size_t i = 0; i + 1 < songs.size(); ++i)
+    if (playingRow >= 0 && playingRow < static_cast<int>(songs.size())
+        && songs[static_cast<std::size_t>(playingRow)].file == currentMidiFile)
     {
+        return playingRow;
+    }
+
+    for (std::size_t i = 0; i < songs.size(); ++i)
         if (songs[i].file == currentMidiFile)
-            return &songs[i + 1];
-    }
+            return static_cast<int>(i);
 
-    return nullptr;
+    return -1;
+}
+
+const MainComponent::SongEntry* MainComponent::nextSetlistEntry() const
+{
+    const int row = currentRowInPlayingSetlist();
+
+    if (row < 0)
+        return nullptr;
+
+    const auto& songs = setlists[static_cast<std::size_t>(playingSetlist)].songs;
+
+    return row + 1 < static_cast<int>(songs.size())
+        ? &songs[static_cast<std::size_t>(row + 1)]
+        : nullptr;
 }
 
 void MainComponent::playNextInSetlist()
 {
+    const int row = currentRowInPlayingSetlist();
     const auto* found = nextSetlistEntry();
 
     if (found == nullptr || !found->file.existsAsFile())
         return;
 
     const SongEntry next = *found;
+    const int listIndex = playingSetlist;
 
-    loadMidiFile(next.file, true, &next);
+    loadMidiFile(next.file, true, &next, row + 1, listIndex);
 
-    const auto& songs =
-        setlists[static_cast<std::size_t>(selectedSetlist)].songs;
-
-    for (std::size_t i = 0; i < songs.size(); ++i)
-    {
-        if (songs[i].file == next.file)
-        {
-            songBox.selectRow(static_cast<int>(i));
-            break;
-        }
-    }
+    // De selectie volgt alleen als de spelende setlist ook getoond wordt.
+    if (selectedSetlist == listIndex)
+        songBox.selectRow(row + 1);
 
     play();
 }
@@ -265,29 +293,24 @@ void MainComponent::playNextInSetlist()
 // bij stop of pauze wordt het volgende nummer alleen klaargezet.
 void MainComponent::skipToNextSong()
 {
-    if (selectedSetlist < 0 ||
-        selectedSetlist >= static_cast<int>(setlists.size()))
+    // Een nummer uit een setlist gaat door in die setlist, ook als er
+    // intussen een andere setlist getoond wordt.
+    const int listIndex = currentSongFromSetlist ? playingSetlist : selectedSetlist;
+
+    if (listIndex < 0 ||
+        listIndex >= static_cast<int>(setlists.size()))
     {
         return;
     }
 
     const auto& songs =
-        setlists[static_cast<std::size_t>(selectedSetlist)].songs;
+        setlists[static_cast<std::size_t>(listIndex)].songs;
 
     // Huidige positie in de lijst; staat het nummer er niet in
     // (bijv. via Load), dan geldt de geselecteerde rij als "huidig".
-    int index = -1;
+    int index = currentRowInPlayingSetlist();
 
-    for (std::size_t i = 0; i < songs.size(); ++i)
-    {
-        if (songs[i].file == currentMidiFile)
-        {
-            index = static_cast<int>(i);
-            break;
-        }
-    }
-
-    if (index < 0)
+    if (index < 0 && listIndex == selectedSetlist)
         index = songBox.getSelectedRow();
 
     const int nextIndex = index + 1;
@@ -298,8 +321,10 @@ void MainComponent::skipToNextSong()
     const bool wasPlaying = synthEngine.isPlaying();
 
     const SongEntry nextEntry = songs[static_cast<std::size_t>(nextIndex)];
-    loadMidiFile(nextEntry.file, true, &nextEntry);
-    songBox.selectRow(nextIndex);
+    loadMidiFile(nextEntry.file, true, &nextEntry, nextIndex, listIndex);
+
+    if (listIndex == selectedSetlist)
+        songBox.selectRow(nextIndex);
 
     if (wasPlaying)
         play();
@@ -333,6 +358,22 @@ void MainComponent::updateSongDisplay()
             ? "Next: " + next->shownName(false)
             : juce::String("Next: -"),
         juce::dontSendNotification);
+
+    // Positie in de setlist ("6/10").
+    juce::String position;
+
+    if (currentSongFromSetlist
+        && playingSetlist >= 0
+        && playingSetlist < static_cast<int>(setlists.size()))
+    {
+        const auto& songs = setlists[static_cast<std::size_t>(playingSetlist)].songs;
+        const int row = currentRowInPlayingSetlist();
+
+        if (row >= 0)
+            position = juce::String(row + 1) + "/" + juce::String(static_cast<int>(songs.size()));
+    }
+
+    setlistIndexLabel.setText(position, juce::dontSendNotification);
 
     updateTransportDisplay();
 }
