@@ -11,6 +11,23 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 ---
 
+## Download
+
+**[Download Merik 0.1.0-alpha.1 for macOS](https://github.com/erik-nie/Merik2/releases/tag/v0.1.0-alpha.1)** (Apple silicon, macOS 27.0 or later). This is an early alpha: expect rough edges. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+
+**Install**
+
+1. Download `Merik-0.1.0-alpha.1-arm64.dmg` from the release page, open it and drag **Merik** to **Applications**.
+2. This build is **not notarized**, so macOS blocks the first start. Right-click **Merik.app**, choose **Open** and confirm. If it is still blocked, run this in Terminal:
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Merik.app
+   ```
+3. Choose a General MIDI SoundFont (`.sf2`) under **Settings → Audio**. Merik does not include one. `MatrixSF_v2.1.5.sf2` is a great free option, but many others exist.
+
+Prefer to build it yourself? See [Building from source](#building-from-source).
+
+---
+
 ## Why Merik
 
 - **Made for performing.** Big, readable controls, instant song changes, a hardware-friendly workflow and a panic button that really silences everything.
