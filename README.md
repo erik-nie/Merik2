@@ -111,7 +111,7 @@ The same eight faders and switches are available on a MIDI controller such as th
 3. Double-click a song to load it, then press **Play**.
 4. For the lyrics display, press **Lyrics** in Merik, or open Merik's address (port 8888) on another device. **Settings → General** shows the full address.
 
-You will need to bring your own SoundFont. Merik works with any General MIDI SoundFont in the `.sf2` format.
+You will need to bring your own SoundFont. Merik works with any General MIDI SoundFont in the `.sf2` format. `MatrixSF_v2.1.5.sf2` is a great free GM SoundFont to start with, but many others exist.
 
 Want something to try first? The folder [`docs/demo`](docs/demo) has four small demo songs with invented lyrics and chords.
 
@@ -158,6 +158,16 @@ Requirements: a C++20 compiler, CMake 3.22 or newer, FluidSynth 2.2 or newer (fo
 
 Windows is not supported yet, because the remote-control server uses POSIX sockets.
 
+### Releases
+
+`scripts/make-release.sh` builds a macOS (Apple silicon) release, bundles FluidSynth and its libraries into the app, signs it and packs a DMG in `dist/`. It needs `dylibbundler` (`brew install dylibbundler`).
+
+```sh
+scripts/make-release.sh 0.1.0-alpha.1
+```
+
+Without further settings the app is signed ad hoc. For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). The release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.
+
 ### Project layout
 
 | Folder | Contents |
@@ -172,6 +182,10 @@ Windows is not supported yet, because the remote-control server uses POSIX socke
 
 ## Credits
 
-Merik uses [JUCE](https://juce.com), [FluidSynth](https://www.fluidsynth.org), [midifile](https://github.com/craigsapp/midifile) by Craig Stuart Sapp and the Noto Sans typeface. Their licenses apply to their respective parts.
+Merik uses [JUCE](https://juce.com), [FluidSynth](https://www.fluidsynth.org), [midifile](https://github.com/craigsapp/midifile) by Craig Stuart Sapp and the Noto Sans typeface. Their licenses apply to their respective parts, see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 
-Copyright © Erik Nie. All rights reserved.
+## License
+
+Merik is free software, licensed under the **GNU Affero General Public License v3.0**. See [LICENSE](LICENSE) and [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+
+Copyright © Erik Nie.

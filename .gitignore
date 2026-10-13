@@ -1,5 +1,7 @@
 # Build output
 build/
+build-release/
+dist/
 bin/
 out/
 
