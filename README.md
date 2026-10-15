@@ -110,111 +110,28 @@ The same eight faders and switches (the last one is the click) are available on 
 
 ### Audio stems (.merik)
 
-A **.merik** file lets a song carry recorded audio next to (or instead of) the MIDI parts. It is a normal zip file; there is nothing to configure or to write. Merik recognises the files by their **name**, and whatever is missing falls back to the MIDI file or to Merik's own click.
+A **.merik** file lets a song carry recorded audio next to (or instead of) the MIDI parts. It is a zip file in which Merik recognises everything by its **file name**; whatever is missing falls back to the MIDI file or to Merik's own click.
 
 ```
 My Song.merik
-├── song.mid            MIDI: tempo, time signature, lyrics, chords, MIDI parts
-├── 1-drums.flac        audio stems:  <family number>-<name>.<wav|flac|mp3>
+├── song.mid          tempo, lyrics, chords and MIDI parts (optional)
+├── 1-drums.flac      audio stems: <family number>-<name>.<wav|flac|mp3>
 ├── 2-bass.flac
-├── 7-void.mp3          Others: a live vocal, a choir, backing vocals...
-├── click.wav           your own click track (optional)
-├── chords.json         chords (optional)
-└── lyrics.json         lyrics (optional)
+├── 7-void.mp3        Others: a live vocal, a choir, backing vocals...
+├── click.wav         your own click track (optional)
+├── chords.json       chords (optional)
+└── lyrics.json       lyrics (optional)
 ```
 
-**Naming of stems: `number-name`.** The number (1–7, and 8 for the click) decides the family, the name is shown on the family button (first 8 characters): `1-drums.flac` shows **1 drums**, `7-void.mp3` shows **7 void**. A file called just `drums.wav` is accepted too (family by name: drums, bass, guitars, keys, strings, winds, others, click), but `number-name` is recommended. Stems can also live in a `stems/` folder. Several stems in one family are mixed together.
+- **`number-name`:** the number (1–7, 8 = click) is the family, the name is shown on the family button (first 8 characters): `7-void.mp3` shows **7 void**.
+- **Audio wins per family:** a family with a stem does not play its MIDI notes; families without a stem keep playing from the MIDI file. A missing `click.wav`, `chords.json` or `lyrics.json` falls back to the internal click and to what is in the MIDI file.
+- **Keep the original order of the families.** If a bass player joins live, family 2 is switched off, so don't put backing vocals there. Extra tracks belong in **7 (Others)**.
+- Each family can be sent to its **own output**, and the click to another (Settings → Audio). Each family button shows an **AUDIO** or **MIDI** pill with a level meter. Transpose is not available for songs with stems.
+- Stems stored without compression are **streamed**: the song is ready in a fraction of a second and uses very little memory.
 
-> **Keep the original order of the families.** A family fader or switch may have been set for the whole evening: if a bass player joins live, the Bass family (2) is switched off, so don't put backing vocals on 2. Put extra tracks in **7 (Others)**, which is meant for that.
+**Making a .merik:** in **Settings → General → Create a .merik file from a folder...** choose the folder with your stems. Merik shows what it recognised, warns about problems (different lengths, no MIDI or tempo), can convert WAV to FLAC without loss, saves the `.merik` the right way and can add it to your setlist. This is the recommended way.
 
-**What is used, in order of priority**
-
-| What | If the file exists | Otherwise |
-|---|---|---|
-| A family's sound | the audio stem(s) of that family (**audio wins**, the MIDI notes of that family are not played) | the MIDI parts of that family |
-| Click | `click.wav` / `.flac` / `.mp3` | the internal click, from tempo and time signature |
-| Chords | `chords.json` | the chords found in the MIDI file |
-| Lyrics | `lyrics.json` | the lyrics found in the MIDI file |
-| Tempo and time signature | the MIDI file | 120 bpm, 4/4 (or an optional `manifest.json`) |
-
-So these are all valid: a song that is only MIDI; a song that is only stems; MIDI plus one live-vocal stem `7-void.mp3`; MIDI for the guitar while the other families come from stems (a hybrid).
-
-**Examples**
-- *Karaoke version with stems from the internet:* `1-drums.mp3`, `2-bass.mp3`, `4-keys.mp3`, `7-others.mp3` and the `song.mid` for lyrics and chords.
-- *Your band's backing track from a DAW:* export each family as a FLAC with the same start point, add `click.wav` and the MIDI file, and zip them.
-- *A MIDI song with a live vocal stem:* `song.mid` and `7-void.mp3`.
-
-**Fast loading, low memory:** when the audio is stored without compression in the zip, Merik streams the stems from disk: the song is ready in a fraction of a second and uses about 17 MB per stem instead of the whole song. Compressed zips are loaded completely, with a progress screen. See [Making a .merik](#making-a-merik-from-a-set-of-audio-files).
-
-Each family can be sent to **its own output** (Settings → Audio), as a stereo pair or a single mono channel, and the click to another. Each family button shows **AUDIO** or **MIDI** with a level meter, and the song list tags the file with **AUDIO** and/or **MIDI**. Transpose is not available for songs with stems.
-
-### Making a .merik from a set of audio files
-
-**Let Merik do it.** In **Settings → General → Create a .merik file from a folder...**:
-
-1. Choose the folder with your stems (`1-drums.wav`, `2-bass.flac`, ..., optionally `song.mid`, `click.wav`, `chords.json`, `lyrics.json`).
-2. Merik shows what it recognised and what it ignored, and warns about stems of different lengths, a missing MIDI file or a missing tempo.
-3. Tick *Convert WAV to FLAC* if you want (lossless, about half the size).
-4. Choose a name and Merik saves the `.merik`, without compression, so it loads instantly. Afterwards you can add it straight to the current setlist.
-
-This is **the recommended way**: it is much more stable than doing it by hand, because Merik checks the file names, compares the stem lengths, converts WAV to FLAC without loss and stores the zip the right way, which removes the common mistakes (a compressed zip, an extra folder, a wrongly named stem).
-
-A ready-made test song is in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). The complete description (lyrics and chord JSON formats, the optional manifest, stem requirements) is in [docs/merik-format.md](docs/merik-format.md).
-
-#### The manual way (advanced)
-
-For the command line, scripts, or to see what happens inside: a `.merik` is just a zip. Doing it by hand works, but it is easier to get wrong: one wrong flag or file name and the song loads slowly or a stem is not recognised. Prefer the automatic way above.
-
-The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
-
-Put the stems in a folder, named `1-drums.wav`, `2-bass.wav`, ... (see naming above), optionally with `song.mid`, `click.wav`, `chords.json`, `lyrics.json`.
-
-**macOS** (Terminal, `cd` to the folder):
-
-```sh
-zip -0 -j "songname.merik" *.wav song.mid
-# or, when there is only audio:
-zip -0 -j "songname.merik" *.wav
-```
-
-`-0` means "store, don't compress" and `-j` leaves out the folder name. This takes a second or two and the result loads almost instantly. **Don't use right-click → Compress in Finder**: it compresses the audio (slow to make, slow to load, Merik can't stream it) and adds an extra folder.
-
-**Windows** (PowerShell, in the folder). The simplest is the `tar` that ships with Windows 10 and 11:
-
-```powershell
-tar --format zip --options zip:compression=store -cf "songname.merik" *.wav song.mid
-```
-
-or with PowerShell's own zip command (it needs the name `.zip` first):
-
-```powershell
-Compress-Archive -Path *.wav,song.mid -CompressionLevel NoCompression -DestinationPath songname.zip
-Rename-Item songname.zip songname.merik
-```
-
-or with [7-Zip](https://www.7-zip.org/): `7z a -tzip -mx=0 songname.merik *.wav song.mid`. Don't use right-click → *Send to → Compressed folder* in Explorer: that compresses the audio.
-
-(Leave out `song.mid` if you have none. The Windows commands were not tested on a Windows machine; the `tar` one works the same way as the macOS `tar`.)
-
-**Converting WAV to FLAC** (about half the size, lossless):
-
-macOS: install ffmpeg once with [Homebrew](https://brew.sh), then convert everything in the folder:
-
-```sh
-brew install ffmpeg
-for f in *.wav; do ffmpeg -i "$f" -c:a flac "${f%.wav}.flac"; done
-```
-
-Windows: install ffmpeg once (`winget install ffmpeg`, then open a new PowerShell), then:
-
-```powershell
-Get-ChildItem *.wav | ForEach-Object { ffmpeg -i $_.Name -c:a flac ($_.BaseName + ".flac") }
-```
-
-Then pack the `.flac` files as above (`zip -0 -j "songname.merik" *.flac song.mid`).
-
-The included script does the same in one go: `python3 scripts/make-merik.py pack "songname.merik" --folder stems/ --midi song.mid`.
-
+There is a ready-made test song in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). All details (priority table, JSON formats for chords, lyrics and tempo, and **making a `.merik` by hand** on macOS and Windows) are in [docs/merik-format.md](docs/merik-format.md).
 
 ### Setlists that stay out of your way
 - Any number of setlists, reorderable by drag and drop.

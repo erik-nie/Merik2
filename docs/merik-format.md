@@ -23,9 +23,15 @@ Stems may also be placed in a `stems/` folder inside the zip. Names are not case
 | Click | `click.wav` / `click.flac` / `click.mp3` | the internal click, generated from tempo and time signature |
 | Chords | `chords.json` | chords found in the MIDI file |
 | Lyrics | `lyrics.json` | lyrics found in the MIDI file |
-| Tempo / time signature | the MIDI file | 120 bpm, 4/4 (or `manifest.json`, see below) |
+| Tempo / time signature | the MIDI file, or `tempo.json` / `manifest.json` (see below) | unknown: no internal click and no beat display (a `8-click` stem still plays) |
 
 So a hybrid song is normal: for example all MIDI plus one extra stem `7-live vocals.wav`. **Audio wins per family**: a family with an audio stem does not play its MIDI notes.
+
+## Examples
+
+- *Karaoke version with stems from the internet:* `1-drums.mp3`, `2-bass.mp3`, `4-keys.mp3`, `7-others.mp3` and the `song.mid` for lyrics and chords.
+- *Your band's backing track from a DAW:* export each family as a FLAC with the same start point, add `click.wav` and the MIDI file.
+- *A MIDI song with a live vocal stem:* `song.mid` and `7-void.mp3`.
 
 ## File names
 
@@ -74,6 +80,10 @@ One entry per line. `words` is optional; with words the lyrics light up word by 
   { "time": 14.8, "text": "A line without word times" }
 ]
 ```
+
+## tempo.json (optional)
+
+For a package without a MIDI file: `{ "bpm": 96, "timeSignature": [4, 4] }`. Merik then plays its internal click and shows the beat. Without a MIDI file and without this there is no internal click.
 
 ## manifest.json (optional)
 
