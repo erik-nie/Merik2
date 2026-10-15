@@ -117,10 +117,18 @@ public:
     [[nodiscard]] std::int64_t positionSamples() const;
     [[nodiscard]] std::int64_t lengthSamples() const;
 
+    // Klik: de tellen van het nummer (uit tempo en maatsoort) als korte tikjes.
+    // Familie 8 (index 7) is de volumeknop en aan/uit van de klik. De offset
+    // vertraagt de klik (ms) om bij een extern MIDI-apparaat uit te lijnen.
+    void setClickOffsetMs(int milliseconds);
+
+    // clickOut (optioneel, numSamples lang) krijgt de klik apart van de mix,
+    // op dezelfde samplepositie als de MIDI/soundfont, zodat ze synchroon blijven.
     void render(
         float** output,
         int numChannels,
-        int numSamples);
+        int numSamples,
+        float* clickOut = nullptr);
 
     [[nodiscard]] std::string soundFontPath() const;
 
@@ -203,6 +211,13 @@ private:
     std::array<std::array<std::int8_t, 128>, 16> soundingNote_ {};
 
     MidiTransformer midiTransformer_;
+
+    void buildClickTrackLocked();
+    void renderClickLocked(float* out, int numSamples, std::int64_t blockStart) const;
+
+    std::vector<std::int64_t> clickBeats_;     // samplepositie van elke tel
+    std::vector<std::uint8_t> clickAccent_;    // 1 = eerste tel van de maat
+    int clickOffsetMs_ = 0;
 
     [[nodiscard]] std::int64_t eventSamplePosition(
         const RawMidiEvent& event) const;

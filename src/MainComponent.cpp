@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "ClickSettings.h"
 #include "WebServer.h"
 #include "BinaryData.h"
 #include "FluidSynthEngine.h"
@@ -11,6 +12,27 @@
 
 namespace
 {
+// Alle uitgangskanalen van het apparaat staan aan (maximaal 64); welk paar of
+// kanaal voor de hoofdmix en voor de klik dient, kiest Merik zelf.
+void enableAllOutputChannels(juce::AudioDeviceManager& manager)
+{
+    auto* device = manager.getCurrentAudioDevice();
+
+    if (device == nullptr)
+        return;
+
+    juce::BigInteger wanted;
+    wanted.setRange(0, std::min(64, device->getOutputChannelNames().size()), true);
+
+    if (device->getActiveOutputChannels() == wanted)
+        return;
+
+    auto setup = manager.getAudioDeviceSetup();
+    setup.useDefaultOutputChannels = false;
+    setup.outputChannels = wanted;
+    manager.setAudioDeviceSetup(setup, true);
+}
+
     const juce::Colour backgroundColour =
         juce::Colour::fromRGB(17, 18, 22);
 
@@ -356,24 +378,52 @@ public:
         return 120;
     }
 
-    void drawTabAreaBehindFrontButton(juce::TabbedButtonBar&, juce::Graphics&, int, int) override
+    void drawTabAreaBehindFrontButton(juce::TabbedButtonBar& bar, juce::Graphics& g, int width, int height) override
     {
+        juce::ignoreUnused(bar);
+
+        // Lijn onder de tabs; de actieve tab loopt erdoorheen in de pagina.
+        g.setColour(juce::Colour::fromRGB(52, 55, 62));
+        g.fillRect(0, height - 1, width, 1);
     }
 
     void drawTabButton(juce::TabBarButton& button, juce::Graphics& g,
                        bool isMouseOver, bool) override
     {
-        auto area = button.getLocalBounds().toFloat().reduced(3.0f, 4.0f);
+        const auto bounds = button.getLocalBounds().toFloat();
+        const bool front = button.isFrontTab();
 
-        auto fill = button.isFrontTab() ? merikBlue : panelLightColour;
+        juce::Path shape;
+        const auto area = bounds.withTrimmedTop(front ? 3.0f : 6.0f).reduced(1.0f, 0.0f);
+        shape.addRoundedRectangle(area.getX(), area.getY(), area.getWidth(), area.getHeight() + 8.0f,
+                                  8.0f, 8.0f, true, true, false, false);
 
-        if (!button.isFrontTab() && isMouseOver)
-            fill = fill.brighter(0.08f);
+        auto fill = front ? backgroundColour : panelDarkColour;
 
+        if (!front && isMouseOver)
+            fill = fill.brighter(0.1f);
+
+        g.saveState();
+        g.reduceClipRegion(button.getLocalBounds());
         g.setColour(fill);
-        g.fillRoundedRectangle(area, 7.0f);
+        g.fillPath(shape);
 
-        g.setColour(juce::Colours::white);
+        g.setColour(juce::Colour::fromRGB(52, 55, 62));
+        g.strokePath(shape, juce::PathStrokeType(1.0f));
+
+        if (front)
+        {
+            g.setColour(merikBlue);
+            g.fillRect(area.getX() + 6.0f, area.getY(), area.getWidth() - 12.0f, 2.0f);
+
+            // Onderrand weghalen zodat de tab in de pagina overgaat.
+            g.setColour(backgroundColour);
+            g.fillRect(area.getX() + 1.0f, bounds.getBottom() - 1.0f, area.getWidth() - 2.0f, 1.0f);
+        }
+
+        g.restoreState();
+
+        g.setColour(front ? juce::Colours::white : secondaryTextColour);
         g.setFont(getMediumFont(17.0f));
         g.drawText(button.getButtonText(), area.toNearestInt(), juce::Justification::centred);
     }
@@ -586,6 +636,13 @@ struct SettingsContext
 
     SynthSettings synth;
     std::function<void(const SynthSettings&)> synthChanged;
+
+    int mainRoute = 0;
+    std::function<void(int route)> mainChanged;
+
+    int clickRoute = 0;
+    int clickOffsetMs = 0;
+    std::function<void(int route, int offsetMs)> clickChanged;
 };
 
 class SettingsContent final : public juce::Component,
@@ -608,6 +665,7 @@ public:
         tabs.setOutline(0);
         tabs.setIndent(0);
         tabs.addTab("General", backgroundColour, &generalPage, false);
+        tabs.addTab("Soundfont", backgroundColour, &soundFontPage, false);
         tabs.addTab("Audio", backgroundColour, &audioPage, false);
         tabs.addTab("Midi", backgroundColour, &midiPage, false);
         addAndMakeVisible(tabs);
@@ -620,9 +678,6 @@ public:
     ~SettingsContent() override
     {
         stopTimer();
-
-        if (selector != nullptr)
-            selector->removeComponentListener(this);
 
         setLookAndFeel(nullptr);
     }
@@ -782,20 +837,9 @@ private:
 
     void buildAudio()
     {
-        selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
-            context.deviceManager,
-            0, 0,   // geen audio-input
-            1, 2,   // 1-2 outputkanalen
-            false,  // geen MIDI input
-            false,  // geen MIDI output
-            true,   // stereo pairs
-            false); // advanced settings
-
-        audioPage.content.addAndMakeVisible(*selector);
-        selector->addComponentListener(this);
-
+        // ---- Soundfont-tab
         styleLabel(soundFontLabel, "SoundFont");
-        audioPage.content.addAndMakeVisible(soundFontLabel);
+        soundFontPage.content.addAndMakeVisible(soundFontLabel);
 
         soundFontCopy.setButtonText(context.soundFont.getButtonText());
         soundFontCopy.onClick = [this]
@@ -803,13 +847,13 @@ private:
             if (context.soundFont.onClick != nullptr)
                 context.soundFont.onClick();
         };
-        audioPage.content.addAndMakeVisible(soundFontCopy);
+        soundFontPage.content.addAndMakeVisible(soundFontCopy);
 
         styleHeading(soundHeading, "Soundfont player: sound");
         styleHeading(reverbHeading, "Reverb");
 
         for (auto* heading : { &soundHeading, &reverbHeading })
-            audioPage.content.addAndMakeVisible(heading);
+            soundFontPage.content.addAndMakeVisible(heading);
 
         struct Definition
         {
@@ -832,7 +876,7 @@ private:
             const auto& definition = definitions[i];
 
             styleLabel(row.label, definition.name);
-            audioPage.content.addAndMakeVisible(row.label);
+            soundFontPage.content.addAndMakeVisible(row.label);
 
             row.slider.setSliderStyle(juce::Slider::LinearHorizontal);
             row.slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 24);
@@ -848,21 +892,18 @@ private:
                     context.synthChanged(context.synth);
             };
 
-            audioPage.content.addAndMakeVisible(row.slider);
+            soundFontPage.content.addAndMakeVisible(row.slider);
         }
 
-        audioPage.layoutContent = [this](int width)
+        soundFontPage.layoutContent = [this](int width)
         {
             const int controlX = juce::roundToInt(static_cast<float>(width) * 0.30f);
             const int controlWidth = juce::roundToInt(static_cast<float>(width) * 0.62f);
 
-            // SoundFont bovenaan, daaronder het audio-apparaat (bepaalt zijn
-            // eigen hoogte) en de klank van de interne synth.
             soundFontLabel.setBounds(0, 18, controlX - 10, rowHeight);
             soundFontCopy.setBounds(controlX, 18, controlWidth, rowHeight);
 
-            selector->setBounds(0, 18 + rowStep + 4, width, 3000);
-            int y = selector->getBottom() + 14;
+            int y = 18 + rowStep + 14;
 
             soundHeading.setBounds(controlX, y, controlWidth, 24);
             y += 30;
@@ -883,19 +924,286 @@ private:
             for (std::size_t i = 1; i <= 4; ++i)
                 place(synthRows[i]);
 
-            y += 14;
+            return y + 14;
+        };
 
-            return y;
+        // ---- Audio-tab: apparaat, hoofduitgang en klik
+        styleHeading(deviceHeading, "Audio device");
+        styleHeading(mainHeading, "Main output");
+        styleHeading(clickHeading, "Click track (family 8)");
+
+        for (auto* heading : { &deviceHeading, &mainHeading, &clickHeading })
+            audioPage.content.addAndMakeVisible(heading);
+
+        styleLabel(typeLabel, "Driver");
+        styleLabel(deviceLabel, "Output device");
+        styleLabel(rateLabel, "Sample rate");
+        styleLabel(bufferLabel, "Buffer size");
+        styleLabel(mainOutLabel, "Main output");
+        styleLabel(clickOutLabel, "Click output");
+
+        for (auto* component : std::initializer_list<juce::Component*> {
+                 &typeLabel, &deviceLabel, &rateLabel, &bufferLabel, &mainOutLabel, &clickOutLabel,
+                 &typeBox, &deviceBox, &rateBox, &bufferBox, &mainOutBox, &clickOutBox })
+            audioPage.content.addAndMakeVisible(component);
+
+        typeBox.onChange = [this]
+        {
+            if (updatingDevice)
+                return;
+
+            context.deviceManager.setCurrentAudioDeviceType(typeBox.getText(), true);
+            enableAllOutputChannels(context.deviceManager);
+            fillDeviceControls();
+        };
+
+        deviceBox.onChange = [this]
+        {
+            if (updatingDevice)
+                return;
+
+            auto setup = context.deviceManager.getAudioDeviceSetup();
+            setup.outputDeviceName = deviceBox.getText();
+            setup.inputDeviceName = {};
+            setup.useDefaultOutputChannels = true;
+            context.deviceManager.setAudioDeviceSetup(setup, true);
+            enableAllOutputChannels(context.deviceManager);
+            fillDeviceControls();
+        };
+
+        rateBox.onChange = [this]
+        {
+            if (updatingDevice)
+                return;
+
+            auto setup = context.deviceManager.getAudioDeviceSetup();
+            setup.sampleRate = rateBox.getText().getDoubleValue();
+            context.deviceManager.setAudioDeviceSetup(setup, true);
+            enableAllOutputChannels(context.deviceManager);
+        };
+
+        bufferBox.onChange = [this]
+        {
+            if (updatingDevice)
+                return;
+
+            auto setup = context.deviceManager.getAudioDeviceSetup();
+            setup.bufferSize = bufferBox.getText().getIntValue();
+            context.deviceManager.setAudioDeviceSetup(setup, true);
+            enableAllOutputChannels(context.deviceManager);
+        };
+
+        mainOutBox.onChange = [this]
+        {
+            if (updatingDevice)
+                return;
+
+            const int id = mainOutBox.getSelectedId();
+            context.mainRoute = id >= 2000 ? ClickRoute::pairBase + (id - 2000)
+                                           : ClickRoute::monoBase + (id - 1000);
+
+            if (context.mainChanged)
+                context.mainChanged(context.mainRoute);
+        };
+
+        clickOutBox.onChange = [this]
+        {
+            if (updatingDevice)
+                return;
+
+            const int id = clickOutBox.getSelectedId();
+
+            context.clickRoute = id >= 2000 ? ClickRoute::pairBase + (id - 2000)
+                               : id >= 1000 ? ClickRoute::monoBase + (id - 1000)
+                               : id == 3    ? ClickRoute::split
+                               : id == 2    ? ClickRoute::mixed
+                                            : ClickRoute::automatic;
+
+            if (context.clickChanged)
+                context.clickChanged(context.clickRoute, context.clickOffsetMs);
+        };
+
+        styleLabel(clickOffsetRow.label, "Click delay (ms)");
+        audioPage.content.addAndMakeVisible(clickOffsetRow.label);
+
+        clickOffsetRow.slider.setSliderStyle(juce::Slider::LinearHorizontal);
+        clickOffsetRow.slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 24);
+        clickOffsetRow.slider.setRange(-50, 300, 1.0);
+        clickOffsetRow.slider.setValue(context.clickOffsetMs, juce::dontSendNotification);
+        clickOffsetRow.slider.setDoubleClickReturnValue(true, 0.0);
+        clickOffsetRow.slider.onValueChange = [this]
+        {
+            context.clickOffsetMs = juce::roundToInt(clickOffsetRow.slider.getValue());
+
+            if (context.clickChanged)
+                context.clickChanged(context.clickRoute, context.clickOffsetMs);
+        };
+        audioPage.content.addAndMakeVisible(clickOffsetRow.slider);
+
+        clickHint.setColour(juce::Label::textColourId, secondaryTextColour);
+        clickHint.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        clickHint.setMinimumHorizontalScale(1.0f);
+        clickHint.setText("Volume and on/off of the click: fader and R button 8. "
+                          "The delay only matters when playing to an external MIDI device.",
+                          juce::dontSendNotification);
+        audioPage.content.addAndMakeVisible(clickHint);
+
+        fillDeviceControls();
+
+        audioPage.layoutContent = [this](int width)
+        {
+            const int controlX = juce::roundToInt(static_cast<float>(width) * 0.30f);
+            const int controlWidth = juce::roundToInt(static_cast<float>(width) * 0.62f);
+
+            int y = 18;
+
+            const auto heading = [&](juce::Label& label)
+            {
+                label.setBounds(controlX, y, controlWidth, 24);
+                y += 30;
+            };
+
+            const auto row = [&](juce::Label& label, juce::Component& control)
+            {
+                label.setBounds(0, y, controlX - 10, rowHeight);
+                control.setBounds(controlX, y, controlWidth, rowHeight);
+                y += rowStep;
+            };
+
+            heading(deviceHeading);
+            row(typeLabel, typeBox);
+            row(deviceLabel, deviceBox);
+            row(rateLabel, rateBox);
+            row(bufferLabel, bufferBox);
+
+            y += 10;
+            heading(mainHeading);
+            row(mainOutLabel, mainOutBox);
+
+            y += 10;
+            heading(clickHeading);
+            row(clickOutLabel, clickOutBox);
+            row(clickOffsetRow.label, clickOffsetRow.slider);
+            clickHint.setBounds(controlX, y, controlWidth, 40);
+
+            return y + 54;
         };
     }
 
-    void componentMovedOrResized(juce::Component& component, bool, bool wasResized) override
+    // Vult de apparaatkeuzes uit de huidige toestand van de AudioDeviceManager
+    // en bouwt de uitgangslijsten (alle kanalen van het apparaat).
+    void fillDeviceControls()
     {
-        if (&component == selector.get() && wasResized && !inAudioLayout)
+        auto& manager = context.deviceManager;
+        auto* device = manager.getCurrentAudioDevice();
+
+        const auto setup = manager.getAudioDeviceSetup();
+        const auto channelNames = device != nullptr ? device->getOutputChannelNames() : juce::StringArray();
+
+        const juce::String signature = manager.getCurrentAudioDeviceType() + "|" + setup.outputDeviceName + "|"
+            + juce::String(setup.sampleRate) + "|" + juce::String(setup.bufferSize) + "|"
+            + channelNames.joinIntoString(",") + "|" + juce::String(context.mainRoute) + "|"
+            + juce::String(context.clickRoute);
+
+        if (signature == deviceSignature)
+            return;
+
+        deviceSignature = signature;
+
+        const juce::ScopedValueSetter<bool> guard(updatingDevice, true);
+
+        // Driver
+        typeBox.clear(juce::dontSendNotification);
+
+        for (auto* type : manager.getAvailableDeviceTypes())
+            typeBox.addItem(type->getTypeName(), typeBox.getNumItems() + 1);
+
+        typeBox.setText(manager.getCurrentAudioDeviceType(), juce::dontSendNotification);
+        typeBox.setEnabled(typeBox.getNumItems() > 1);
+
+        // Apparaat
+        deviceBox.clear(juce::dontSendNotification);
+
+        if (auto* type = manager.getCurrentDeviceTypeObject())
         {
-            const juce::ScopedValueSetter<bool> guard(inAudioLayout, true);
-            audioPage.relayout();
+            const auto names = type->getDeviceNames(false);
+
+            for (int i = 0; i < names.size(); ++i)
+                deviceBox.addItem(names[i], i + 1);
         }
+
+        deviceBox.setText(setup.outputDeviceName, juce::dontSendNotification);
+
+        // Samplefrequentie en buffer
+        rateBox.clear(juce::dontSendNotification);
+        bufferBox.clear(juce::dontSendNotification);
+
+        if (device != nullptr)
+        {
+            int id = 1;
+
+            for (const auto rate : device->getAvailableSampleRates())
+                rateBox.addItem(juce::String(juce::roundToInt(rate)), id++);
+
+            rateBox.setText(juce::String(juce::roundToInt(device->getCurrentSampleRate())),
+                            juce::dontSendNotification);
+
+            id = 1;
+
+            for (const auto size : device->getAvailableBufferSizes())
+                bufferBox.addItem(juce::String(size), id++);
+
+            bufferBox.setText(juce::String(device->getCurrentBufferSizeSamples()),
+                              juce::dontSendNotification);
+        }
+
+        // Uitgangen: een paar (1+2, 3+4, ...) of één kanaal, alle kanalen van het apparaat.
+        const auto fillOutputs = [&](juce::ComboBox& box, bool forClick)
+        {
+            box.clear(juce::dontSendNotification);
+
+            if (forClick)
+            {
+                box.addItem("Auto (first free pair, else in the main mix)", 1);
+                box.addItem("In the main mix", 2);
+                box.addItem("Split: click left, music (mono) right", 3);
+            }
+
+            for (int i = 0; i < channelNames.size(); i += 2)
+                if (i + 1 < channelNames.size())
+                    box.addItem(channelNames[i] + " + " + channelNames[i + 1], 2000 + i);
+
+            for (int i = 0; i < channelNames.size(); ++i)
+                box.addItem(channelNames[i] + " (mono)", 1000 + i);
+        };
+
+        fillOutputs(mainOutBox, false);
+        fillOutputs(clickOutBox, true);
+
+        const auto idFor = [](int route, int fallback)
+        {
+            if (route >= ClickRoute::pairBase)
+                return 2000 + (route - ClickRoute::pairBase);
+
+            if (route >= ClickRoute::monoBase)
+                return 1000 + (route - ClickRoute::monoBase);
+
+            return route == ClickRoute::mixed ? 2 : route == ClickRoute::split ? 3 : fallback;
+        };
+
+        int mainId = idFor(context.mainRoute, 2000);
+
+        if (mainOutBox.indexOfItemId(mainId) < 0)
+            mainId = mainOutBox.getNumItems() > 0 ? mainOutBox.getItemId(0) : 0;
+
+        mainOutBox.setSelectedId(mainId, juce::dontSendNotification);
+
+        int clickId = idFor(context.clickRoute, 1);
+
+        if (clickOutBox.indexOfItemId(clickId) < 0)
+            clickId = 1;
+
+        clickOutBox.setSelectedId(clickId, juce::dontSendNotification);
     }
 
     // ------------------------------------------------------------------- Midi
@@ -953,7 +1261,7 @@ private:
         }
 
         static const char* familyNames[MidiMapping::families] = {
-            "1 Drums", "2 Bass", "3 Guitars", "4 Keys", "5 Strings", "6 Winds", "7 FX", "8 Other"
+            "1 Drums", "2 Bass", "3 Guitars", "4 Keys", "5 Strings", "6 Winds", "7 Others", "8 Click"
         };
 
         const auto setupCc = [this](juce::Slider& slider, std::atomic<int>& value)
@@ -1085,6 +1393,8 @@ private:
 
     void timerCallback() override
     {
+        fillDeviceControls();
+
         if (context.midiInActivity)
         {
             const auto text = context.midiInActivity();
@@ -1134,12 +1444,17 @@ private:
     juce::TextButton checkNowButton;
 
     // Audio
+    ScrollPage soundFontPage;
     ScrollPage audioPage;
-    std::unique_ptr<juce::AudioDeviceSelectorComponent> selector;
     juce::Label soundFontLabel, soundHeading, reverbHeading;
+    juce::Label deviceHeading, mainHeading, clickHeading, clickHint;
+    juce::Label typeLabel, deviceLabel, rateLabel, bufferLabel, mainOutLabel, clickOutLabel;
+    juce::ComboBox typeBox, deviceBox, rateBox, bufferBox, mainOutBox, clickOutBox;
+    SliderRow clickOffsetRow;
+    juce::String deviceSignature;
+    bool updatingDevice = false;
     juce::TextButton soundFontCopy;
     std::array<SliderRow, 5> synthRows;
-    bool inAudioLayout = false;
 
     // Midi
     ScrollPage midiPage;
@@ -1229,6 +1544,26 @@ void MainComponent::showAudioSettings()
         {
             synthEngine.setSynthSettings(settings);
             saveSynthSettings(settings);
+        },
+
+        mainRoute.load(),
+        [this](int route)
+        {
+            mainRoute = route;
+
+            if (auto* properties = appProperties.getUserSettings())
+            {
+                properties->setValue("main.route", route);
+                properties->saveIfNeeded();
+            }
+        },
+
+        clickRoute.load(),
+        clickOffsetMs,
+        [this](int route, int offsetMs)
+        {
+            clickOffsetMs = offsetMs;
+            saveClickSettings(route, offsetMs);
         }
     };
 
@@ -1819,8 +2154,8 @@ juce::String familyName(int family)
         "4 Keys",
         "5 Strings",
         "6 Winds",
-        "7 FX",
-        "8 Other"
+        "7 Others",
+        "8 Click"
     };
 
     return family >= 0 && family < static_cast<int>(names.size())
@@ -2782,6 +3117,10 @@ MainComponent::MainComponent()
         synth.reverbWidth   = properties->getIntValue("synth.reverbWidth", synth.reverbWidth);
         synth.reverbLevel   = properties->getIntValue("synth.reverbLevel", synth.reverbLevel);
         synthEngine.setSynthSettings(synth);
+
+        mainRoute = properties->getIntValue("main.route", ClickRoute::pairBase);
+        clickRoute = properties->getIntValue("click.route", ClickRoute::automatic);
+        synthEngine.setClickOffsetMs(properties->getIntValue("click.offsetMs", 0));
     }
 
     midiDeviceListConnection =
@@ -2869,8 +3208,8 @@ MainComponent::MainComponent()
         "4 Keys",
         "5 Strings",
         "6 Winds",
-        "7 FX",
-        "8 Other"
+        "7 Others",
+        "8 Click"
     };
 
     for (std::size_t i = 0; i < familyControls.size(); ++i)
@@ -3737,7 +4076,31 @@ MainComponent::MainComponent()
     // Audio
     // -------------------------------------------------------------------------
 
-    setAudioChannels(0, 2);
+    // Meerkanaals (klik op een eigen uitgang): maximaal 64 uitgangen, en de
+    // laatst gekozen instellingen terug.
+    {
+        std::unique_ptr<juce::XmlElement> savedAudio;
+
+        if (auto* properties = appProperties.getUserSettings())
+            savedAudio = properties->getXmlValue("audioDeviceState");
+
+        setAudioChannels(0, 64, savedAudio.get());
+    }
+
+    enableAllOutputChannels(deviceManager);
+
+    deviceListener.onChange = [this]
+    {
+        enableAllOutputChannels(deviceManager);
+
+        if (auto state = deviceManager.createStateXml())
+            if (auto* properties = appProperties.getUserSettings())
+            {
+                properties->setValue("audioDeviceState", state.get());
+                properties->saveIfNeeded();
+            }
+    };
+    deviceManager.addChangeListener(&deviceListener);
 
     // Restore last SoundFont
     if (auto* properties = appProperties.getUserSettings())
@@ -3833,6 +4196,7 @@ MainComponent::~MainComponent()
 
     synthEngine.stop();
 
+    deviceManager.removeChangeListener(&deviceListener);
     shutdownAudio();
 
     // De engine mag het MIDI-uitgangsobject niet meer gebruiken als dat verdwijnt.
@@ -5591,6 +5955,19 @@ void MainComponent::saveMidiMapping()
     properties->setValue("midi.next", midiMapping.next.load());
     properties->setValue("midi.panic", midiMapping.panic.load());
     properties->saveIfNeeded();
+}
+
+void MainComponent::saveClickSettings(int route, int offsetMs)
+{
+    clickRoute = route;
+    synthEngine.setClickOffsetMs(offsetMs);
+
+    if (auto* properties = appProperties.getUserSettings())
+    {
+        properties->setValue("click.route", route);
+        properties->setValue("click.offsetMs", offsetMs);
+        properties->saveIfNeeded();
+    }
 }
 
 void MainComponent::saveSynthSettings(const SynthSettings& synth)

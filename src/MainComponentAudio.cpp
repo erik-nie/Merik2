@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 
+#include "ClickSettings.h"
+
 #include <algorithm>
 
 // ============================================================================
@@ -7,13 +9,18 @@
 // ============================================================================
 
 void MainComponent::prepareToPlay(
-    int,
+    int samplesPerBlockExpected,
     double sampleRate)
 {
     audioSampleRate = sampleRate;
 
     synthEngine.setSampleRate(
         sampleRate);
+
+    const auto size = static_cast<std::size_t>(std::max(samplesPerBlockExpected, 8192));
+    clickBuffer.assign(size, 0.0f);
+    mainBuffer[0].assign(size, 0.0f);
+    mainBuffer[1].assign(size, 0.0f);
 
     audioReady = true;
 
@@ -55,41 +62,151 @@ void MainComponent::getNextAudioBlock(
         return;
     }
 
-    const int channelsToRender =
-        std::min(
-            numChannels,
-            2);
+    const int numSamples = bufferToFill.numSamples;
+    const auto count = static_cast<std::size_t>(numSamples);
 
-    if (channelsToRender <= 0)
-        return;
-
-    float* output[2] =
+    if (count > clickBuffer.size())   // zelden: groter blok dan verwacht
     {
-        nullptr,
-        nullptr
+        clickBuffer.resize(count);
+        mainBuffer[0].resize(count);
+        mainBuffer[1].resize(count);
+    }
+
+    float* mix[2] = { mainBuffer[0].data(), mainBuffer[1].data() };
+
+    synthEngine.render(
+        mix,
+        2,
+        numSamples,
+        clickBuffer.data());
+
+    // Hoofdmix naar het gekozen paar of kanaal.
+    int mainRouteValue = mainRoute.load();
+    int mainA = 0;
+    int mainB = numChannels >= 2 ? 1 : -1;
+
+    if (mainRouteValue >= ClickRoute::pairBase)
+    {
+        const int first = mainRouteValue - ClickRoute::pairBase;
+
+        if (first + 1 < numChannels)
+        {
+            mainA = first;
+            mainB = first + 1;
+        }
+    }
+    else if (mainRouteValue >= ClickRoute::monoBase)
+    {
+        const int channel = mainRouteValue - ClickRoute::monoBase;
+
+        if (channel < numChannels)
+        {
+            mainA = channel;
+            mainB = -1;
+        }
+    }
+
+    const auto channelPointer = [&](int channel)
+    {
+        return bufferToFill.buffer->getWritePointer(channel, bufferToFill.startSample);
     };
 
-    output[0] =
-        bufferToFill.buffer->getWritePointer(
-            0,
-            bufferToFill.startSample);
-
-    if (channelsToRender >= 2)
+    if (mainB >= 0)
     {
-        output[1] =
-            bufferToFill.buffer->getWritePointer(
-                1,
-                bufferToFill.startSample);
+        juce::FloatVectorOperations::copy(channelPointer(mainA), mix[0], numSamples);
+        juce::FloatVectorOperations::copy(channelPointer(mainB), mix[1], numSamples);
     }
     else
     {
-        output[1] = output[0];
+        float* target = channelPointer(mainA);
+
+        for (int i = 0; i < numSamples; ++i)
+            target[i] = 0.5f * (mix[0][i] + mix[1][i]);
     }
 
-    synthEngine.render(
-        output,
-        channelsToRender,
-        bufferToFill.numSamples);
+    // Klik naar de gekozen uitgang(en).
+    const int route = clickRoute.load();
+
+    const auto addClick = [&](int channel)
+    {
+        if (channel >= 0 && channel < numChannels)
+            juce::FloatVectorOperations::add(channelPointer(channel), clickBuffer.data(), numSamples);
+    };
+
+    const auto addToMain = [&]
+    {
+        addClick(mainA);
+        addClick(mainB);
+    };
+
+    if (route == ClickRoute::split)
+    {
+        if (mainB >= 0)
+        {
+            // Klik links, muziek (mono) rechts.
+            float* left = channelPointer(mainA);
+            float* right = channelPointer(mainB);
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                right[i] = 0.5f * (mix[0][i] + mix[1][i]);
+                left[i] = clickBuffer[static_cast<std::size_t>(i)];
+            }
+        }
+        else
+        {
+            addToMain();
+        }
+    }
+    else if (route >= ClickRoute::pairBase)
+    {
+        const int first = route - ClickRoute::pairBase;
+
+        if (first + 1 < numChannels)
+        {
+            addClick(first);
+            addClick(first + 1);
+        }
+        else
+        {
+            addToMain();
+        }
+    }
+    else if (route >= ClickRoute::monoBase)
+    {
+        const int channel = route - ClickRoute::monoBase;
+
+        if (channel < numChannels)
+            addClick(channel);
+        else
+            addToMain();
+    }
+    else if (route == ClickRoute::automatic)
+    {
+        // Eerste paar dat niet de hoofdmix is; anders in de mix.
+        int pair = -1;
+
+        for (int first = 0; first + 1 < numChannels; first += 2)
+            if (first != mainA && first + 1 != mainA && first != mainB && first + 1 != mainB)
+            {
+                pair = first;
+                break;
+            }
+
+        if (pair >= 0)
+        {
+            addClick(pair);
+            addClick(pair + 1);
+        }
+        else
+        {
+            addToMain();
+        }
+    }
+    else
+    {
+        addToMain();
+    }
 
     if (!synthEngine.isPlaying())
     {

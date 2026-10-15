@@ -16,8 +16,8 @@ namespace
             "Keys",
             "Strings",
             "Winds",
-            "FX",
-            "Other"
+            "Others",
+            "Click"
         };
 
         if (family < 0 || family >= 8)
@@ -294,6 +294,7 @@ void FluidSynthEngine::setSampleRate(double sampleRate)
         return;
 
     sampleRate_ = sampleRate;
+    buildClickTrackLocked();
 
     if (synth_)
     {
@@ -385,6 +386,7 @@ void FluidSynthEngine::loadSong(
     std::scoped_lock lock(mutex_);
 
     song_ = std::move(song);
+    buildClickTrackLocked();
 
     currentSample_ = 0;
     nextEvent_ = 0;
@@ -1327,15 +1329,134 @@ void FluidSynthEngine::sendMidiEvent(
     }
 }
 
+void FluidSynthEngine::setClickOffsetMs(int milliseconds)
+{
+    std::scoped_lock lock(mutex_);
+
+    clickOffsetMs_ = std::clamp(milliseconds, -100, 500);
+}
+
+void FluidSynthEngine::buildClickTrackLocked()
+{
+    clickBeats_.clear();
+    clickAccent_.clear();
+
+    if (!song_ || song_->playbackEvents.empty())
+        return;
+
+    const auto& song = *song_;
+    const double ppq = static_cast<double>(std::max(1, song.ticksPerQuarterNote));
+
+    const auto tickToSample = [&](double tick)
+    {
+        double seconds = tick * 0.5 / ppq;   // 120 bpm zonder tempokaart
+
+        if (!song.tempoMap.empty())
+        {
+            std::size_t i = 0;
+
+            while (i + 1 < song.tempoMap.size()
+                   && static_cast<double>(song.tempoMap[i + 1].tick) <= tick)
+                ++i;
+
+            const auto& point = song.tempoMap[i];
+            seconds = point.seconds
+                    + (tick - static_cast<double>(point.tick)) * 60.0 / (point.bpm * ppq);
+        }
+
+        return static_cast<std::int64_t>(std::llround(seconds * sampleRate_));
+    };
+
+    const double endTick = static_cast<double>(song.playbackEvents.back().tick);
+
+    std::vector<TimeSignaturePoint> signatures = song.timeSignatures;
+
+    if (signatures.empty())
+        signatures.push_back(TimeSignaturePoint {});
+
+    for (std::size_t s = 0; s < signatures.size(); ++s)
+    {
+        const auto& sig = signatures[s];
+        const int numerator = std::max(1, sig.numerator);
+        const int denominator = std::max(1, sig.denominator);
+
+        // 6/8, 9/8 en 12/8: een klik per punt-kwartnoot.
+        const bool compound = denominator == 8 && numerator >= 6 && numerator % 3 == 0;
+        const double unit = ppq * 4.0 / static_cast<double>(denominator);
+        const double step = compound ? unit * 3.0 : unit;
+        const int perMeasure = compound ? numerator / 3 : numerator;
+
+        const double from = static_cast<double>(sig.tick);
+        const double to = s + 1 < signatures.size()
+            ? static_cast<double>(signatures[s + 1].tick)
+            : endTick;
+
+        for (long long beat = 0; from + static_cast<double>(beat) * step < to; ++beat)
+        {
+            clickBeats_.push_back(tickToSample(from + static_cast<double>(beat) * step));
+            clickAccent_.push_back(beat % perMeasure == 0 ? 1 : 0);
+        }
+    }
+}
+
+void FluidSynthEngine::renderClickLocked(float* out, int numSamples, std::int64_t blockStart) const
+{
+    const auto& family = familySettings_[7];
+
+    if (!family.enabled || family.volume <= 0 || clickBeats_.empty())
+        return;
+
+    const float level = 0.7f * static_cast<float>(family.volume) / 127.0f;
+
+    const double rate = sampleRate_;
+    const auto voiceLength = static_cast<std::int64_t>(0.045 * rate);
+    const auto offset = static_cast<std::int64_t>(std::llround(
+        static_cast<double>(clickOffsetMs_ + (external_ != nullptr ? 20 : 0)) * 0.001 * rate));
+
+    // Eerste tel die op dit moment nog kan klinken.
+    auto it = std::lower_bound(clickBeats_.begin(), clickBeats_.end(),
+                               blockStart - voiceLength - offset);
+
+    constexpr double twoPi = 6.283185307179586;
+
+    for (; it != clickBeats_.end(); ++it)
+    {
+        const auto start = *it + offset;
+
+        if (start >= blockStart + numSamples)
+            break;
+
+        const bool accent = clickAccent_[static_cast<std::size_t>(it - clickBeats_.begin())] != 0;
+        const double frequency = accent ? 1760.0 : 1175.0;
+
+        const auto first = std::max<std::int64_t>(start, blockStart);
+        const auto last = std::min<std::int64_t>(start + voiceLength, blockStart + numSamples);
+
+        for (auto position = first; position < last; ++position)
+        {
+            const double t = static_cast<double>(position - start) / rate;
+            const double attack = std::min(1.0, t / 0.001);
+            const double envelope = attack * std::exp(-t / 0.008);
+
+            out[position - blockStart] += level
+                * static_cast<float>(envelope * std::sin(twoPi * frequency * t));
+        }
+    }
+}
+
 void FluidSynthEngine::render(
     float** output,
     int numChannels,
-    int numSamples)
+    int numSamples,
+    float* clickOut)
 {
     if (!output || numChannels <= 0 || numSamples <= 0)
         return;
 
     std::scoped_lock lock(mutex_);
+
+    if (clickOut != nullptr)
+        std::fill(clickOut, clickOut + numSamples, 0.0f);
 
     for (int channel = 0; channel < numChannels; ++channel)
     {
@@ -1438,6 +1559,9 @@ void FluidSynthEngine::render(
 
     renderOffsetSamples_ = 0;
     inRender_ = false;
+
+    if (clickOut != nullptr)
+        renderClickLocked(clickOut, numSamples, renderBlockStart_);
 
     currentSample_ += numSamples;
 

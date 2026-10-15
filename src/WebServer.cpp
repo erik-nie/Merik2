@@ -2339,8 +2339,8 @@ document.getElementById("btnNext").addEventListener("click", () => sendControl("
         "4 Keys",
         "5 Strings",
         "6 Winds",
-        "7 FX",
-        "8 Other"
+        "7 Others",
+        "8 Click"
     ];
 
     // Ontvangt de families uit /api/state (geen aparte poll meer).

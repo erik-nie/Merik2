@@ -186,6 +186,28 @@ private:
     juce::File currentSoundFont;
 
     std::atomic<bool> isPlaying{false};
+
+    // Klik: waar naar toe (zie ClickSettings.h) en hulpbuffer voor het audioblok.
+    std::atomic<int> mainRoute { 200 };   // ClickRoute::pairBase: uitgang 1+2
+    std::atomic<int> clickRoute { 0 };
+    std::vector<float> mainBuffer[2];
+    int clickOffsetMs = 0;
+    std::vector<float> clickBuffer;
+    void saveClickSettings(int route, int offsetMs);
+
+    // Bewaart de audio-instellingen (apparaat, kanalen) zodra ze veranderen.
+    struct DeviceListener final : juce::ChangeListener
+    {
+        std::function<void()> onChange;
+
+        void changeListenerCallback(juce::ChangeBroadcaster*) override
+        {
+            if (onChange)
+                onChange();
+        }
+    };
+
+    DeviceListener deviceListener;
     bool positionSliderWasPlaying = false;
     bool positionSliderDragging = false;
     bool currentSongFromSetlist = false;
