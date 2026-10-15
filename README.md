@@ -1,5 +1,10 @@
 # Merik
 
+[![Downloads](https://img.shields.io/github/downloads/erik-nie/Merik2/total?label=downloads&color=1876ff)](https://github.com/erik-nie/Merik2/releases)
+[![Latest release](https://img.shields.io/github/v/release/erik-nie/Merik2?include_prereleases&label=release&color=1876ff)](https://github.com/erik-nie/Merik2/releases)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue)](LICENSE)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20Merik-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/eriknie)
+
 **The live MIDI player built for the stage.**
 Play your MIDI backing tracks through a SoundFont or your own sound modules, mix them on the fly, and keep every singer and player in the band in sync with lyrics and chords on any phone, tablet or laptop.
 
@@ -37,6 +42,16 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 **First start (both systems):** choose a General MIDI SoundFont (`.sf2`) under **Settings → Audio**. Merik does not include one. `MatrixSF_v2.1.5.sf2` is a great free option, but many others exist.
 
 Prefer to build it yourself? See [Building from source](#building-from-source).
+
+---
+
+## Support Merik
+
+Merik is free and made in spare time. If it helps your band or your gigs, a coffee keeps the development going:
+
+<p align="center">
+  <a href="https://ko-fi.com/eriknie" target="_blank"><img height="40" style="border:0px;height:40px;" src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support Merik on Ko-fi"></a>
+</p>
 
 ---
 
@@ -123,7 +138,7 @@ The same eight faders and switches are available on a MIDI controller such as th
 </p>
 
 ### Settings
-- **General:** remote-control key and the playback options.
+- **General:** remote-control key, the playback options, and the update check. Merik can tell you at startup when a newer version is available on GitHub, and you can switch that off or check by hand.
 - **Audio:** SoundFont, output device, sample rate, buffer size, and the gain and reverb of the built-in sound.
 - **Midi:** input, output, controller LEDs and all CC assignments.
 
@@ -231,16 +246,6 @@ For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_P
 | `src/midifile/` | MIDI file library |
 | `assets/` | Fonts and the application icon |
 | `docs/` | Screenshots and demo songs |
-
----
-
-## Support Merik
-
-Merik is free and developed in spare time. If it helps your band or your gigs, you can support its development on Ko-fi:
-
-<p align="center">
-  <a href="https://ko-fi.com/eriknie"><img src="https://img.shields.io/badge/Support%20Merik%20on-Ko--fi-ff5e5b?logo=ko-fi&logoColor=white" alt="Support Merik on Ko-fi"></a>
-</p>
 
 ---
 
