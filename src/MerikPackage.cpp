@@ -205,6 +205,18 @@ namespace MerikPackage
         return file.hasFileExtension("merik");
     }
 
+    int stemCount(const juce::File& package)
+    {
+        juce::ZipFile zip(package);
+        Manifest manifest;
+        juce::String error;
+
+        if (zip.getNumEntries() <= 0 || !parseManifest(zip, manifest, error))
+            return 0;
+
+        return static_cast<int>(manifest.stems.size());
+    }
+
     juce::File midiFor(const juce::File& package, juce::String& error)
     {
         juce::ZipFile zip(package);

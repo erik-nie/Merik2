@@ -1278,7 +1278,21 @@ void FluidSynthEngine::sendMidiEvent(
                     outNoteOff(channel, releaseNote(channel, data1));
                 else if (!channelMuted_[static_cast<std::size_t>(channel)]
                          && !familyHasStem(channel))
+                {
                     outNoteOn(channel, pressNote(channel, data1), velocity);
+
+                    const int family = channelFamilyLocked(channel);
+
+                    if (family >= 0)
+                    {
+                        const auto& settings = familySettings_[static_cast<std::size_t>(family)];
+                        const float factor = settings.enabled ? static_cast<float>(settings.volume) / 127.0f : 0.0f;
+
+                        midiLevel_[static_cast<std::size_t>(family)] = std::max(
+                            midiLevel_[static_cast<std::size_t>(family)],
+                            static_cast<float>(velocity) / 127.0f * factor);
+                    }
+                }
             }
 
             break;
@@ -1342,8 +1356,27 @@ void FluidSynthEngine::setStems(std::shared_ptr<const StemSet> stems)
         old = std::move(stems_);
         stems_ = std::move(stems);
         stemFamilies_ = stems_ ? stems_->familyMask() : 0;
+        stemMask_.store(stemFamilies_, std::memory_order_relaxed);
         stemGains_.assign(stems_ ? stems_->tracks.size() : 0, -1.0f);
     }
+}
+
+void FluidSynthEngine::notePeak(int family, float value)
+{
+    auto& hold = peakHold_[static_cast<std::size_t>(family)];
+
+    if (value > hold.load(std::memory_order_relaxed))
+        hold.store(value, std::memory_order_relaxed);
+}
+
+std::array<float, FluidSynthEngine::familyCount> FluidSynthEngine::takeMeters()
+{
+    std::array<float, familyCount> result {};
+
+    for (std::size_t i = 0; i < result.size(); ++i)
+        result[i] = peakHold_[i].exchange(0.0f, std::memory_order_relaxed);
+
+    return result;
 }
 
 bool FluidSynthEngine::familyHasStem(int channel) const
@@ -1384,6 +1417,7 @@ void FluidSynthEngine::mixStemsLocked(float** output, int numChannels, int numSa
 
         const auto size = static_cast<std::int64_t>(track.left.size());
         const float step = (target - from) / static_cast<float>(numSamples);
+        float peak = 0.0f;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -1396,6 +1430,8 @@ void FluidSynthEngine::mixStemsLocked(float** output, int numChannels, int numSa
             const float left = track.left[static_cast<std::size_t>(index)] * gain;
             const float right = track.right[static_cast<std::size_t>(index)] * gain;
 
+            peak = std::max(peak, std::max(std::fabs(left), std::fabs(right)));
+
             if (numChannels >= 2)
             {
                 output[0][i] += left;
@@ -1406,6 +1442,8 @@ void FluidSynthEngine::mixStemsLocked(float** output, int numChannels, int numSa
                 output[0][i] += 0.5f * (left + right);
             }
         }
+
+        notePeak(track.family, peak);
     }
 }
 
@@ -1643,7 +1681,26 @@ void FluidSynthEngine::render(
     mixStemsLocked(output, numChannels, numSamples, renderBlockStart_);
 
     if (clickOut != nullptr)
+    {
         renderClickLocked(clickOut, numSamples, renderBlockStart_);
+
+        float clickPeak = 0.0f;
+
+        for (int i = 0; i < numSamples; ++i)
+            clickPeak = std::max(clickPeak, std::fabs(clickOut[i]));
+
+        notePeak(7, clickPeak);
+    }
+
+    // MIDI-activiteit: piek meenemen en daarna laten uitdoven (~0,3 s).
+    const float decay = std::pow(0.5f, static_cast<float>(numSamples) / (0.25f * static_cast<float>(sampleRate_)));
+
+    for (int family = 0; family < 7; ++family)
+    {
+        auto& level = midiLevel_[static_cast<std::size_t>(family)];
+        notePeak(family, level);
+        level *= decay;
+    }
 
     currentSample_ += numSamples;
 

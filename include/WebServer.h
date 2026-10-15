@@ -58,6 +58,9 @@ public:
 
     void setFamilyVolumeCallback(FamilyVolumeCallback callback);
 
+    // Niveaus (0..1) en welke families uit audio-stems komen (bit n = familie n).
+    void setMeters(const std::array<float, familyCount>& levels, std::uint32_t stemMask);
+
     void setFamilySettings(
         const std::array<int, familyCount>& volumes,
         const std::array<bool, familyCount>& enabled);
@@ -112,6 +115,9 @@ private:
 
     mutable std::string songJsonCache_;
     mutable std::uint64_t songJsonCacheRevision_ = 0;
+
+    std::array<float, familyCount> familyLevels_ {};
+    std::uint32_t stemMask_ = 0;
 
     std::array<int, familyCount> familyVolumes_ {
         127, 127, 127, 127, 127, 127, 127, 127

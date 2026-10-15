@@ -8,6 +8,7 @@
 #include "MidiOutSink.h"
 #include "FluidSynthEngine.h"
 #include "MidiFileReader.h"
+#include "LevelMeter.h"
 #include "WebServer.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -75,6 +76,8 @@ private:
         double lengthSeconds = -1.0;    // < 0: nog niet bekend
         int hasLyrics = -1;             // -1 onbekend, 0 nee, 1 ja
         int hasChords = -1;
+        int hasMidi = -1;               // MIDI-noten in het bestand
+        int hasAudio = -1;              // audio-stems in het bestand
         juce::int64 fileTime = 0;       // wijzigingstijd waarvoor dit geldt
         bool missing = false;           // bestand bestaat niet (meer)
 
@@ -98,6 +101,8 @@ private:
     {
         juce::TextButton labelButton;
         juce::Label valueLabel;
+        juce::Label sourceLabel;    // AUDIO / MIDI / CLICK
+        LevelMeter meter;
         juce::Slider slider;
     };
 
@@ -325,7 +330,7 @@ private:
     void scanSongInfo();
     bool songInfoDirty = false;
     int songInfoSaveTicks = 0;
-    void applySongInfo(const juce::File& file, double length, int lyrics, int chords);
+    void applySongInfo(const juce::File& file, double length, int lyrics, int chords, int midi, int audio);
     void updateMissingFlags();
     [[nodiscard]] bool hasNextSong() const;
     void confirmDialog(const juce::String& title, const juce::String& message,

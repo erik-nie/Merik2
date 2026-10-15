@@ -335,6 +335,13 @@ void WebServer::setFamilyVolumeCallback(FamilyVolumeCallback callback)
     std::scoped_lock lock(mutex_);
     familyVolumeCallback_ = std::move(callback);
 }
+void WebServer::setMeters(const std::array<float, familyCount>& levels, std::uint32_t stemMask)
+{
+    std::scoped_lock lock(mutex_);
+    familyLevels_ = levels;
+    stemMask_ = stemMask;
+}
+
 void WebServer::setFamilySettings(
     const std::array<int, familyCount>& volumes,
     const std::array<bool, familyCount>& enabled)
@@ -352,11 +359,15 @@ std::string WebServer::createFamilyJson() const
 {
     std::array<int, familyCount> volumes;
     std::array<bool, familyCount> enabled;
+    std::array<float, familyCount> levels;
+    std::uint32_t stemMask;
 
     {
         std::scoped_lock lock(mutex_);
         volumes = familyVolumes_;
         enabled = familyEnabled_;
+        levels = familyLevels_;
+        stemMask = stemMask_;
     }
 
     std::string json = "{\"families\":[";
@@ -369,7 +380,10 @@ std::string WebServer::createFamilyJson() const
         json += "{\"volume\":" + std::to_string(volumes[i]);
         json += ",\"enabled\":";
         json += enabled[i] ? "true" : "false";
-        json += "}";
+        json += ",\"level\":" + std::to_string(static_cast<int>(levels[i] * 100.0f + 0.5f));
+        json += ",\"source\":\"";
+        json += i == 7 ? "click" : ((stemMask & (1u << i)) != 0 ? "audio" : "midi");
+        json += "\"}";
     }
 
     json += "]}";
@@ -988,6 +1002,10 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 .family-slider { width: 100%; min-width: 0; accent-color: #1876ff; cursor: pointer; }
 .family-value { width: 28px; text-align: right; color: #bbb; font-size: 12px; font-variant-numeric: tabular-nums; }
 .family-control.disabled { opacity: 0.4; }
+.family-source { font-size: 10px; font-weight: 600; color: #8a8f9c; letter-spacing: 0.04em; margin-left: auto; margin-right: 6px; }
+.family-source.audio { color: #00a4eb; }
+.family-meter { height: 4px; border-radius: 2px; background: #1e2025; margin: 3px 34px 0 0; overflow: hidden; }
+.family-meter-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2ecc71 0%, #2ecc71 70%, #f5a623 85%, #ff5555 100%); clip-path: inset(0 100% 0 0); transition: clip-path 90ms linear; }
 @media (max-width: 700px) { #familyPanel { width: 45%; min-width: 200px; } body.family-panel-open #lyricsViewport { width: 55%; margin-right: 45%; } }
 @media (prefers-reduced-motion: reduce) { #familyPanel, #lyricsViewport { transition: none; } }
 </style>
@@ -2378,6 +2396,25 @@ document.getElementById("btnNext").addEventListener("click", () => sendControl("
             slider.disabled = !family.enabled;
             control.classList.toggle("disabled", !family.enabled);
         });
+
+        list.forEach(function (family, index) {
+            const control = document.getElementById("familySlider" + index)?.closest(".family-control");
+
+            if (!control)
+                return;
+
+            const source = control.querySelector(".family-source");
+            const fill = control.querySelector(".family-meter-fill");
+            const label = family.source === "audio" ? "AUDIO" : (family.source === "click" ? "CLICK" : "MIDI");
+
+            if (source && source.textContent !== label) {
+                source.textContent = label;
+                source.classList.toggle("audio", family.source === "audio");
+            }
+
+            if (fill)
+                fill.style.clipPath = "inset(0 " + (100 - (family.level || 0)) + "% 0 0)";
+        });
     }
 
     window.applyFamilies = applyFamilies;
@@ -2498,9 +2535,19 @@ document.getElementById("btnNext").addEventListener("click", () => sendControl("
             scheduleUpdate(true);
         });
 
-        header.append(name, enabled);
+        const source = document.createElement("span");
+        source.className = "family-source";
+        source.textContent = index === 7 ? "CLICK" : "MIDI";
+
+        const meter = document.createElement("div");
+        meter.className = "family-meter";
+        const meterFill = document.createElement("div");
+        meterFill.className = "family-meter-fill";
+        meter.appendChild(meterFill);
+
+        header.append(name, source, enabled);
         sliderRow.append(slider, value);
-        row.append(header, sliderRow);
+        row.append(header, sliderRow, meter);
         controls.appendChild(row);
     });
 

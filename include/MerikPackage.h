@@ -20,6 +20,9 @@ namespace MerikPackage
 
     [[nodiscard]] bool isPackage(const juce::File& file);
 
+    // Snel: aantal stems in het manifest (0 als er geen zijn of het bestand ongeldig is).
+    [[nodiscard]] int stemCount(const juce::File& package);
+
     // Alleen de MIDI (snel, voor de lijsten): uitgepakt of uit het manifest gegenereerd.
     [[nodiscard]] juce::File midiFor(const juce::File& package, juce::String& error);
 

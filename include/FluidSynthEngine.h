@@ -128,6 +128,14 @@ public:
     // Zet vóór loadSong(); nullptr = geen stems.
     void setStems(std::shared_ptr<const StemSet> stems);
 
+    // Per familie (bit n = familie n) of de klank uit audio-stems komt.
+    [[nodiscard]] std::uint32_t stemFamilyMask() const { return stemMask_.load(std::memory_order_relaxed); }
+
+    // Pieken per familie sinds de vorige aanroep (0..1). Audiofamilies en de
+    // klik: het echte signaal. MIDI-families: activiteit uit de noten (de
+    // synth mengt alles tot één stereomix), die in ~0,3 s uitdooft.
+    [[nodiscard]] std::array<float, familyCount> takeMeters();
+
     // clickOut (optioneel, numSamples lang) krijgt de klik apart van de mix,
     // op dezelfde samplepositie als de MIDI/soundfont, zodat ze synchroon blijven.
     void render(
@@ -224,6 +232,10 @@ private:
 
     std::shared_ptr<const StemSet> stems_;
     std::uint32_t stemFamilies_ = 0;
+    std::atomic<std::uint32_t> stemMask_ { 0 };
+    std::array<std::atomic<float>, familyCount> peakHold_ {};
+    std::array<float, familyCount> midiLevel_ {};
+    void notePeak(int family, float value);
     std::vector<float> stemGains_;
 
     void buildClickTrackLocked();

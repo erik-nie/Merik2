@@ -1611,6 +1611,8 @@ public:
         double length = 0.0;
         int lyrics = 0;
         int chords = 0;
+        int midi = 0;
+        int audio = 0;
     };
 
     SongInfoScanner(std::mutex& readMutexToUse,
@@ -1696,6 +1698,16 @@ private:
                 info.length = end;
                 info.lyrics = song.lyrics.empty() ? 0 : 1;
                 info.chords = song.chords.empty() ? 0 : 1;
+
+                // MIDI = er zijn noten om te spelen (een bestand met alleen
+                // tempo of tekst telt niet); audio = stems in een .merik.
+                info.midi = std::any_of(song.playbackEvents.begin(), song.playbackEvents.end(),
+                    [](const RawMidiEvent& event)
+                    {
+                        return event.bytes.size() >= 3 && (event.bytes[0] & 0xF0) == 0x90 && event.bytes[2] > 0;
+                    }) ? 1 : 0;
+
+                info.audio = MerikPackage::isPackage(next) && MerikPackage::stemCount(next) > 0 ? 1 : 0;
             }
             catch (const std::exception&)
             {
@@ -1981,7 +1993,7 @@ public:
 
         // Rechts: vaste kolommen voor lyrics, akkoorden en transpose, zodat
         // gelijke labels altijd onder elkaar staan (ook als de ander ontbreekt).
-        constexpr int transposeSlot = 34, chordsSlot = 56, lyricsSlot = 56, gap = 6;
+        constexpr int transposeSlot = 30, chordsSlot = 52, lyricsSlot = 52, audioSlot = 46, midiSlot = 38, gap = 4;
 
         int rightEdge = width - 10;
 
@@ -2009,6 +2021,8 @@ public:
                 entry.transpose != 0);
         drawTag("CHORDS", chordsSlot, juce::Colour::fromRGB(46, 204, 113), entry.hasChords == 1);
         drawTag("LYRICS", lyricsSlot, juce::Colour::fromRGB(245, 166, 35), entry.hasLyrics == 1);
+        drawTag("AUDIO", audioSlot, juce::Colour::fromRGB(0, 164, 235), entry.hasAudio == 1);
+        drawTag("MIDI", midiSlot, juce::Colour::fromRGB(160, 120, 255), entry.hasMidi == 1);
 
         // Ontbrekende bestanden staan rood.
         const auto nameColour = entry.missing
@@ -2902,6 +2916,33 @@ void MainComponent::timerCallback()
 
     const auto familySettings = synthEngine.getAllFamilySettings();
 
+    // Niveaus en bron per familie (app en web).
+    const auto peaks = synthEngine.takeMeters();
+    const auto stemMask = synthEngine.stemFamilyMask();
+    std::array<float, 8> levels {};
+
+    for (std::size_t i = 0; i < familyControls.size(); ++i)
+    {
+        auto& control = familyControls[i];
+        control.meter.setPeak(peaks[i]);
+        levels[i] = control.meter.level();
+
+        if (i < 7)
+        {
+            const bool audio = (stemMask & (1u << i)) != 0;
+            const juce::String text = audio ? "AUDIO" : "MIDI";
+
+            if (control.sourceLabel.getText() != text)
+            {
+                control.sourceLabel.setText(text, juce::dontSendNotification);
+                control.sourceLabel.setColour(juce::Label::textColourId,
+                                              audio ? juce::Colour::fromRGB(0, 164, 235) : secondaryTextColour);
+            }
+        }
+    }
+
+    webServer.setMeters(levels, stemMask);
+
     for (std::size_t i = 0; i < familyControls.size(); ++i)
     {
         auto& control = familyControls[i];
@@ -3290,6 +3331,15 @@ MainComponent::MainComponent()
             juce::Justification::centred);
 
         addAndMakeVisible(control.valueLabel);
+
+        // Bron (audio/MIDI/klik) en niveaumeter
+        control.sourceLabel.setText(i == 7 ? "CLICK" : "MIDI", juce::dontSendNotification);
+        control.sourceLabel.setFont(makeNotoFont(10.0f));
+        control.sourceLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        control.sourceLabel.setJustificationType(juce::Justification::centredLeft);
+        control.sourceLabel.setInterceptsMouseClicks(false, false);
+        addAndMakeVisible(control.sourceLabel);
+        addAndMakeVisible(control.meter);
 
         // Slider
         control.slider.setSliderStyle(
@@ -4178,7 +4228,7 @@ MainComponent::MainComponent()
         (const juce::File& file, const SongInfoScanner::Info& info)
         {
             if (safeThis != nullptr)
-                safeThis->applySongInfo(file, info.length, info.lyrics, info.chords);
+                safeThis->applySongInfo(file, info.length, info.lyrics, info.chords, info.midi, info.audio);
         });
 
     updateMissingFlags();
@@ -4325,6 +4375,8 @@ void MainComponent::loadPersistentState()
                     entry.lengthSeconds = properties->getDoubleValue(base + ".length", -1.0);
                     entry.hasLyrics = properties->getIntValue(base + ".lyrics", -1);
                     entry.hasChords = properties->getIntValue(base + ".chords", -1);
+                    entry.hasMidi = properties->getIntValue(base + ".midi", -1);
+                    entry.hasAudio = properties->getIntValue(base + ".audio", -1);
                 }
 
                 setlist.songs.push_back(std::move(entry));
@@ -4421,6 +4473,8 @@ void MainComponent::savePersistentState()
             properties->setValue(base + ".length", setlists[i].songs[j].lengthSeconds);
             properties->setValue(base + ".lyrics", setlists[i].songs[j].hasLyrics);
             properties->setValue(base + ".chords", setlists[i].songs[j].hasChords);
+            properties->setValue(base + ".midi", setlists[i].songs[j].hasMidi);
+            properties->setValue(base + ".audio", setlists[i].songs[j].hasAudio);
         }
     }
 
@@ -4536,6 +4590,14 @@ void MainComponent::resized()
         area.removeFromTop(5);
         control.valueLabel.setBounds(
             area.removeFromTop(18));
+
+        control.sourceLabel.setBounds(
+            control.valueLabel.getBounds().withWidth(38).translated(5, 0));
+        control.sourceLabel.setVisible(familyWidth >= 84);
+
+        control.meter.setBounds(
+            familyBlockBounds[i].getX() + 6, familyBlockBounds[i].getBottom() - 8,
+            familyBlockBounds[i].getWidth() - 12, 4);
 
         area.removeFromTop(-10);
 
@@ -5583,6 +5645,8 @@ void MainComponent::showSongMenu(int row)
         else if (first.lengthSeconds >= 0.0)
         {
             menu.addItem(-1, "Length " + formatLength(first.lengthSeconds), false);
+            menu.addItem(-1, juce::String("Contains: ") + (first.hasMidi == 1 ? "MIDI " : "")
+                                 + (first.hasAudio == 1 ? "audio stems" : ""), false);
             menu.addItem(-1, juce::String("Lyrics: ") + (first.hasLyrics == 1 ? "yes" : "no")
                                  + "   Chords: " + (first.hasChords == 1 ? "yes" : "no"), false);
         }
@@ -6191,7 +6255,7 @@ void MainComponent::scanSongInfo()
             const bool changed =
                 song.fileTime != song.file.getLastModificationTime().toMilliseconds();
 
-            if ((song.lengthSeconds < 0.0 || changed)
+            if ((song.lengthSeconds < 0.0 || song.hasMidi < 0 || changed)
                 && std::find(pending.begin(), pending.end(), song.file) == pending.end())
             {
                 pending.push_back(song.file);
@@ -6210,7 +6274,8 @@ void MainComponent::scanSongInfo()
     songScanner->setQueue(pending);
 }
 
-void MainComponent::applySongInfo(const juce::File& file, double length, int lyrics, int chords)
+void MainComponent::applySongInfo(const juce::File& file, double length, int lyrics, int chords,
+                                  int midi, int audio)
 {
     const auto modified = file.getLastModificationTime().toMilliseconds();
 
@@ -6224,6 +6289,8 @@ void MainComponent::applySongInfo(const juce::File& file, double length, int lyr
             song.lengthSeconds = length;
             song.hasLyrics = lyrics;
             song.hasChords = chords;
+            song.hasMidi = midi;
+            song.hasAudio = audio;
             song.fileTime = modified;
         }
     }
