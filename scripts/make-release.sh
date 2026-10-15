@@ -70,6 +70,10 @@ LEAKS="$( { otool -L "$APP/Contents/MacOS/$APP_NAME"; for f in "$APP"/Contents/F
           | grep -E '/opt/homebrew|/usr/local' || true)"
 [[ -z "$LEAKS" ]] || fail "er staan nog verwijzingen naar Homebrew in de app:\n$LEAKS"
 
+# Licenties in de app zelf, zodat de DMG alleen app + Applications-pijl bevat.
+cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
+cp THIRD-PARTY-LICENSES.md "$APP/Contents/Resources/THIRD-PARTY-LICENSES.md"
+
 # Laagste macOS-versie waarop de app draait: de hoogste eis van de app en
 # alle meegeleverde libraries (Homebrew bouwt die voor de huidige macOS).
 MIN_OS="$( { vtool -show-build "$APP/Contents/MacOS/$APP_NAME"; for f in "$APP"/Contents/Frameworks/*.dylib; do vtool -show-build "$f"; done; } \
@@ -92,29 +96,47 @@ else
 fi
 codesign --verify --strict "$APP"
 
-step "DMG maken"
-STAGE="$DIST_DIR/dmg"
-mkdir -p "$STAGE"
-cp -R "$APP" "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
-cp LICENSE "$STAGE/LICENSE.txt"
-cp THIRD-PARTY-LICENSES.md "$STAGE/THIRD-PARTY-LICENSES.md"
-cat > "$STAGE/READ ME FIRST.txt" <<TEXT
-Merik $VERSION (Apple silicon, macOS ${MIN_OS:-?} or later)
+step "DMG maken (met achtergrond en pijl naar Applications)"
 
-Install: drag Merik.app to the Applications folder.
+# dmgbuild (Python) zet het venster netjes op zonder Finder/AppleScript.
+VENV="$BUILD_DIR/dmg-venv"
+if [[ ! -x "$VENV/bin/dmgbuild" ]]; then
+    python3 -m venv "$VENV"
+    "$VENV/bin/pip" install --quiet dmgbuild
+fi
 
-This build is not notarized by Apple, so macOS may block the first start:
-  1. Open Applications, right-click Merik.app and choose Open.
-  2. Confirm with Open.
-If macOS still blocks it, run in Terminal:
-  xattr -dr com.apple.quarantine /Applications/Merik.app
+# Achtergrond met 1x en 2x (Retina) in één TIFF.
+tiffutil -cathidpicheck assets/dmg-background.png assets/dmg-background@2x.png -out "$DIST_DIR/dmg-background.tiff" >/dev/null
 
-Merik needs a General MIDI SoundFont (.sf2): choose one in Settings > Audio.
-TEXT
+cat > "$DIST_DIR/dmg-settings.py" <<'PY'
+import os
 
-hdiutil create -quiet -volname "$APP_NAME $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
-rm -rf "$STAGE"
+app = defines["app"]
+background = defines["background"]
+
+format = "UDZO"
+files = [app]
+symlinks = {"Applications": "/Applications"}
+background = background
+window_rect = ((200, 120), (640, 400))
+icon_size = 112
+text_size = 13
+icon_locations = {
+    os.path.basename(app): (170, 200),
+    "Applications": (470, 200),
+}
+default_view = "icon-view"
+show_status_bar = False
+show_tab_view = False
+show_toolbar = False
+show_pathbar = False
+show_sidebar = False
+PY
+
+"$VENV/bin/dmgbuild" -s "$DIST_DIR/dmg-settings.py" \
+    -D app="$APP" -D background="$DIST_DIR/dmg-background.tiff" \
+    "$APP_NAME $VERSION" "$DMG" >/dev/null
+rm -f "$DIST_DIR/dmg-settings.py" "$DIST_DIR/dmg-background.tiff"
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
     codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG"

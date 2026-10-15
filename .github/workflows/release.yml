@@ -1,0 +1,141 @@
+name: Release
+
+# Bouwt een DMG (macOS, Apple silicon) en een zip (Windows) en zet ze als
+# concept-release op GitHub. Starten door een tag te pushen:
+#
+#   git tag -a v0.2.0-alpha.2 -m "Alpha 2" && git push origin v0.2.0-alpha.2
+#
+# Handmatig starten (Actions > Release > Run workflow) bouwt alleen de
+# bestanden, zonder release te maken.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS DMG
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install fluid-synth pkg-config dylibbundler
+
+      - name: Build the DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then VERSION="dev"; fi
+          scripts/make-release.sh "$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*.dmg
+
+  windows:
+    name: Windows zip
+    runs-on: windows-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\vcpkg\archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+
+      - name: Get vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset windows
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset windows-release --parallel
+
+      - name: Package the zip
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'dev' }
+          $name = "Merik-$version-windows-x64"
+          $stage = Join-Path $PWD "dist\$name"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          $built = Get-ChildItem -Path build-windows -Recurse -Filter Merik.exe | Select-Object -First 1
+          Copy-Item "$($built.DirectoryName)\*" $stage -Recurse -Force
+
+          # Visual C++-runtime meeleveren, zodat er niets geïnstalleerd hoeft te worden.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC" -Directory |
+                 Sort-Object Name -Descending |
+                 ForEach-Object { Get-ChildItem "$($_.FullName)\x64" -Directory -Filter 'Microsoft.VC*.CRT' } |
+                 Select-Object -First 1
+          if ($crt) { Copy-Item "$($crt.FullName)\*.dll" $stage -Force } else { Write-Warning "VC runtime not found" }
+
+          Copy-Item LICENSE "$stage\LICENSE.txt"
+          Copy-Item THIRD-PARTY-LICENSES.md $stage
+
+          @"
+          Merik $version (Windows, 64-bit)
+
+          Start: extract this zip to a folder (for example C:\Merik) and run Merik.exe.
+
+          Windows SmartScreen may warn that the app is unknown, because this build is not
+          code-signed. Click "More info", then "Run anyway".
+
+          Merik needs a General MIDI SoundFont (.sf2): choose one in Settings > Audio.
+          The first time, Windows may ask whether Merik may use your network: allow it on
+          private networks to use the lyrics and remote control web page.
+          "@ | Set-Content -Path "$stage\READ ME FIRST.txt" -Encoding UTF8
+
+          Compress-Archive -Path $stage -DestinationPath "dist\$name.zip" -Force
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/*.zip
+
+  release:
+    name: Create the draft release
+    needs: [macos, windows]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES="docs/release-notes/$VERSION.md"
+          [[ -f "$NOTES" ]] || { echo "Missing $NOTES"; exit 1; }
+
+          FLAGS=""
+          if [[ "$VERSION" == *-* ]]; then FLAGS="--prerelease"; fi
+
+          (cd artifacts && shasum -a 256 *) > checksums.txt
+          cat checksums.txt
+
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --title "Merik $VERSION" --draft $FLAGS \
+            --notes-file "$NOTES"
