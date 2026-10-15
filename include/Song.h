@@ -63,6 +63,10 @@ struct Song
     int ticksPerQuarterNote = 480;
     double sampleRate = 48000.0;
 
+    // false: geen MIDI of tempo-informatie (een .merik met alleen stems): de
+    // tempo en maatsoort hieronder zijn dan een aanname; geen eigen klik en geen beat-ledjes.
+    bool tempoKnown = true;
+
     std::vector<TempoPoint> tempoMap;
 
     // Maatsoort(en); begint altijd op tick 0 (standaard 4/4).

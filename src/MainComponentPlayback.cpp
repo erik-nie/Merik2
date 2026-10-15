@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 #include "MerikPackage.h"
+#include "LoadingOverlay.h"
+#include "PackageLoader.h"
 
 #include <cmath>
 #include <exception>
@@ -43,6 +45,106 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
         return;
     }
 
+    // Een eerdere (nog lopende) laadactie vervalt.
+    cancelPackageLoad();
+
+    PendingLoad pending;
+    pending.file = file;
+    pending.fromSetlist = fromSetlist;
+    pending.hasEntry = entry != nullptr;
+
+    if (entry != nullptr)
+        pending.entry = *entry;
+
+    pending.row = setlistRow;
+    pending.index = setlistIndex;
+
+    if (!MerikPackage::isPackage(file))
+    {
+        completeLoad(pending, file, nullptr, true);
+        return;
+    }
+
+    // .merik: eerst stoppen, dan de stems op een eigen thread laden.
+    synthEngine.stop();
+    isPlaying = false;
+    playButton.setButtonText("Play");
+
+    pendingLoad = pending;
+    pendingPlay = false;
+
+    packageLoader = std::make_unique<PackageLoader>(
+        file,
+        audioReady ? audioSampleRate : 48000.0,
+        nextLoadId++,
+        [safe = juce::Component::SafePointer<MainComponent>(this)](int id)
+        {
+            if (safe != nullptr)
+                safe->packageLoadFinished(id);
+        });
+
+    loadingOverlay->start(
+        entry != nullptr && entry->displayName.isNotEmpty() ? entry->displayName : file.getFileNameWithoutExtension(),
+        packageLoader.get());
+}
+
+void MainComponent::cancelPackageLoad()
+{
+    if (packageLoader != nullptr)
+    {
+        packageLoader->cancel();
+        packageLoader.reset();   // wacht tot de thread klaar is (kort: er wordt per blokje gecontroleerd)
+    }
+
+    if (loadingOverlay != nullptr)
+        loadingOverlay->stop();
+
+    pendingPlay = false;
+}
+
+void MainComponent::packageLoadFinished(int id)
+{
+    if (packageLoader == nullptr || packageLoader->id != id)
+        return;   // een oudere laadactie
+
+    auto loader = std::move(packageLoader);
+    loadingOverlay->stop();
+
+    auto result = std::move(loader->result);
+    loader.reset();
+
+    if (result.cancelled)
+    {
+        pendingPlay = false;
+        return;
+    }
+
+    if (result.error.isNotEmpty())
+    {
+        pendingPlay = false;
+        confirmDialog("Could not load .merik", result.error, "OK", nullptr);
+        return;
+    }
+
+    const auto pending = pendingLoad;
+    completeLoad(pending, result.midiFile, result.stems, result.tempoKnown);
+
+    if (pendingPlay)
+    {
+        pendingPlay = false;
+        play();
+    }
+}
+
+void MainComponent::completeLoad(const PendingLoad& pending, const juce::File& midiPath,
+                                 std::shared_ptr<const StemSet> stems, bool tempoKnown)
+{
+    const auto& file = pending.file;
+    const SongEntry* entry = pending.hasEntry ? &pending.entry : nullptr;
+    const bool fromSetlist = pending.fromSetlist;
+    const int setlistRow = pending.row;
+    const int setlistIndex = pending.index;
+
     try
     {
         const double sampleRate =
@@ -51,22 +153,6 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
                 : 48000.0;
 
         Song song;
-        juce::File midiPath = file;
-        std::shared_ptr<const StemSet> stems;
-
-        if (MerikPackage::isPackage(file))
-        {
-            auto contents = MerikPackage::open(file, sampleRate);
-
-            if (contents.error.isNotEmpty())
-            {
-                confirmDialog("Could not load .merik", contents.error, "OK", nullptr);
-                return;
-            }
-
-            midiPath = contents.midiFile;
-            stems = contents.stems;
-        }
 
         {
             const std::scoped_lock lock(midiReadMutex);
@@ -75,6 +161,8 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
                 midiPath.getFullPathName().toStdString(),
                 sampleRate);
         }
+
+        song.tempoKnown = tempoKnown;
 
         if (MerikPackage::isPackage(file))
             MerikPackage::applyScore(file, song);
@@ -205,6 +293,13 @@ void MainComponent::selectSoundFont()
 
 void MainComponent::play()
 {
+    // Terwijl een .merik nog laadt: onthouden en starten zodra het klaar is.
+    if (packageLoader != nullptr)
+    {
+        pendingPlay = true;
+        return;
+    }
+
     if (!currentSong || !audioReady)
         return;
 
@@ -239,6 +334,8 @@ void MainComponent::play()
 
 void MainComponent::stop()
 {
+    pendingPlay = false;
+
     synthEngine.stop();
     synthEngine.seekSamples(0);
 

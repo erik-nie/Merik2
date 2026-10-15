@@ -9,6 +9,7 @@
 #include "FluidSynthEngine.h"
 #include "MidiFileReader.h"
 #include "LevelMeter.h"
+#include "SourcePill.h"
 #include "WebServer.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -22,6 +23,9 @@
 #include <mutex>
 #include <vector>
 #include <atomic>
+
+class PackageLoader;
+class LoadingOverlay;
 
 class MainComponent final
     : public juce::AudioAppComponent,
@@ -101,7 +105,7 @@ private:
     {
         juce::TextButton labelButton;
         juce::Label valueLabel;
-        juce::Label sourceLabel;    // AUDIO / MIDI / CLICK
+        SourcePill sourcePill;      // AUDIO / MIDI / CLICK
         LevelMeter meter;
         juce::Slider slider;
     };
@@ -303,6 +307,28 @@ private:
     void loadMidiFile(const juce::File& file, bool fromSetlist = false,
                       const SongEntry* entry = nullptr, int setlistRow = -1,
                       int setlistIndex = -1);
+
+    // Een .merik wordt op een eigen thread geladen, met een voortgangsscherm.
+    struct PendingLoad
+    {
+        juce::File file;
+        bool fromSetlist = false;
+        bool hasEntry = false;
+        SongEntry entry;
+        int row = -1;
+        int index = -1;
+    };
+
+    void completeLoad(const PendingLoad& pending, const juce::File& midiPath,
+                      std::shared_ptr<const StemSet> stems, bool tempoKnown);
+    void packageLoadFinished(int id);
+    void cancelPackageLoad();
+
+    std::unique_ptr<PackageLoader> packageLoader;
+    std::unique_ptr<LoadingOverlay> loadingOverlay;
+    PendingLoad pendingLoad;
+    bool pendingPlay = false;     // Play is gedrukt terwijl er nog geladen wordt
+    int nextLoadId = 1;
     void playNextInSetlist(bool startPlaying = true);
     void skipToNextSong();
     [[nodiscard]] const SongEntry* nextSetlistEntry() const;

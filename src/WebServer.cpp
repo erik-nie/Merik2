@@ -391,7 +391,7 @@ std::string WebServer::createFamilyJson() const
         json += ",\"level\":" + std::to_string(static_cast<int>(levels[i] * 100.0f + 0.5f));
         json += ",\"name\":\"" + escapeJson(names[i]) + "\"";
         json += ",\"source\":\"";
-        json += i == 7 ? "click" : ((stemMask & (1u << i)) != 0 ? "audio" : "midi");
+        json += (stemMask & (1u << i)) != 0 ? "audio" : (i == 7 ? "click" : "midi");
         json += "\"}";
     }
 
@@ -683,7 +683,7 @@ std::string WebServer::createJson() const
         json += "],";
 
         json += "\"sigs\":[";
-        for (std::size_t i = 0; i < song->timeSignatures.size(); ++i)
+        for (std::size_t i = 0; song->tempoKnown && i < song->timeSignatures.size(); ++i)
         {
             if (i != 0) json += ",";
             const auto& point = song->timeSignatures[i];
@@ -921,6 +921,7 @@ footer {
     padding:7px 14px; border-radius:999px; background:rgba(255,255,255,.06);
     border:1px solid rgba(255,255,255,.10); transition:top 450ms ease; pointer-events:none;
 }
+#beatBox[hidden] { display:none; }
 body.countdown #beatBox { top:134px; }
 #beatSig { font-size:20px; font-weight:600; color:#9ea4b0; font-variant-numeric:tabular-nums; }
 #beatLeds { display:flex; gap:9px; }
@@ -1011,8 +1012,9 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 .family-slider { width: 100%; min-width: 0; accent-color: #1876ff; cursor: pointer; }
 .family-value { width: 28px; text-align: right; color: #bbb; font-size: 12px; font-variant-numeric: tabular-nums; }
 .family-control.disabled { opacity: 0.4; }
-.family-source { font-size: 10px; font-weight: 600; color: #8a8f9c; letter-spacing: 0.04em; margin-left: auto; margin-right: 6px; }
-.family-source.audio { color: #00a4eb; }
+.family-source { font-size: 11px; font-weight: 600; color: #eceef2; padding: 1px 8px; border-radius: 8px; background: rgba(160,164,178,0.28); margin-left: 8px; margin-right: auto; }
+.family-source.midi { background: rgba(160,120,255,0.28); }
+.family-source.audio { background: rgba(0,164,235,0.28); }
 .family-meter { height: 4px; border-radius: 2px; background: #1e2025; margin: 3px 34px 0 0; overflow: hidden; }
 .family-meter-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2ecc71 0%, #2ecc71 70%, #f5a623 85%, #ff5555 100%); clip-path: inset(0 100% 0 0); transition: clip-path 90ms linear; }
 @media (max-width: 700px) { #familyPanel { width: 45%; min-width: 200px; } body.family-panel-open #lyricsViewport { width: 55%; margin-right: 45%; } }
@@ -1629,14 +1631,18 @@ function renderChordProgress(currentChord)
     if (!currentChord ||
         !songData)
     {
-        progressContainer.style.width =
-            "10%";
+        // Geen akkoord: ook het streepje verbergen.
+        progressContainer.style.visibility =
+            "hidden";
 
         progressElement.style.width =
             "0%";
 
         return;
     }
+
+    progressContainer.style.visibility =
+        "visible";
 
     const totalWidth =
         chordDurationWidth(
@@ -2425,6 +2431,7 @@ document.getElementById("btnNext").addEventListener("click", () => sendControl("
             if (source && source.textContent !== label) {
                 source.textContent = label;
                 source.classList.toggle("audio", family.source === "audio");
+                source.classList.toggle("midi", family.source === "midi");
             }
 
             if (fill)
@@ -2551,7 +2558,7 @@ document.getElementById("btnNext").addEventListener("click", () => sendControl("
         });
 
         const source = document.createElement("span");
-        source.className = "family-source";
+        source.className = index === 7 ? "family-source" : "family-source midi";
         source.textContent = index === 7 ? "CLICK" : "MIDI";
 
         const meter = document.createElement("div");

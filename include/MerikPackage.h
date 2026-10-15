@@ -6,6 +6,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_core/juce_core.h>
 
+#include <atomic>
 #include <memory>
 
 // Een .merik-bestand: een zip met manifest.json, optioneel song.mid en
@@ -17,6 +18,18 @@ namespace MerikPackage
         juce::File midiFile;                 // uitgepakt of gegenereerd (cache)
         std::shared_ptr<StemSet> stems;      // al op de samplefrequentie van het apparaat
         juce::String error;                  // leeg = gelukt
+        bool cancelled = false;
+        bool tempoKnown = true;              // MIDI-bestand of tempo (manifest/tempo.json) aanwezig
+    };
+
+    // Voortgang van open(): mag vanaf een andere thread gelezen worden. Zet cancel
+    // op true om het laden af te breken.
+    struct Progress
+    {
+        std::atomic<float> fraction { 0.0f };
+        std::atomic<int> stemsDone { 0 };
+        std::atomic<int> stemsTotal { 0 };
+        std::atomic<bool> cancel { false };
     };
 
     [[nodiscard]] bool isPackage(const juce::File& file);
@@ -32,5 +45,6 @@ namespace MerikPackage
     void applyScore(const juce::File& package, Song& song);
 
     // MIDI plus alle stems, omgezet naar deviceRate.
-    [[nodiscard]] Contents open(const juce::File& package, double deviceRate);
+    // De stems worden op meerdere threads tegelijk gedecodeerd. progress is optioneel.
+    [[nodiscard]] Contents open(const juce::File& package, double deviceRate, Progress* progress = nullptr);
 }

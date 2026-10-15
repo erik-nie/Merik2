@@ -34,7 +34,7 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        if (song == nullptr)
+        if (song == nullptr || !song->tempoKnown)
             return;
 
         const auto beat = currentBeat();

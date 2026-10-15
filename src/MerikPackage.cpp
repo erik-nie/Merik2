@@ -17,6 +17,7 @@ namespace
 
     struct Manifest
     {
+        bool tempoGiven = false;      // bpm in manifest.json of tempo.json
         double bpm = 120.0;
         int numerator = 4;
         int denominator = 4;
@@ -32,10 +33,50 @@ namespace
             && !name.startsWithChar('\\') && !name.containsChar(':');
     }
 
-    // Naam in de zip, met / als scheidingsteken.
+    bool ignoredEntry(const juce::String& name)
+    {
+        const auto base = name.fromLastOccurrenceOf("/", false, false);
+
+        return name.startsWith("__MACOSX/") || base == ".DS_Store" || base.startsWith("._");
+    }
+
+    // Finder en Verkenner pakken bij "Comprimeren" vaak de hele map in: als alle
+    // bestanden in één map staan, die map negeren ("mp3/1-drums.mp3" -> "1-drums.mp3").
+    juce::String wrapperPrefix(juce::ZipFile& zip)
+    {
+        juce::String prefix;
+
+        for (int i = 0; i < zip.getNumEntries(); ++i)
+        {
+            const auto name = zip.getEntry(i)->filename.replaceCharacter('\\', '/');
+
+            if (ignoredEntry(name) || name.endsWithChar('/'))
+                continue;
+
+            if (!name.containsChar('/'))
+                return {};
+
+            const auto top = name.upToFirstOccurrenceOf("/", true, false);
+
+            if (prefix.isEmpty())
+                prefix = top;
+            else if (prefix != top)
+                return {};
+        }
+
+        return prefix;
+    }
+
+    // Naam in de zip, met / als scheidingsteken en zonder omhullende map.
     juce::String entryName(juce::ZipFile& zip, int index)
     {
-        return zip.getEntry(index)->filename.replaceCharacter('\\', '/');
+        const auto name = zip.getEntry(index)->filename.replaceCharacter('\\', '/');
+
+        if (ignoredEntry(name) || name.endsWithChar('/'))
+            return "__ignored__/";
+
+        const auto prefix = wrapperPrefix(zip);
+        return prefix.isNotEmpty() && name.startsWith(prefix) ? name.substring(prefix.length()) : name;
     }
 
     // Een bestand in de root van het pakket (hoofdletterongevoelig).
@@ -157,7 +198,12 @@ namespace
                 return false;
             }
 
-            manifest.bpm = std::max(20.0, static_cast<double>(root.getProperty("bpm", 120.0)));
+            if (root.hasProperty("bpm"))
+            {
+                manifest.bpm = std::max(20.0, static_cast<double>(root.getProperty("bpm", 120.0)));
+                manifest.tempoGiven = true;
+            }
+
             manifest.durationSeconds = root.getProperty("durationSeconds", 0.0);
 
             if (const auto* signature = root.getProperty("timeSignature", {}).getArray())
@@ -170,6 +216,30 @@ namespace
             const auto timing = root.getProperty("timing", {});
             manifest.audioOffsetSeconds = timing.getProperty("audioOffsetSeconds", 0.0);
             manifest.midiName = timing.getProperty("midi", {}).toString();
+        }
+
+        // tempo.json: { "bpm": 96, "timeSignature": [4, 4] }
+        if (const auto tempoName = findRootEntry(zip, "tempo.json"); tempoName.isNotEmpty())
+        {
+            juce::MemoryBlock tempoBlock;
+
+            if (readEntry(zip, tempoName, tempoBlock))
+            {
+                const auto tempo = juce::JSON::parse(tempoBlock.toString());
+
+                if (tempo.hasProperty("bpm"))
+                {
+                    manifest.bpm = std::max(20.0, static_cast<double>(tempo.getProperty("bpm", 120.0)));
+                    manifest.tempoGiven = true;
+                }
+
+                if (const auto* signature = tempo.getProperty("timeSignature", {}).getArray())
+                    if (signature->size() >= 2)
+                    {
+                        manifest.numerator = juce::jlimit(1, 32, static_cast<int>((*signature)[0]));
+                        manifest.denominator = juce::jlimit(1, 32, static_cast<int>((*signature)[1]));
+                    }
+            }
         }
 
         // Gevonden stems.
@@ -564,9 +634,11 @@ namespace MerikPackage
         }
     }
 
-    Contents open(const juce::File& package, double deviceRate)
+    Contents open(const juce::File& package, double deviceRate, Progress* progress)
     {
         Contents contents;
+
+        const auto cancelled = [progress] { return progress != nullptr && progress->cancel.load(); };
 
         contents.midiFile = midiFor(package, contents.error);
 
@@ -579,70 +651,185 @@ namespace MerikPackage
         if (!parseManifest(zip, manifest, contents.error))
             return contents;
 
+        contents.tempoKnown = manifest.tempoGiven || findMidiEntry(zip, manifest).isNotEmpty();
+
         if (manifest.stems.empty())
             return contents;
 
-        juce::AudioFormatManager formats;
-        formats.registerBasicFormats();
+        const auto count = manifest.stems.size();
 
-        auto set = std::make_shared<StemSet>();
-        const auto offset = static_cast<std::int64_t>(std::llround(manifest.audioOffsetSeconds * deviceRate));
-
-        for (const auto& info : manifest.stems)
+        if (progress != nullptr)
         {
-            juce::MemoryBlock block;
+            progress->stemsTotal = static_cast<int>(count);
+            progress->stemsDone = 0;
+            progress->fraction = 0.02f;
+        }
 
-            if (!readEntry(zip, info.file, block))
+        // 1. De bestanden uit de zip lezen (snel, achter elkaar).
+        std::vector<juce::MemoryBlock> blocks(count);
+        std::vector<std::atomic<float>> stemProgress(count);
+
+        for (auto& value : stemProgress)
+            value = 0.0f;
+
+        const auto publish = [&]
+        {
+            if (progress == nullptr)
+                return;
+
+            float sum = 0.0f;
+
+            for (const auto& value : stemProgress)
+                sum += value.load();
+
+            progress->fraction = std::max(progress->fraction.load(), 0.02f + 0.98f * sum / static_cast<float>(count));
+        };
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (cancelled())
             {
-                contents.error = "Stem not found in the .merik file: " + info.file;
+                contents.cancelled = true;
                 return contents;
             }
 
-            auto reader = makeReader(formats, block);
-
-            if (reader == nullptr || reader->lengthInSamples <= 0 || reader->sampleRate <= 0.0)
+            if (!readEntry(zip, manifest.stems[i].file, blocks[i]))
             {
-                contents.error = "Cannot read the stem " + info.file + " (use wav, flac or mp3).";
+                contents.error = "Stem not found in the .merik file: " + manifest.stems[i].file;
                 return contents;
             }
 
-            const auto length = static_cast<int>(reader->lengthInSamples);
-            juce::AudioBuffer<float> buffer(2, length);
-            reader->read(&buffer, 0, length, 0, true, true);
+            stemProgress[i] = 0.1f;
+            publish();
+        }
 
-            if (reader->numChannels < 2)
-                buffer.copyFrom(1, 0, buffer, 0, 0, length);
+        // 2. Decoderen en omzetten naar de samplefrequentie van het apparaat, parallel.
+        auto set = std::make_shared<StemSet>();
+        set->tracks.resize(count);
 
-            StemTrack track;
-            track.family = info.family;
-            track.gain = info.gain;
-            track.offset = offset;
+        const auto offset = static_cast<std::int64_t>(std::llround(manifest.audioOffsetSeconds * deviceRate));
+        std::vector<juce::String> errors(count);
+        std::atomic<std::size_t> remaining { count };
 
-            if (std::abs(reader->sampleRate - deviceRate) > 0.5)
+        {
+            juce::ThreadPool pool(juce::jlimit(2, 8, juce::SystemStats::getNumCpus()));
+
+            for (std::size_t i = 0; i < count; ++i)
             {
-                const double ratio = reader->sampleRate / deviceRate;
-                const auto outLength = static_cast<int>(std::llround(static_cast<double>(length) / ratio));
+                pool.addJob([&, i]
+                {
+                    const auto finish = [&]
+                    {
+                        stemProgress[i] = 1.0f;
 
-                track.left.resize(static_cast<std::size_t>(outLength));
-                track.right.resize(static_cast<std::size_t>(outLength));
+                        if (progress != nullptr)
+                            ++progress->stemsDone;
 
-                juce::LagrangeInterpolator leftResampler, rightResampler;
-                leftResampler.process(ratio, buffer.getReadPointer(0), track.left.data(), outLength);
-                rightResampler.process(ratio, buffer.getReadPointer(1), track.right.data(), outLength);
+                        publish();
+                        --remaining;
+                    };
+
+                    if (cancelled())
+                    {
+                        --remaining;
+                        return;
+                    }
+
+                    const auto& info = manifest.stems[i];
+
+                    juce::AudioFormatManager formats;
+                    formats.registerBasicFormats();
+
+                    auto reader = makeReader(formats, blocks[i]);
+
+                    if (reader == nullptr || reader->lengthInSamples <= 0 || reader->sampleRate <= 0.0)
+                    {
+                        errors[i] = "Cannot read the stem " + info.file + " (use wav, flac or mp3).";
+                        finish();
+                        return;
+                    }
+
+                    const auto length = static_cast<int>(reader->lengthInSamples);
+                    juce::AudioBuffer<float> buffer(2, length);
+
+                    constexpr int chunk = 1 << 18;
+
+                    for (int position = 0; position < length; position += chunk)
+                    {
+                        if (cancelled())
+                        {
+                            --remaining;
+                            return;
+                        }
+
+                        const int n = std::min(chunk, length - position);
+                        reader->read(&buffer, position, n, position, true, true);
+
+                        stemProgress[i] = 0.1f + 0.7f * static_cast<float>(position + n) / static_cast<float>(length);
+                        publish();
+                    }
+
+                    if (reader->numChannels < 2)
+                        buffer.copyFrom(1, 0, buffer, 0, 0, length);
+
+                    auto& track = set->tracks[i];
+                    track.family = info.family;
+                    track.gain = info.gain;
+                    track.offset = offset;
+
+                    if (std::abs(reader->sampleRate - deviceRate) > 0.5)
+                    {
+                        const double ratio = reader->sampleRate / deviceRate;
+                        const auto outLength = static_cast<int>(std::llround(static_cast<double>(length) / ratio));
+
+                        track.left.resize(static_cast<std::size_t>(outLength));
+                        track.right.resize(static_cast<std::size_t>(outLength));
+
+                        juce::LagrangeInterpolator leftResampler, rightResampler;
+                        leftResampler.process(ratio, buffer.getReadPointer(0), track.left.data(), outLength);
+                        rightResampler.process(ratio, buffer.getReadPointer(1), track.right.data(), outLength);
+                    }
+                    else
+                    {
+                        track.left.assign(buffer.getReadPointer(0), buffer.getReadPointer(0) + length);
+                        track.right.assign(buffer.getReadPointer(1), buffer.getReadPointer(1) + length);
+                    }
+
+                    blocks[i] = juce::MemoryBlock();   // het gecomprimeerde origineel is niet meer nodig
+                    finish();
+                });
             }
-            else
+
+            while (remaining.load() > 0)
+                juce::Thread::sleep(10);
+        }
+
+        if (cancelled())
+        {
+            contents.cancelled = true;
+            return contents;
+        }
+
+        for (const auto& error : errors)
+            if (error.isNotEmpty())
             {
-                track.left.assign(buffer.getReadPointer(0), buffer.getReadPointer(0) + length);
-                track.right.assign(buffer.getReadPointer(1), buffer.getReadPointer(1) + length);
+                contents.error = error;
+                return contents;
             }
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const auto& info = manifest.stems[i];
+            const auto& track = set->tracks[i];
 
             if (set->names[static_cast<std::size_t>(info.family)].empty() && info.label.isNotEmpty())
                 set->names[static_cast<std::size_t>(info.family)] = info.label.toStdString();
 
-            set->lengthSamples = std::max(set->lengthSamples,
-                                          offset + static_cast<std::int64_t>(track.left.size()));
-            set->tracks.push_back(std::move(track));
+            set->lengthSamples = std::max(set->lengthSamples, offset + static_cast<std::int64_t>(track.left.size()));
         }
+
+        if (progress != nullptr)
+            progress->fraction = 1.0f;
 
         contents.stems = std::move(set);
         return contents;

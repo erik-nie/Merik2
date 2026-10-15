@@ -1479,7 +1479,7 @@ void FluidSynthEngine::buildClickTrackLocked()
     clickBeats_.clear();
     clickAccent_.clear();
 
-    if (!song_ || song_->playbackEvents.empty())
+    if (!song_ || song_->playbackEvents.empty() || !song_->tempoKnown)
         return;
 
     const auto& song = *song_;

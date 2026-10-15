@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 #include "MerikPackage.h"
+#include "LoadingOverlay.h"
+#include "PackageLoader.h"
 #include "ClickSettings.h"
 #include "WebServer.h"
 #include "BinaryData.h"
@@ -3054,17 +3056,14 @@ void MainComponent::timerCallback()
         control.meter.setPeak(peaks[i]);
         levels[i] = control.meter.level();
 
-        if (i < 7)
+        // AUDIO als de familie een stem heeft (ook de klik: een click-bestand),
+        // anders MIDI (de klik zelf: CLICK).
         {
             const bool audio = (stemMask & (1u << i)) != 0;
-            const juce::String text = audio ? "AUDIO" : "MIDI";
-
-            if (control.sourceLabel.getText() != text)
-            {
-                control.sourceLabel.setText(text, juce::dontSendNotification);
-                control.sourceLabel.setColour(juce::Label::textColourId,
-                                              audio ? juce::Colour::fromRGB(0, 164, 235) : secondaryTextColour);
-            }
+            control.sourcePill.set(audio ? "AUDIO" : (i == 7 ? "CLICK" : "MIDI"),
+                                   audio ? juce::Colour::fromRGB(0, 164, 235)
+                                         : (i == 7 ? juce::Colour::fromRGB(160, 164, 178)
+                                                   : juce::Colour::fromRGB(160, 120, 255)));
         }
     }
 
@@ -3448,17 +3447,14 @@ MainComponent::MainComponent()
         control.valueLabel.setFont(makeNotoFont(20.0f));
 
         control.valueLabel.setJustificationType(
-            juce::Justification::centred);
+            juce::Justification::centredRight);
 
         addAndMakeVisible(control.valueLabel);
 
         // Bron (audio/MIDI/klik) en niveaumeter
-        control.sourceLabel.setText(i == 7 ? "CLICK" : "MIDI", juce::dontSendNotification);
-        control.sourceLabel.setFont(makeNotoFont(10.0f));
-        control.sourceLabel.setColour(juce::Label::textColourId, secondaryTextColour);
-        control.sourceLabel.setJustificationType(juce::Justification::centredLeft);
-        control.sourceLabel.setInterceptsMouseClicks(false, false);
-        addAndMakeVisible(control.sourceLabel);
+        control.sourcePill.set(i == 7 ? "CLICK" : "MIDI",
+                               i == 7 ? juce::Colour::fromRGB(160, 164, 178) : juce::Colour::fromRGB(160, 120, 255));
+        addAndMakeVisible(control.sourcePill);
         addAndMakeVisible(control.meter);
 
         // Slider
@@ -4371,6 +4367,11 @@ MainComponent::MainComponent()
                 safe->checkForUpdates(false);
         });
 
+    // Voortgangsscherm voor het laden van een .merik (bovenop alles).
+    loadingOverlay = std::make_unique<LoadingOverlay>();
+    loadingOverlay->onCancel = [this] { cancelPackageLoad(); };
+    addChildComponent(*loadingOverlay);
+
     // Knoppen nemen geen toetsenbordfocus: de spatiebalk is altijd play/pauze
     // en kan geen losse knop (zoals Next) activeren.
     for (auto* child : getChildren())
@@ -4391,6 +4392,7 @@ MainComponent::MainComponent()
 MainComponent::~MainComponent()
 {
     stopTimer();
+    cancelPackageLoad();
 
     // Eerst de achtergronddraad stoppen: die gebruikt de MIDI-lezer.
     songScanner.reset();
@@ -4716,6 +4718,9 @@ void MainComponent::paint(juce::Graphics& g)
 
 void MainComponent::resized()
 {
+    if (loadingOverlay != nullptr)
+        loadingOverlay->setBounds(getLocalBounds());
+
     auto bounds = getLocalBounds();
 
     // -------------------------------------------------------------------------
@@ -4748,9 +4753,10 @@ void MainComponent::resized()
         control.valueLabel.setBounds(
             area.removeFromTop(18));
 
-        control.sourceLabel.setBounds(
-            control.valueLabel.getBounds().withWidth(38).translated(5, 0));
-        control.sourceLabel.setVisible(familyWidth >= 84);
+        // Pil links, de waarde rechts.
+        control.sourcePill.setBounds(control.valueLabel.getBounds().withWidth(54).translated(6, 0));
+        control.sourcePill.setVisible(familyWidth >= 78);
+        control.valueLabel.setBounds(control.valueLabel.getBounds().withTrimmedRight(8));
 
         control.meter.setBounds(
             familyBlockBounds[i].getX() + 6, familyBlockBounds[i].getBottom() - 8,
