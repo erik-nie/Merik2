@@ -199,10 +199,13 @@ private:
     // Klik: waar naar toe (zie ClickSettings.h) en hulpbuffer voor het audioblok.
     std::atomic<int> mainRoute { 200 };   // ClickRoute::pairBase: uitgang 1+2
     std::atomic<int> clickRoute { 0 };
+    std::array<std::atomic<int>, 7> stemRoutes {};   // per familie: 0 = hoofduitgang, anders ClickRoute-code
     std::vector<float> mainBuffer[2];
     int clickOffsetMs = 0;
     std::vector<float> clickBuffer;
     void saveClickSettings(int route, int offsetMs);
+    static const std::array<juce::String, 8>& defaultFamilyLabels();
+    void showFamilyNames(const std::array<std::string, 8>& names);
 
     bool keyPressed(const juce::KeyPress& key) override;
     bool keyPressed(const juce::KeyPress& key, juce::Component* origin) override;

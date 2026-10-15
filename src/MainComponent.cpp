@@ -644,6 +644,9 @@ struct SettingsContext
     int clickRoute = 0;
     int clickOffsetMs = 0;
     std::function<void(int route, int offsetMs)> clickChanged;
+
+    std::array<int, 7> stemRoutes {};
+    std::function<void(int family, int route)> stemRouteChanged;
 };
 
 class SettingsContent final : public juce::Component,
@@ -1049,6 +1052,38 @@ private:
                           juce::dontSendNotification);
         audioPage.content.addAndMakeVisible(clickHint);
 
+        styleHeading(stemHeading, "Audio stems (.merik): output per family");
+        audioPage.content.addAndMakeVisible(stemHeading);
+
+        static const char* stemNames[7] = { "1 Drums", "2 Bass", "3 Guitars", "4 Keys", "5 Strings", "6 Winds", "7 Others" };
+
+        for (std::size_t i = 0; i < stemOutBoxes.size(); ++i)
+        {
+            styleLabel(stemOutLabels[i], stemNames[i]);
+            audioPage.content.addAndMakeVisible(stemOutLabels[i]);
+            audioPage.content.addAndMakeVisible(stemOutBoxes[i]);
+
+            stemOutBoxes[i].onChange = [this, i]
+            {
+                if (updatingDevice)
+                    return;
+
+                const int id = stemOutBoxes[i].getSelectedId();
+                const int route = id >= 2000 ? ClickRoute::pairBase + (id - 2000)
+                                : id >= 1000 ? ClickRoute::monoBase + (id - 1000)
+                                             : 0;
+
+                context.stemRoutes[i] = route;
+
+                if (context.stemRouteChanged)
+                    context.stemRouteChanged(static_cast<int>(i), route);
+            };
+        }
+
+        styleHint(stemHint, "Only for audio stems; MIDI always plays through the SoundFont (or the MIDI out). "
+                            "A mono output plays left and right together.");
+        audioPage.content.addAndMakeVisible(stemHint);
+
         fillDeviceControls();
 
         audioPage.layoutContent = [this](int width)
@@ -1086,6 +1121,14 @@ private:
             row(clickOutLabel, clickOutBox);
             row(clickOffsetRow.label, clickOffsetRow.slider);
             clickHint.setBounds(controlX, y, controlWidth, 40);
+            y += 54;
+
+            heading(stemHeading);
+
+            for (std::size_t i = 0; i < stemOutBoxes.size(); ++i)
+                row(stemOutLabels[i], stemOutBoxes[i]);
+
+            stemHint.setBounds(controlX, y, controlWidth, 40);
 
             return y + 54;
         };
@@ -1093,6 +1136,24 @@ private:
 
     // Vult de apparaatkeuzes uit de huidige toestand van de AudioDeviceManager
     // en bouwt de uitgangslijsten (alle kanalen van het apparaat).
+    juce::String stemRouteSignature() const
+    {
+        juce::String text;
+
+        for (const int route : context.stemRoutes)
+            text += juce::String(route) + ",";
+
+        return text;
+    }
+
+    static void styleHint(juce::Label& label, const juce::String& text)
+    {
+        label.setColour(juce::Label::textColourId, secondaryTextColour);
+        label.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        label.setMinimumHorizontalScale(1.0f);
+        label.setText(text, juce::dontSendNotification);
+    }
+
     void fillDeviceControls()
     {
         auto& manager = context.deviceManager;
@@ -1104,7 +1165,7 @@ private:
         const juce::String signature = manager.getCurrentAudioDeviceType() + "|" + setup.outputDeviceName + "|"
             + juce::String(setup.sampleRate) + "|" + juce::String(setup.bufferSize) + "|"
             + channelNames.joinIntoString(",") + "|" + juce::String(context.mainRoute) + "|"
-            + juce::String(context.clickRoute);
+            + juce::String(context.clickRoute) + "|" + stemRouteSignature();
 
         if (signature == deviceSignature)
             return;
@@ -1159,9 +1220,12 @@ private:
         }
 
         // Uitgangen: een paar (1+2, 3+4, ...) of één kanaal, alle kanalen van het apparaat.
-        const auto fillOutputs = [&](juce::ComboBox& box, bool forClick)
+        const auto fillOutputs = [&](juce::ComboBox& box, bool forClick, bool forStem = false)
         {
             box.clear(juce::dontSendNotification);
+
+            if (forStem)
+                box.addItem("Main output", 1);
 
             if (forClick)
             {
@@ -1180,6 +1244,20 @@ private:
 
         fillOutputs(mainOutBox, false);
         fillOutputs(clickOutBox, true);
+
+        for (std::size_t i = 0; i < stemOutBoxes.size(); ++i)
+        {
+            fillOutputs(stemOutBoxes[i], false, true);
+            stemOutBoxes[i].setSelectedId(1, juce::dontSendNotification);
+
+            const int route = context.stemRoutes[i];
+            const int id = route >= ClickRoute::pairBase ? 2000 + (route - ClickRoute::pairBase)
+                         : route >= ClickRoute::monoBase ? 1000 + (route - ClickRoute::monoBase)
+                                                         : 1;
+
+            if (stemOutBoxes[i].indexOfItemId(id) >= 0)
+                stemOutBoxes[i].setSelectedId(id, juce::dontSendNotification);
+        }
 
         const auto idFor = [](int route, int fallback)
         {
@@ -1452,6 +1530,9 @@ private:
     juce::Label typeLabel, deviceLabel, rateLabel, bufferLabel, mainOutLabel, clickOutLabel;
     juce::ComboBox typeBox, deviceBox, rateBox, bufferBox, mainOutBox, clickOutBox;
     SliderRow clickOffsetRow;
+    juce::Label stemHeading, stemHint;
+    std::array<juce::Label, 7> stemOutLabels;
+    std::array<juce::ComboBox, 7> stemOutBoxes;
     juce::String deviceSignature;
     bool updatingDevice = false;
     juce::TextButton soundFontCopy;
@@ -1565,6 +1646,26 @@ void MainComponent::showAudioSettings()
         {
             clickOffsetMs = offsetMs;
             saveClickSettings(route, offsetMs);
+        },
+
+        [this]
+        {
+            std::array<int, 7> routes {};
+
+            for (std::size_t i = 0; i < routes.size(); ++i)
+                routes[i] = stemRoutes[i].load();
+
+            return routes;
+        }(),
+        [this](int family, int route)
+        {
+            stemRoutes[static_cast<std::size_t>(family)] = route;
+
+            if (auto* properties = appProperties.getUserSettings())
+            {
+                properties->setValue("stem.route." + juce::String(family), route);
+                properties->saveIfNeeded();
+            }
         }
     };
 
@@ -1684,6 +1785,9 @@ private:
                     }
 
                     song = reader.read(midiPath.getFullPathName().toStdString(), 48000.0);
+
+                    if (MerikPackage::isPackage(next))
+                        MerikPackage::applyScore(next, song);
                 }
 
                 double end = 0.0;
@@ -2832,6 +2936,29 @@ private:
     }
 };
 
+const std::array<juce::String, 8>& MainComponent::defaultFamilyLabels()
+{
+    static const std::array<juce::String, 8> labels =
+    {
+        "1 Drums CH10", "2 Bass", "3 Guitars", "4 Keys", "5 Strings", "6 Winds", "7 Others", "8 Click"
+    };
+
+    return labels;
+}
+
+// Namen uit de stems ("7-void.mp3" -> "7 void") op de familieknoppen en in de web-mixer.
+void MainComponent::showFamilyNames(const std::array<std::string, 8>& names)
+{
+    for (std::size_t i = 0; i < familyControls.size(); ++i)
+    {
+        familyControls[i].labelButton.setButtonText(
+            names[i].empty() ? defaultFamilyLabels()[i]
+                             : juce::String(static_cast<int>(i) + 1) + " " + juce::String::fromUTF8(names[i].c_str()));
+    }
+
+    webServer.setFamilyNames(names);
+}
+
 void MainComponent::setTranspose(int semitones)
 {
     if (songHasStems)
@@ -3174,6 +3301,9 @@ MainComponent::MainComponent()
 
         mainRoute = properties->getIntValue("main.route", ClickRoute::pairBase);
         clickRoute = properties->getIntValue("click.route", ClickRoute::automatic);
+
+        for (std::size_t i = 0; i < stemRoutes.size(); ++i)
+            stemRoutes[i] = properties->getIntValue("stem.route." + juce::String(static_cast<int>(i)), 0);
         synthEngine.setClickOffsetMs(properties->getIntValue("click.offsetMs", 0));
     }
 
@@ -3254,17 +3384,7 @@ MainComponent::MainComponent()
     // Family controls
     // -------------------------------------------------------------------------
 
-    const std::array<juce::String, 8> familyNames =
-    {
-        "1 Drums CH10",
-        "2 Bass",
-        "3 Guitars",
-        "4 Keys",
-        "5 Strings",
-        "6 Winds",
-        "7 Others",
-        "8 Click"
-    };
+    const auto& familyNames = defaultFamilyLabels();
 
     for (std::size_t i = 0; i < familyControls.size(); ++i)
     {
@@ -3666,9 +3786,17 @@ MainComponent::MainComponent()
         juce::TextButton::textColourOffId,
         textColour);
 
-    lyricsButton.onClick = []
+    // Klik = alleen kijken; met Command (macOS) of Ctrl/Alt (Windows) meteen
+    // met de besturingssleutel, zodat Play/Stop/Next en de mixer er ook zijn.
+    lyricsButton.onClick = [this]
     {
-        juce::URL("http://localhost:" + juce::String(WebServer::defaultPort)).launchInDefaultBrowser();
+        const auto modifiers = juce::ModifierKeys::currentModifiers;
+        auto address = "http://localhost:" + juce::String(WebServer::defaultPort) + "/";
+
+        if ((modifiers.isCommandDown() || modifiers.isAltDown()) && webControlKey.isNotEmpty())
+            address += "?key=" + juce::URL::addEscapeChars(webControlKey, true);
+
+        juce::URL(address).launchInDefaultBrowser();
     };
 
     addAndMakeVisible(lyricsButton);

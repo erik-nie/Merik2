@@ -80,6 +80,19 @@ void MainComponent::getNextAudioBlock(
         numSamples,
         clickBuffer.data());
 
+    // Stems die naar de hoofduitgang gaan horen bij de hoofdmix (ook voor "split").
+    for (int family = 0; family < 7; ++family)
+    {
+        if (stemRoutes[static_cast<std::size_t>(family)].load() != 0)
+            continue;
+
+        if (const float* left = synthEngine.stemBuffer(family, 0))
+        {
+            juce::FloatVectorOperations::add(mix[0], left, numSamples);
+            juce::FloatVectorOperations::add(mix[1], synthEngine.stemBuffer(family, 1), numSamples);
+        }
+    }
+
     // Hoofdmix naar het gekozen paar of kanaal.
     int mainRouteValue = mainRoute.load();
     int mainA = 0;
@@ -111,6 +124,22 @@ void MainComponent::getNextAudioBlock(
         return bufferToFill.buffer->getWritePointer(channel, bufferToFill.startSample);
     };
 
+    const auto addMainPair = [&](const float* left, const float* right)
+    {
+        if (mainB >= 0)
+        {
+            juce::FloatVectorOperations::add(channelPointer(mainA), left, numSamples);
+            juce::FloatVectorOperations::add(channelPointer(mainB), right, numSamples);
+        }
+        else
+        {
+            float* target = channelPointer(mainA);
+
+            for (int i = 0; i < numSamples; ++i)
+                target[i] += 0.5f * (left[i] + right[i]);
+        }
+    };
+
     if (mainB >= 0)
     {
         juce::FloatVectorOperations::copy(channelPointer(mainA), mix[0], numSamples);
@@ -122,6 +151,38 @@ void MainComponent::getNextAudioBlock(
 
         for (int i = 0; i < numSamples; ++i)
             target[i] = 0.5f * (mix[0][i] + mix[1][i]);
+    }
+
+    // Stems met een eigen uitgang: stereo-paar of mono (links + rechts samen).
+    for (int family = 0; family < 7; ++family)
+    {
+        const int stemRoute = stemRoutes[static_cast<std::size_t>(family)].load();
+        const float* left = synthEngine.stemBuffer(family, 0);
+
+        if (stemRoute == 0 || left == nullptr)
+            continue;
+
+        const float* right = synthEngine.stemBuffer(family, 1);
+
+        if (stemRoute >= ClickRoute::pairBase && stemRoute - ClickRoute::pairBase + 1 < numChannels)
+        {
+            const int first = stemRoute - ClickRoute::pairBase;
+            juce::FloatVectorOperations::add(channelPointer(first), left, numSamples);
+            juce::FloatVectorOperations::add(channelPointer(first + 1), right, numSamples);
+        }
+        else if (stemRoute >= ClickRoute::monoBase && stemRoute < ClickRoute::pairBase
+                 && stemRoute - ClickRoute::monoBase < numChannels)
+        {
+            float* target = channelPointer(stemRoute - ClickRoute::monoBase);
+
+            for (int i = 0; i < numSamples; ++i)
+                target[i] += 0.5f * (left[i] + right[i]);
+        }
+        else
+        {
+            // Uitgang bestaat niet (meer): terug naar de hoofduitgang.
+            addMainPair(left, right);
+        }
     }
 
     // Klik naar de gekozen uitgang(en).

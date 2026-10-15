@@ -1,11 +1,13 @@
-#!/usr/bin/env python3
-"""Maak een .merik-bestand (zip met manifest.json, optioneel song.mid en stems).
+"""Maak een .merik-bestand: een zip met audio-stems en/of MIDI onder vaste namen.
 
-  make-merik.py pack  uitvoer.merik --folder stems/ [--midi song.mid] [--bpm 120] [--sig 4/4]
-  make-merik.py pack  uitvoer.merik --stem 1=drums.wav --stem 2=bass.flac [--midi song.mid]
+  make-merik.py pack  uitvoer.merik --folder stems/ [--midi song.mid] [--click click.wav]
+                      [--chords chords.json] [--lyrics lyrics.json]
+  make-merik.py pack  uitvoer.merik --stem 1=drums.wav --stem 7=live-vocals.wav --midi song.mid
   make-merik.py demo  uitvoer.merik          (maakt een synthetisch testnummer)
 
-Familienummers: 1 Drums, 2 Bass, 3 Guitars, 4 Keys, 5 Strings, 6 Winds, 7 Others.
+Een manifest is niet nodig. Merik herkent de bestanden aan hun naam:
+  1-drums.flac 2-bass 3-guitars 4-keys 5-strings 6-winds 7-others (of drums.wav, others.wav, ...)
+  click.wav, song.mid, chords.json, lyrics.json
 Zie docs/merik-format.md.
 """
 
@@ -14,57 +16,68 @@ import json
 import math
 import random
 import re
+import shutil
 import struct
 import sys
 import wave
 import zipfile
 from pathlib import Path
 
-AUDIO = {".wav", ".flac", ".mp3"}
+AUDIO = {".wav", ".flac", ".mp3", ".aif", ".aiff"}
+WORDS = ("drums", "bass", "guitar", "keys", "strings", "winds", "other", "click")
 
 
-def write_merik(out, manifest, stems, midi_path=None):
+def stem_name_ok(name):
+    """Zelfde regels als Merik: 1..8 vooraan, of een familienaam."""
+    base = Path(name).stem.lower()
+    if re.match(r"^[1-8]($|[^0-9a-z])", base):
+        return True
+    return any(re.match(rf"^{w}($|[^a-z])", base) for w in WORDS)
+
+
+def write_merik(out, files, manifest=None):
+    """files: lijst (naam in zip, pad). Audio wordt zonder compressie opgeslagen."""
     with zipfile.ZipFile(out, "w") as z:
-        z.writestr("manifest.json", json.dumps(manifest, indent=2), zipfile.ZIP_DEFLATED)
-        if midi_path:
-            z.write(midi_path, "song.mid", zipfile.ZIP_DEFLATED)
-        for name, path in stems:
-            # FLAC en MP3 zijn al gecomprimeerd; WAV ook in de zip opslaan zonder compressie
-            # houdt het openen snel.
-            z.write(path, name, zipfile.ZIP_STORED)
-    print(f"{out}: {len(stems)} stem(s)" + (", with MIDI" if midi_path else ", no MIDI"))
+        if manifest:
+            z.writestr("manifest.json", json.dumps(manifest, indent=2), zipfile.ZIP_DEFLATED)
+        for name, path in files:
+            kind = zipfile.ZIP_STORED if Path(name).suffix.lower() in AUDIO else zipfile.ZIP_DEFLATED
+            z.write(path, name, kind)
+    print(f"{out}: " + ", ".join(name for name, _ in files))
 
 
 def cmd_pack(args):
-    found = {}  # (family, bestand)
+    files = []
     if args.folder:
         for path in sorted(Path(args.folder).iterdir()):
-            match = re.match(r"^([1-7])[-_ ]", path.name)
-            if match and path.suffix.lower() in AUDIO:
-                found[path] = int(match.group(1))
+            if path.suffix.lower() in AUDIO and stem_name_ok(path.name):
+                files.append((path.name, path))
     for item in args.stem or []:
         family, _, name = item.partition("=")
-        found[Path(name)] = int(family)
-    if not found:
-        sys.exit("No stems: use --folder (files like 1-drums.flac) or --stem 1=file.wav")
+        path = Path(name)
+        if not family.isdigit() or not 1 <= int(family) <= 8:
+            sys.exit(f"Family '{family}' is invalid (1-8)")
+        files.append((f"{family}-{path.name}", path))
+    for option, target in ((args.midi, "song.mid"), (args.click, "click" + Path(args.click or "x.wav").suffix),
+                           (args.chords, "chords.json"), (args.lyrics, "lyrics.json")):
+        if option:
+            files.append((target, Path(option)))
+    if not files:
+        sys.exit("Nothing to pack: give --folder, --stem, --midi, ...")
 
-    stems, entries = [], []
-    for path, family in found.items():
-        if not 1 <= family <= 7:
-            sys.exit(f"Family {family} is invalid (1-7)")
-        name = f"stems/{path.name}"
-        stems.append((name, path))
-        entries.append({"family": family, "file": name, "gainDb": 0})
-
-    num, den = (int(x) for x in args.sig.split("/"))
-    manifest = {"format": 1, "title": args.title or Path(args.out).stem,
-                "bpm": args.bpm, "timeSignature": [num, den],
-                "timing": {"audioOffsetSeconds": args.offset}, "stems": entries}
-    if not args.midi:
-        manifest["durationSeconds"] = args.duration or 0
-        if not args.duration:
-            del manifest["durationSeconds"]  # Merik leest de lengte uit de langste stem
-    write_merik(args.out, manifest, stems, args.midi)
+    manifest = None
+    if args.bpm or args.sig or args.offset or args.title:
+        manifest = {"title": args.title or Path(args.out).stem}
+        if args.bpm:
+            manifest["bpm"] = args.bpm
+        if args.sig:
+            num, den = (int(x) for x in args.sig.split("/"))
+            manifest["timeSignature"] = [num, den]
+        if args.offset:
+            manifest["timing"] = {"audioOffsetSeconds": args.offset}
+    elif not args.midi:
+        print("Note: without a MIDI file Merik assumes 120 bpm 4/4 for the click; use --bpm/--sig.")
+    write_merik(args.out, files, manifest)
 
 
 # ---------------------------------------------------------------- demo
@@ -159,19 +172,34 @@ def cmd_demo(args):
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        stems = []
-        entries = []
+        files = []
         for family, name, data in [(1, "drums", drums), (2, "bass", bass), (4, "keys", keys),
-                                   (5, "strings", strings), (7, "others", others)]:
+                                   (5, "pads", strings), (7, "bell", others)]:
             wav_path = tmp / f"{family}-{name}.wav"
             write_wav(wav_path, data)
-            stems.append((f"stems/{wav_path.name}", wav_path))
-            entries.append({"family": family, "file": f"stems/{wav_path.name}", "gainDb": 0})
+            files.append((wav_path.name, wav_path))
         midi = tmp / "song.mid"
         make_demo_midi(midi, bpm, bars)
-        manifest = {"format": 1, "title": "Stems Demo", "bpm": bpm, "timeSignature": [4, 4],
-                    "timing": {"midi": "song.mid", "audioOffsetSeconds": 0.0}, "stems": entries}
-        write_merik(args.out, manifest, stems, midi)
+        files.append(("song.mid", midi))
+
+        bar = 4 * beat
+        names = ["Am", "F", "C", "G"]
+        chords = [{"time": round(b * bar, 3), "chord": names[b % 4]} for b in range(bars)]
+        (tmp / "chords.json").write_text(json.dumps(chords, indent=1))
+        files.append(("chords.json", tmp / "chords.json"))
+
+        lines = ["Hello from the demo", "Stems are playing now", "Guitar is from MIDI", "Everything in sync"]
+        lyrics = []
+        for i, text in enumerate(lines):
+            start = i * 2 * bar
+            words = text.split()
+            lyrics.append({"time": round(start, 3), "text": text,
+                           "words": [{"time": round(start + k * (2 * bar - 0.3) / len(words), 3), "text": w}
+                                     for k, w in enumerate(words)]})
+        (tmp / "lyrics.json").write_text(json.dumps(lyrics, indent=1))
+        files.append(("lyrics.json", tmp / "lyrics.json"))
+
+        write_merik(args.out, files)
 
 
 def main():
@@ -181,13 +209,15 @@ def main():
     pack = sub.add_parser("pack", help="pack stems (and optional MIDI) into a .merik")
     pack.add_argument("out")
     pack.add_argument("--folder", help="folder with 1-drums.flac, 2-bass.wav, ...")
-    pack.add_argument("--stem", action="append", help="FAMILY=file (repeatable)")
+    pack.add_argument("--stem", action="append", help="FAMILY=file (repeatable; 1-7, 8 = click)")
     pack.add_argument("--midi", help="MIDI file with tempo, lyrics, chords (optional)")
-    pack.add_argument("--bpm", type=float, default=120.0, help="only used without --midi")
-    pack.add_argument("--sig", default="4/4", help="only used without --midi")
+    pack.add_argument("--click", help="click track audio (replaces the internal click)")
+    pack.add_argument("--chords", help="chords.json (replaces the chords from the MIDI file)")
+    pack.add_argument("--lyrics", help="lyrics.json (replaces the lyrics from the MIDI file)")
+    pack.add_argument("--bpm", type=float, help="optional manifest value; used without MIDI")
+    pack.add_argument("--sig", help="optional manifest value, e.g. 3/4; used without MIDI")
     pack.add_argument("--title")
     pack.add_argument("--offset", type=float, default=0.0, help="seconds the audio starts later than the MIDI")
-    pack.add_argument("--duration", type=float)
     pack.set_defaults(func=cmd_pack)
 
     demo = sub.add_parser("demo", help="make a synthetic test song")

@@ -1357,6 +1357,10 @@ void FluidSynthEngine::setStems(std::shared_ptr<const StemSet> stems)
         stems_ = std::move(stems);
         stemFamilies_ = stems_ ? stems_->familyMask() : 0;
         stemMask_.store(stemFamilies_, std::memory_order_relaxed);
+
+        for (auto& family : familyAudio_)
+            for (auto& channel : family)
+                channel.assign(stems_ ? 8192 : 0, 0.0f);
         stemGains_.assign(stems_ ? stems_->tracks.size() : 0, -1.0f);
     }
 }
@@ -1397,16 +1401,27 @@ int FluidSynthEngine::channelFamilyLocked(int channel) const
     return midiTransformer_.getChannelState(channel).family;
 }
 
-void FluidSynthEngine::mixStemsLocked(float** output, int numChannels, int numSamples,
-                                      std::int64_t blockStart)
+void FluidSynthEngine::mixStemsLocked(float* clickOut, int numSamples, std::int64_t blockStart)
 {
     if (!stems_)
         return;
+
+    // Met een extern MIDI-apparaat loopt de MIDI ~20 ms voor: de audio mee vertragen.
+    const auto lead = external_ != nullptr
+        ? static_cast<std::int64_t>(std::llround(0.020 * sampleRate_))
+        : 0;
+
+    const auto clickDelay = static_cast<std::int64_t>(std::llround(
+        static_cast<double>(clickOffsetMs_) * 0.001 * sampleRate_));
 
     for (std::size_t t = 0; t < stems_->tracks.size(); ++t)
     {
         const auto& track = stems_->tracks[t];
         const auto& family = familySettings_[static_cast<std::size_t>(track.family)];
+        const bool isClick = track.family == 7;
+
+        if (isClick && clickOut == nullptr)
+            continue;
 
         // Kwadratisch, vergelijkbaar met hoe een GM-synth CC7 afbeeldt.
         const float factor = family.enabled ? static_cast<float>(family.volume) / 127.0f : 0.0f;
@@ -1417,11 +1432,15 @@ void FluidSynthEngine::mixStemsLocked(float** output, int numChannels, int numSa
 
         const auto size = static_cast<std::int64_t>(track.left.size());
         const float step = (target - from) / static_cast<float>(numSamples);
+        const auto offset = track.offset + lead + (isClick ? clickDelay : 0);
         float peak = 0.0f;
+
+        float* outLeft = isClick ? clickOut : familyAudio_[static_cast<std::size_t>(track.family)][0].data();
+        float* outRight = isClick ? nullptr : familyAudio_[static_cast<std::size_t>(track.family)][1].data();
 
         for (int i = 0; i < numSamples; ++i)
         {
-            const auto index = blockStart + i - track.offset;
+            const auto index = blockStart + i - offset;
 
             if (index < 0 || index >= size)
                 continue;
@@ -1432,18 +1451,19 @@ void FluidSynthEngine::mixStemsLocked(float** output, int numChannels, int numSa
 
             peak = std::max(peak, std::max(std::fabs(left), std::fabs(right)));
 
-            if (numChannels >= 2)
+            if (isClick)
             {
-                output[0][i] += left;
-                output[1][i] += right;
+                outLeft[i] += 0.5f * (left + right);
             }
             else
             {
-                output[0][i] += 0.5f * (left + right);
+                outLeft[i] += left;
+                outRight[i] += right;
             }
         }
 
-        notePeak(track.family, peak);
+        if (!isClick)
+            notePeak(track.family, peak);
     }
 }
 
@@ -1576,6 +1596,23 @@ void FluidSynthEngine::render(
     if (clickOut != nullptr)
         std::fill(clickOut, clickOut + numSamples, 0.0f);
 
+    if (stemFamilies_ != 0)
+    {
+        for (int family = 0; family < 7; ++family)
+        {
+            if ((stemFamilies_ & (1u << family)) == 0)
+                continue;
+
+            for (auto& channel : familyAudio_[static_cast<std::size_t>(family)])
+            {
+                if (channel.size() < static_cast<std::size_t>(numSamples))
+                    channel.resize(static_cast<std::size_t>(numSamples));   // zelden: groter blok dan verwacht
+
+                std::fill(channel.begin(), channel.begin() + numSamples, 0.0f);
+            }
+        }
+    }
+
     for (int channel = 0; channel < numChannels; ++channel)
     {
         if (output[channel])
@@ -1678,11 +1715,12 @@ void FluidSynthEngine::render(
     renderOffsetSamples_ = 0;
     inRender_ = false;
 
-    mixStemsLocked(output, numChannels, numSamples, renderBlockStart_);
+    mixStemsLocked(clickOut, numSamples, renderBlockStart_);
 
     if (clickOut != nullptr)
     {
-        renderClickLocked(clickOut, numSamples, renderBlockStart_);
+        if ((stemFamilies_ & (1u << 7)) == 0)
+            renderClickLocked(clickOut, numSamples, renderBlockStart_);
 
         float clickPeak = 0.0f;
 

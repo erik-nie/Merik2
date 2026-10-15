@@ -76,10 +76,14 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
                 sampleRate);
         }
 
+        if (MerikPackage::isPackage(file))
+            MerikPackage::applyScore(file, song);
+
         songHasStems = stems != nullptr;
         transposeDownButton.setEnabled(!songHasStems);
         transposeUpButton.setEnabled(!songHasStems);
         synthEngine.setStems(stems);
+        showFamilyNames(stems != nullptr ? stems->names : std::array<std::string, 8> {});
 
         currentSong =
             std::make_shared<Song>(

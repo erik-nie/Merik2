@@ -129,6 +129,17 @@ public:
     void setStems(std::shared_ptr<const StemSet> stems);
 
     // Per familie (bit n = familie n) of de klank uit audio-stems komt.
+    // Na render(): het audiosignaal van een familie met stem (0..6), links of
+    // rechts (channel 0/1), numSamples lang; nullptr als de familie geen stem
+    // heeft. Geldig tot de volgende render().
+    [[nodiscard]] const float* stemBuffer(int family, int channel) const
+    {
+        if (family < 0 || family >= 7 || (stemMask_.load(std::memory_order_relaxed) & (1u << family)) == 0)
+            return nullptr;
+
+        return familyAudio_[static_cast<std::size_t>(family)][static_cast<std::size_t>(channel & 1)].data();
+    }
+
     [[nodiscard]] std::uint32_t stemFamilyMask() const { return stemMask_.load(std::memory_order_relaxed); }
 
     // Pieken per familie sinds de vorige aanroep (0..1). Audiofamilies en de
@@ -226,7 +237,8 @@ private:
 
     MidiTransformer midiTransformer_;
 
-    void mixStemsLocked(float** output, int numChannels, int numSamples, std::int64_t blockStart);
+    void mixStemsLocked(float* clickOut, int numSamples, std::int64_t blockStart);
+    std::array<std::array<std::vector<float>, 2>, 7> familyAudio_;
     [[nodiscard]] int channelFamilyLocked(int channel) const;
     [[nodiscard]] bool familyHasStem(int channel) const;
 

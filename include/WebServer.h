@@ -59,6 +59,9 @@ public:
     void setFamilyVolumeCallback(FamilyVolumeCallback callback);
 
     // Niveaus (0..1) en welke families uit audio-stems komen (bit n = familie n).
+    // Eigen namen van families (uit de stems van een .merik); leeg = standaardnaam.
+    void setFamilyNames(const std::array<std::string, familyCount>& names);
+
     void setMeters(const std::array<float, familyCount>& levels, std::uint32_t stemMask);
 
     void setFamilySettings(
@@ -118,6 +121,7 @@ private:
 
     std::array<float, familyCount> familyLevels_ {};
     std::uint32_t stemMask_ = 0;
+    std::array<std::string, familyCount> familyNames_ {};
 
     std::array<int, familyCount> familyVolumes_ {
         127, 127, 127, 127, 127, 127, 127, 127

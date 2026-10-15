@@ -68,7 +68,9 @@ Merik is free and made in spare time. If it helps your band or your gigs, a coff
 
 ### Playback and mixing
 - **Built-in SoundFont player** powered by FluidSynth, with 256-voice polyphony and adjustable gain and reverb.
-- **Eight instrument families** with a fader and an on/off switch each: balance the whole band with eight controls instead of sixteen channels. See [How the family mixer works](#how-the-family-mixer-works).
+- **Eight families** (seven instrument families plus the click) with a fader and an on/off switch each: balance the whole band with eight controls instead of sixteen channels. See [How the family mixer works](#how-the-family-mixer-works).
+- **Click track** generated from the tempo and time signature of the song, sample-accurate with the music. Send it to its own output (for example the drummer's in-ear mix) while the audience only hears the band. Volume and on/off live on family 8.
+- **Audio stems** in a `.merik` file next to or instead of the MIDI parts: play a recorded band, mix MIDI and audio per family, or add a live vocal track. See [Audio stems (.merik)](#audio-stems-merik).
 - **Per-channel switches** to mute a channel for one song or for the whole evening.
 - **Normalize to the drum channel** so tracks from different sources sit at a similar level.
 - **Transpose** by up to an octave in either direction, live. Drums are left alone and the chords follow along. Each song can remember its own transpose.
@@ -89,8 +91,8 @@ A MIDI file has up to 16 channels, each playing its own instrument, and every fi
 | **4 Keys** | Pianos, chromatic percussion and organs (1–24), synth leads and pads (81–96), ethnic and percussive instruments (105–120) |
 | **5 Strings** | Strings and string ensembles (41–56) |
 | **6 Winds** | Brass, reeds and pipes (57–80) |
-| **7 FX** | Synth effects (97–104) and sound effects (121–128) |
-| **8 Other** | Reserved. Nothing is placed here automatically. |
+| **7 Others** | Synth effects (97–104) and sound effects (121–128), and the place for extra audio stems such as a live vocal |
+| **8 Click** | The click track: its fader is the click volume and its switch turns the click on or off. No MIDI channels are placed here. |
 
 **What the controls do**
 - The **fader** (0–127) scales the volume of every channel in the family, live. The volume written in the file is the starting point, so a fader at 64 plays the family at about half of what the file says. This works for the built-in sound and for external MIDI devices alike.
@@ -103,14 +105,62 @@ A MIDI file has up to 16 channels, each playing its own instrument, and every fi
 - A singer wants space? Pull the Winds or Keys fader down, or switch that family off for the song.
 - A guitarist wants to play the solo? Mute just the guitar channel for this song with the orange state.
 
-The same eight faders and switches are available on a MIDI controller such as the nanoKONTROL2 and, with the remote key, on the web page.
+The same eight faders and switches (the last one is the click) are available on a MIDI controller such as the nanoKONTROL2 and, with the remote key, on the web page.
+
+### Audio stems (.merik)
+
+A **.merik** file lets a song carry recorded audio next to (or instead of) the MIDI parts. It is a normal zip file; there is nothing to configure or to write. Merik recognises the files by their **name**, and whatever is missing falls back to the MIDI file or to Merik's own click.
+
+```
+My Song.merik
+├── song.mid            MIDI: tempo, time signature, lyrics, chords, MIDI parts
+├── 1-drums.flac        audio stems:  <family number>-<name>.<wav|flac|mp3>
+├── 2-bass.flac
+├── 7-void.mp3          Others: a live vocal, a choir, backing vocals...
+├── click.wav           your own click track (optional)
+├── chords.json         chords (optional)
+└── lyrics.json         lyrics (optional)
+```
+
+**Naming of stems: `number-name`.** The number (1–7, and 8 for the click) decides the family, the name is shown on the family button (first 8 characters): `1-drums.flac` shows **1 drums**, `7-void.mp3` shows **7 void**. A file called just `drums.wav` is accepted too (family by name: drums, bass, guitars, keys, strings, winds, others, click), but `number-name` is recommended. Stems can also live in a `stems/` folder. Several stems in one family are mixed together.
+
+> **Keep the original order of the families.** A family fader or switch may have been set for the whole evening: if a bass player joins live, the Bass family (2) is switched off, so don't put backing vocals on 2. Put extra tracks in **7 (Others)**, which is meant for that.
+
+**What is used, in order of priority**
+
+| What | If the file exists | Otherwise |
+|---|---|---|
+| A family's sound | the audio stem(s) of that family (**audio wins**, the MIDI notes of that family are not played) | the MIDI parts of that family |
+| Click | `click.wav` / `.flac` / `.mp3` | the internal click, from tempo and time signature |
+| Chords | `chords.json` | the chords found in the MIDI file |
+| Lyrics | `lyrics.json` | the lyrics found in the MIDI file |
+| Tempo and time signature | the MIDI file | 120 bpm, 4/4 (or an optional `manifest.json`) |
+
+So these are all valid: a song that is only MIDI; a song that is only stems; MIDI plus one live-vocal stem `7-void.mp3`; MIDI for the guitar while the other families come from stems (a hybrid).
+
+**Examples**
+- *Karaoke version with stems from the internet:* `1-drums.mp3`, `2-bass.mp3`, `4-keys.mp3`, `7-others.mp3` and the `song.mid` for lyrics and chords.
+- *Your band's backing track from a DAW:* export each family as a FLAC with the same start point, add `click.wav` and the MIDI file, and zip them.
+- *A MIDI song with a live vocal stem:* `song.mid` and `7-void.mp3`.
+
+Each family can be sent to **its own output** (Settings → Audio), as a stereo pair or a single mono channel, and the click to another. Each family button shows **AUDIO** or **MIDI** with a level meter, and the song list tags the file with **AUDIO** and/or **MIDI**. Transpose is not available for songs with stems.
+
+Make one with the included script, or just zip the files yourself:
+
+```bash
+python3 scripts/make-merik.py pack "My Song.merik" --folder stems/ --midi song.mid
+python3 scripts/make-merik.py pack "My Song.merik" --stem 1=drums.wav --stem 7=void.mp3 --midi song.mid
+```
+
+A ready-made test song is in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). The complete description (lyrics and chord JSON formats, the optional manifest, stem requirements) is in [docs/merik-format.md](docs/merik-format.md).
+
 
 ### Setlists that stay out of your way
 - Any number of setlists, reorderable by drag and drop.
 - Drag songs to reorder them, to move them to another setlist, or hold <kbd>Command</kbd> (<kbd>Ctrl</kbd> on Windows and Linux) to copy them. Select several songs at once.
 - The same song can appear more than once.
 - Right-click menus to rename (your own title, the file name is untouched), transpose, duplicate, copy, move, delete, or show a file in the Finder.
-- Song length, setlist total time, and tags that show which songs have **lyrics** and which have **chords**. Missing files are flagged in red.
+- Song length, setlist total time, and tags that show which songs have **lyrics**, **chords**, **MIDI** and **audio**. Missing files are flagged in red.
 - Everything is remembered between sessions.
 
 ### Lyrics and chords
@@ -139,7 +189,8 @@ The same eight faders and switches are available on a MIDI controller such as th
 
 ### Settings
 - **General:** remote-control key, the playback options, and the update check. Merik can tell you at startup when a newer version is available on GitHub, and you can switch that off or check by hand.
-- **Audio:** SoundFont, output device, sample rate, buffer size, and the gain and reverb of the built-in sound.
+- **Soundfont:** the SoundFont, and the gain and reverb of the built-in sound.
+- **Audio:** output device, sample rate and buffer size, the main output (a stereo pair or one channel), the click output (any other channel or pair), and an output per audio-stem family.
 - **Midi:** input, output, controller LEDs and all CC assignments.
 
 <p align="center">

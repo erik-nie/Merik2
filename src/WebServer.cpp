@@ -335,6 +335,12 @@ void WebServer::setFamilyVolumeCallback(FamilyVolumeCallback callback)
     std::scoped_lock lock(mutex_);
     familyVolumeCallback_ = std::move(callback);
 }
+void WebServer::setFamilyNames(const std::array<std::string, familyCount>& names)
+{
+    std::scoped_lock lock(mutex_);
+    familyNames_ = names;
+}
+
 void WebServer::setMeters(const std::array<float, familyCount>& levels, std::uint32_t stemMask)
 {
     std::scoped_lock lock(mutex_);
@@ -361,6 +367,7 @@ std::string WebServer::createFamilyJson() const
     std::array<bool, familyCount> enabled;
     std::array<float, familyCount> levels;
     std::uint32_t stemMask;
+    std::array<std::string, familyCount> names;
 
     {
         std::scoped_lock lock(mutex_);
@@ -368,6 +375,7 @@ std::string WebServer::createFamilyJson() const
         enabled = familyEnabled_;
         levels = familyLevels_;
         stemMask = stemMask_;
+        names = familyNames_;
     }
 
     std::string json = "{\"families\":[";
@@ -381,6 +389,7 @@ std::string WebServer::createFamilyJson() const
         json += ",\"enabled\":";
         json += enabled[i] ? "true" : "false";
         json += ",\"level\":" + std::to_string(static_cast<int>(levels[i] * 100.0f + 0.5f));
+        json += ",\"name\":\"" + escapeJson(names[i]) + "\"";
         json += ",\"source\":\"";
         json += i == 7 ? "click" : ((stemMask & (1u << i)) != 0 ? "audio" : "midi");
         json += "\"}";
@@ -2402,6 +2411,12 @@ document.getElementById("btnNext").addEventListener("click", () => sendControl("
 
             if (!control)
                 return;
+
+            const nameEl = control.querySelector(".family-name");
+            const shownName = family.name ? (index + 1) + " " + family.name : families[index];
+
+            if (nameEl && nameEl.textContent !== shownName)
+                nameEl.textContent = shownName;
 
             const source = control.querySelector(".family-source");
             const fill = control.querySelector(".family-meter-fill");

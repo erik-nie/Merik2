@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Song.h"
 #include "StemSet.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -25,6 +26,10 @@ namespace MerikPackage
 
     // Alleen de MIDI (snel, voor de lijsten): uitgepakt of uit het manifest gegenereerd.
     [[nodiscard]] juce::File midiFor(const juce::File& package, juce::String& error);
+
+    // chords.json en lyrics.json in het pakket (als ze er zijn) vervangen de
+    // akkoorden en lyrics uit het MIDI-bestand.
+    void applyScore(const juce::File& package, Song& song);
 
     // MIDI plus alle stems, omgezet naar deviceRate.
     [[nodiscard]] Contents open(const juce::File& package, double deviceRate);

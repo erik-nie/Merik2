@@ -5,12 +5,13 @@
 
 namespace
 {
-    constexpr int familyCountInStems = 7;   // 1..7; familie 8 is de klik
+    constexpr int stemFamilies = 8;   // 1..7 en 8 (de klik)
 
     struct StemInfo
     {
-        int family = 0;       // 0-based
+        int family = 0;       // 0-based; 7 = klik
         juce::String file;
+        juce::String label;   // naam uit de bestandsnaam, max. 8 tekens
         float gain = 1.0f;
     };
 
@@ -21,8 +22,8 @@ namespace
         int denominator = 4;
         double durationSeconds = 0.0;
         double audioOffsetSeconds = 0.0;
-        juce::String midiName;
-        std::vector<StemInfo> stems;
+        juce::String midiName;        // leeg = zelf zoeken
+        std::vector<StemInfo> stems;  // eerst de gevonden bestanden, dan de extra's uit het manifest
     };
 
     bool safeName(const juce::String& name)
@@ -31,12 +32,40 @@ namespace
             && !name.startsWithChar('\\') && !name.containsChar(':');
     }
 
+    // Naam in de zip, met / als scheidingsteken.
+    juce::String entryName(juce::ZipFile& zip, int index)
+    {
+        return zip.getEntry(index)->filename.replaceCharacter('\\', '/');
+    }
+
+    // Een bestand in de root van het pakket (hoofdletterongevoelig).
+    juce::String findRootEntry(juce::ZipFile& zip, const juce::String& lowerName)
+    {
+        for (int i = 0; i < zip.getNumEntries(); ++i)
+        {
+            const auto name = entryName(zip, i);
+
+            if (name.toLowerCase() == lowerName)
+                return name;
+        }
+
+        return {};
+    }
+
     bool readEntry(juce::ZipFile& zip, const juce::String& name, juce::MemoryBlock& block)
     {
         if (!safeName(name))
             return false;
 
-        const int index = zip.getIndexOfFileName(name);
+        int index = zip.getIndexOfFileName(name);
+
+        if (index < 0)
+        {
+            // Andere hoofdletters of backslashes in de zip.
+            for (int i = 0; i < zip.getNumEntries() && index < 0; ++i)
+                if (entryName(zip, i).equalsIgnoreCase(name))
+                    index = i;
+        }
 
         if (index < 0)
             return false;
@@ -51,68 +80,189 @@ namespace
         return block.getSize() > 0;
     }
 
+    // Vaste bestandsnamen: "1-drums.flac", "drums.wav", "7-live vocals.wav",
+    // "click.wav" (in de root of in stems/). Geeft 0..7 of -1.
+    int familyFromFileName(const juce::String& path)
+    {
+        auto name = path.toLowerCase();
+
+        if (name.startsWith("stems/"))
+            name = name.substring(6);
+
+        if (name.containsChar('/') || name.startsWithChar('.'))
+            return -1;
+
+        const auto extension = name.fromLastOccurrenceOf(".", false, false);
+
+        if (extension != "wav" && extension != "flac" && extension != "mp3"
+            && extension != "aif" && extension != "aiff")
+            return -1;
+
+        const auto stem = name.upToLastOccurrenceOf(".", false, false);
+
+        const auto startsWithWord = [&stem](const juce::String& word)
+        {
+            return stem == word
+                || (stem.startsWith(word) && !juce::CharacterFunctions::isLetter(stem[word.length()]));
+        };
+
+        if (stem.isNotEmpty() && stem[0] >= '1' && stem[0] <= '8'
+            && (stem.length() == 1 || !juce::CharacterFunctions::isLetterOrDigit(stem[1])))
+        {
+            const int number = stem[0] - '0';
+
+            if (number == 8)
+                return 7;
+
+            return number - 1;
+        }
+
+        static const char* words[] = { "drums", "bass", "guitars", "guitar", "keys", "strings", "winds", "others", "other" };
+        static const int families[] = { 0, 1, 2, 2, 3, 4, 5, 6, 6 };
+
+        for (int i = 0; i < 9; ++i)
+            if (startsWithWord(words[i]))
+                return families[i];
+
+        if (startsWithWord("click"))
+            return 7;
+
+        return -1;
+    }
+
+    // "7-void.mp3" -> "void"; "drums.wav" (zonder nummer) -> geen eigen naam.
+    juce::String labelFromFileName(const juce::String& path)
+    {
+        auto name = path.fromLastOccurrenceOf("/", false, false).upToLastOccurrenceOf(".", false, false).trim();
+
+        if (name.isEmpty() || name[0] < '1' || name[0] > '8')
+            return {};
+
+        name = name.substring(1).trimCharactersAtStart(" -_.").trim();
+        return name.substring(0, 8).trim();
+    }
+
     bool parseManifest(juce::ZipFile& zip, Manifest& manifest, juce::String& error)
     {
+        // Het manifest is optioneel: zonder gelden de vaste bestandsnamen.
         juce::MemoryBlock block;
 
-        if (!readEntry(zip, "manifest.json", block))
+        if (readEntry(zip, "manifest.json", block))
         {
-            error = "manifest.json is missing in this .merik file.";
-            return false;
-        }
+            const auto root = juce::JSON::parse(block.toString());
 
-        const auto root = juce::JSON::parse(block.toString());
-
-        if (!root.isObject())
-        {
-            error = "manifest.json is not valid JSON.";
-            return false;
-        }
-
-        manifest.bpm = std::max(20.0, static_cast<double>(root.getProperty("bpm", 120.0)));
-        manifest.durationSeconds = root.getProperty("durationSeconds", 0.0);
-
-        if (const auto* signature = root.getProperty("timeSignature", {}).getArray())
-            if (signature->size() >= 2)
+            if (!root.isObject())
             {
-                manifest.numerator = juce::jlimit(1, 32, static_cast<int>((*signature)[0]));
-                manifest.denominator = juce::jlimit(1, 32, static_cast<int>((*signature)[1]));
+                error = "manifest.json is not valid JSON.";
+                return false;
             }
 
-        const auto timing = root.getProperty("timing", {});
-        manifest.audioOffsetSeconds = timing.getProperty("audioOffsetSeconds", 0.0);
-        manifest.midiName = timing.getProperty("midi", "song.mid").toString();
+            manifest.bpm = std::max(20.0, static_cast<double>(root.getProperty("bpm", 120.0)));
+            manifest.durationSeconds = root.getProperty("durationSeconds", 0.0);
 
-        if (const auto* stems = root.getProperty("stems", {}).getArray())
+            if (const auto* signature = root.getProperty("timeSignature", {}).getArray())
+                if (signature->size() >= 2)
+                {
+                    manifest.numerator = juce::jlimit(1, 32, static_cast<int>((*signature)[0]));
+                    manifest.denominator = juce::jlimit(1, 32, static_cast<int>((*signature)[1]));
+                }
+
+            const auto timing = root.getProperty("timing", {});
+            manifest.audioOffsetSeconds = timing.getProperty("audioOffsetSeconds", 0.0);
+            manifest.midiName = timing.getProperty("midi", {}).toString();
+        }
+
+        // Gevonden stems.
+        for (int i = 0; i < zip.getNumEntries(); ++i)
         {
-            for (const auto& item : *stems)
+            const auto name = entryName(zip, i);
+            const int family = familyFromFileName(name);
+
+            if (family >= 0 && !name.startsWith("__MACOSX"))
             {
                 StemInfo stem;
-                const int family = item.getProperty("family", 0);
-
-                if (family < 1 || family > familyCountInStems)
-                {
-                    error = "A stem has family " + juce::String(family)
-                          + "; use 1 to 7 (8 is the click).";
-                    return false;
-                }
-
-                stem.family = family - 1;
-                stem.file = item.getProperty("file", {}).toString();
-                stem.gain = std::pow(10.0f, static_cast<float>(
-                    static_cast<double>(item.getProperty("gainDb", 0.0))) / 20.0f);
-
-                if (!safeName(stem.file))
-                {
-                    error = "Invalid stem file name: " + stem.file;
-                    return false;
-                }
-
+                stem.family = family;
+                stem.file = name;
+                stem.label = labelFromFileName(name);
                 manifest.stems.push_back(stem);
             }
         }
 
+        // Optioneel: gain of extra bestanden via het manifest.
+        if (block.getSize() > 0)
+        {
+            const auto root = juce::JSON::parse(block.toString());
+
+            if (const auto* stems = root.getProperty("stems", {}).getArray())
+            {
+                for (const auto& item : *stems)
+                {
+                    const int family = item.getProperty("family", 0);
+
+                    if (family < 1 || family > stemFamilies)
+                    {
+                        error = "A stem has family " + juce::String(family) + "; use 1 to 8.";
+                        return false;
+                    }
+
+                    const auto file = item.getProperty("file", {}).toString();
+
+                    if (!safeName(file))
+                    {
+                        error = "Invalid stem file name: " + file;
+                        return false;
+                    }
+
+                    const float gain = std::pow(10.0f, static_cast<float>(
+                        static_cast<double>(item.getProperty("gainDb", 0.0))) / 20.0f);
+
+                    bool known = false;
+
+                    for (auto& existing : manifest.stems)
+                        if (existing.file.equalsIgnoreCase(file))
+                        {
+                            existing.family = family - 1;
+                            existing.gain = gain;
+                            known = true;
+                        }
+
+                    if (!known)
+                    {
+                        StemInfo stem;
+                        stem.family = family - 1;
+                        stem.file = file;
+                        stem.gain = gain;
+                        manifest.stems.push_back(stem);
+                    }
+                }
+            }
+        }
+
         return true;
+    }
+
+    // Het MIDI-bestand in het pakket: song.mid, anders het eerste .mid/.midi/.kar in de root.
+    juce::String findMidiEntry(juce::ZipFile& zip, const Manifest& manifest)
+    {
+        if (manifest.midiName.isNotEmpty())
+            return manifest.midiName;
+
+        const auto standard = findRootEntry(zip, "song.mid");
+
+        if (standard.isNotEmpty())
+            return standard;
+
+        for (int i = 0; i < zip.getNumEntries(); ++i)
+        {
+            const auto name = entryName(zip, i);
+
+            if (!name.containsChar('/') && !name.startsWithChar('.')
+                && (name.endsWithIgnoreCase(".mid") || name.endsWithIgnoreCase(".midi")
+                    || name.endsWithIgnoreCase(".kar")))
+                return name;
+        }
+
+        return {};
     }
 
     juce::File cacheFolder(const juce::File& package)
@@ -242,7 +392,7 @@ namespace MerikPackage
 
         juce::MemoryBlock block;
 
-        if (readEntry(zip, manifest.midiName, block))
+        if (const auto midiName = findMidiEntry(zip, manifest); midiName.isNotEmpty() && readEntry(zip, midiName, block))
         {
             if (!target.replaceWithData(block.getData(), block.getSize()))
             {
@@ -269,7 +419,7 @@ namespace MerikPackage
 
         if (seconds <= 0.0)
         {
-            error = "This .merik file has no song.mid, no durationSeconds and no readable stems.";
+            error = "This .merik file has no MIDI file and no readable stems (name stems like 1-drums.flac).";
             return {};
         }
 
@@ -282,6 +432,136 @@ namespace MerikPackage
         }
 
         return target;
+    }
+
+    namespace
+    {
+        std::int64_t secondsToTick(const Song& song, double seconds)
+        {
+            const double ppq = static_cast<double>(std::max(1, song.ticksPerQuarterNote));
+
+            if (song.tempoMap.empty())
+                return static_cast<std::int64_t>(std::llround(seconds * 2.0 * ppq));
+
+            std::size_t i = 0;
+
+            while (i + 1 < song.tempoMap.size() && song.tempoMap[i + 1].seconds <= seconds)
+                ++i;
+
+            const auto& point = song.tempoMap[i];
+            return point.tick + static_cast<std::int64_t>(
+                std::llround((seconds - point.seconds) * point.bpm * ppq / 60.0));
+        }
+
+        const juce::Array<juce::var>* listFrom(const juce::var& root, const char* key)
+        {
+            if (const auto* array = root.getArray())
+                return array;
+
+            return root.getProperty(key, {}).getArray();
+        }
+    }
+
+    void applyScore(const juce::File& package, Song& song)
+    {
+        juce::ZipFile zip(package);
+
+        if (zip.getNumEntries() <= 0)
+            return;
+
+        juce::MemoryBlock block;
+
+        // chords.json: [ { "time": 12.5, "chord": "Am" }, ... ]  (seconden)
+        if (const auto name = findRootEntry(zip, "chords.json"); name.isNotEmpty() && readEntry(zip, name, block))
+        {
+            const auto root = juce::JSON::parse(block.toString());
+
+            if (const auto* list = listFrom(root, "chords"))
+            {
+                std::vector<SongChordEvent> chords;
+
+                for (const auto& item : *list)
+                {
+                    SongChordEvent chord;
+                    chord.seconds = item.getProperty("time", 0.0);
+                    chord.label = item.getProperty("chord", item.getProperty("label", {})).toString().toStdString();
+
+                    if (chord.label.empty() || chord.seconds < 0.0)
+                        continue;
+
+                    chord.tick = secondsToTick(song, chord.seconds);
+                    chord.samplePosition = static_cast<std::int64_t>(std::llround(chord.seconds * song.sampleRate));
+                    chords.push_back(std::move(chord));
+                }
+
+                std::stable_sort(chords.begin(), chords.end(),
+                                 [](const SongChordEvent& a, const SongChordEvent& b) { return a.seconds < b.seconds; });
+
+                const double songEnd = song.playbackEvents.empty() ? 0.0 : song.playbackEvents.back().seconds;
+
+                for (std::size_t i = 0; i < chords.size(); ++i)
+                    chords[i].endSeconds = i + 1 < chords.size()
+                        ? chords[i + 1].seconds
+                        : std::max(songEnd, chords[i].seconds + 4.0);
+
+                if (!chords.empty())
+                    song.chords = std::move(chords);
+            }
+        }
+
+        // lyrics.json: [ { "time": 10.0, "text": "A line", "words": [ { "time": 10.0, "text": "A" }, ... ] }, ... ]
+        if (const auto name = findRootEntry(zip, "lyrics.json"); name.isNotEmpty() && readEntry(zip, name, block))
+        {
+            const auto root = juce::JSON::parse(block.toString());
+
+            if (const auto* list = listFrom(root, "lyrics"))
+            {
+                std::vector<LyricEvent> lyrics;
+                int lineIndex = 0;
+
+                const auto add = [&](double seconds, const juce::String& text, bool newLine, bool endsLine)
+                {
+                    LyricEvent event;
+                    event.seconds = seconds;
+                    event.tick = secondsToTick(song, seconds);
+                    event.samplePosition = static_cast<std::int64_t>(std::llround(seconds * song.sampleRate));
+                    event.lineIndex = lineIndex;
+                    event.startsNewWord = true;
+                    event.endsWord = true;
+                    event.startsNewLine = newLine;
+                    event.endsLine = endsLine;
+                    event.text = text.toStdString();
+                    lyrics.push_back(std::move(event));
+                };
+
+                for (const auto& line : *list)
+                {
+                    const double time = line.getProperty("time", 0.0);
+                    const auto text = line.getProperty("text", {}).toString();
+
+                    if (const auto* words = line.getProperty("words", {}).getArray(); words != nullptr && !words->isEmpty())
+                    {
+                        for (int w = 0; w < words->size(); ++w)
+                            add((*words)[w].getProperty("time", time),
+                                (*words)[w].getProperty("text", {}).toString(),
+                                w == 0, w + 1 == words->size());
+                    }
+                    else if (text.isNotEmpty())
+                    {
+                        add(time, text, true, true);
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    ++lineIndex;
+                }
+
+                if (!lyrics.empty())
+                    song.lyrics = std::move(lyrics);
+            }
+        }
     }
 
     Contents open(const juce::File& package, double deviceRate)
@@ -355,6 +635,9 @@ namespace MerikPackage
                 track.left.assign(buffer.getReadPointer(0), buffer.getReadPointer(0) + length);
                 track.right.assign(buffer.getReadPointer(1), buffer.getReadPointer(1) + length);
             }
+
+            if (set->names[static_cast<std::size_t>(info.family)].empty() && info.label.isNotEmpty())
+                set->names[static_cast<std::size_t>(info.family)] = info.label.toStdString();
 
             set->lengthSamples = std::max(set->lengthSamples,
                                           offset + static_cast<std::int64_t>(track.left.size()));
