@@ -445,6 +445,16 @@ namespace MerikPackage
         return static_cast<int>(manifest.stems.size());
     }
 
+    int stemFamily(const juce::String& fileName)
+    {
+        return familyFromFileName(fileName);
+    }
+
+    juce::String stemLabel(const juce::String& fileName)
+    {
+        return labelFromFileName(fileName);
+    }
+
     juce::File midiFor(const juce::File& package, juce::String& error)
     {
         juce::ZipFile zip(package);

@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "MerikBuilder.h"
 #include "MerikPackage.h"
 #include "LoadingOverlay.h"
 #include "PackageLoader.h"
@@ -628,6 +629,7 @@ struct SettingsContext
     juce::TextButton& autoNext;
     juce::TextButton& updateCheck;
     std::function<void()> checkNow;
+    std::function<void()> createMerik;
 
     std::function<juce::String()> midiInActivity;
 
@@ -786,6 +788,14 @@ private:
         };
         generalPage.addAndMakeVisible(checkNowButton);
 
+        createMerikButton.setButtonText("Create a .merik file from a folder...");
+        createMerikButton.onClick = [this]
+        {
+            if (context.createMerik)
+                context.createMerik();
+        };
+        generalPage.addAndMakeVisible(createMerikButton);
+
         generalPage.layout = [this](juce::Rectangle<int> bounds)
         {
             const int controlX = bounds.proportionOfWidth(0.30f);
@@ -807,6 +817,8 @@ private:
 
             y += 8;
             checkNowButton.setBounds(controlX, y, 190, 30);
+            y += 44;
+            createMerikButton.setBounds(controlX, y, 300, 30);
         };
     }
 
@@ -1522,7 +1534,7 @@ private:
     juce::TextEditor webKeyEditor;
     std::array<juce::ToggleButton, 4> optionCopies;
     std::array<juce::TextButton*, 4> sources;
-    juce::TextButton checkNowButton;
+    juce::TextButton checkNowButton, createMerikButton;
 
     // Audio
     ScrollPage soundFontPage;
@@ -1553,6 +1565,385 @@ private:
     juce::TextButton resetMapping;
 };
 
+// ============================================================================
+// Een .merik maken uit een map
+// ============================================================================
+
+class MerikMakerContent final : public juce::Component,
+                                private juce::Timer
+{
+public:
+    std::function<void(const juce::File&)> onAddToSetlist;
+
+    explicit MerikMakerContent(juce::File startFolder)
+        : lastFolder(std::move(startFolder))
+    {
+        setLookAndFeel(&merikLookAndFeel);
+
+        heading.setText("Create a .merik file", juce::dontSendNotification);
+        heading.setFont(merikLookAndFeel.getBoldFont(20.0f));
+        heading.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(heading);
+
+        hint.setText("Choose a folder with your stems (1-drums.wav, 2-bass.flac, ...), and optionally song.mid, "
+                     "click.wav, chords.json and lyrics.json. Merik shows what it found, can convert WAV to FLAC, "
+                     "and saves everything as a .merik without compression, so it loads instantly.",
+                     juce::dontSendNotification);
+        hint.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        hint.setColour(juce::Label::textColourId, secondaryTextColour);
+        hint.setMinimumHorizontalScale(1.0f);
+        hint.setJustificationType(juce::Justification::topLeft);
+        addAndMakeVisible(hint);
+
+        folderButton.setButtonText("Choose folder...");
+        folderButton.onClick = [this] { chooseFolder(); };
+        addAndMakeVisible(folderButton);
+
+        folderLabel.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        folderLabel.setColour(juce::Label::textColourId, textColour);
+        folderLabel.setText("No folder chosen", juce::dontSendNotification);
+        addAndMakeVisible(folderLabel);
+
+        report.setMultiLine(true, false);
+        report.setReadOnly(true);
+        report.setScrollbarsShown(true);
+        report.setCaretVisible(false);
+        report.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        report.setColour(juce::TextEditor::backgroundColourId, panelDarkColour);
+        report.setColour(juce::TextEditor::textColourId, textColour);
+        report.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        report.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        report.setIndents(10, 8);
+        addAndMakeVisible(report);
+
+        flacToggle.setButtonText("Convert WAV to FLAC (about half the size, lossless)");
+        flacToggle.setToggleState(true, juce::dontSendNotification);
+        addAndMakeVisible(flacToggle);
+
+        createButton.setButtonText("Create .merik...");
+        createButton.setColour(juce::TextButton::buttonColourId, merikBlue);
+        createButton.setEnabled(false);
+        createButton.onClick = [this] { chooseOutput(); };
+        addAndMakeVisible(createButton);
+
+        statusLabel.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        statusLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        addAndMakeVisible(statusLabel);
+
+        addToSetlistButton.setButtonText("Add to the current setlist");
+        addToSetlistButton.onClick = [this]
+        {
+            if (onAddToSetlist && created != juce::File())
+                onAddToSetlist(created);
+
+            addToSetlistButton.setEnabled(false);
+        };
+        addChildComponent(addToSetlistButton);
+
+        showButton.setButtonText("Show in Finder");
+        showButton.onClick = [this] { created.revealToUser(); };
+        addChildComponent(showButton);
+
+        progressBar = std::make_unique<juce::ProgressBar>(progressValue);
+        progressBar->setPercentageDisplay(true);
+        addChildComponent(*progressBar);
+
+        setSize(620, 600);
+    }
+
+    ~MerikMakerContent() override
+    {
+        stopTimer();
+        cancel = true;
+
+        if (worker != nullptr)
+            worker->stopThread(60000);
+
+        setLookAndFeel(nullptr);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(backgroundColour);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(22, 18);
+
+        heading.setBounds(area.removeFromTop(30));
+        area.removeFromTop(4);
+        hint.setBounds(area.removeFromTop(62));
+        area.removeFromTop(8);
+
+        auto row = area.removeFromTop(32);
+        folderButton.setBounds(row.removeFromLeft(150));
+        row.removeFromLeft(12);
+        folderLabel.setBounds(row);
+
+        area.removeFromTop(10);
+
+        auto bottom = area.removeFromBottom(120);
+        report.setBounds(area);
+
+        bottom.removeFromTop(10);
+        flacToggle.setBounds(bottom.removeFromTop(26));
+        bottom.removeFromTop(8);
+
+        auto progressRow = bottom.removeFromTop(24);
+        progressBar->setBounds(progressRow);
+        statusLabel.setBounds(progressRow);
+
+        bottom.removeFromTop(12);
+        auto buttons = bottom.removeFromTop(32);
+        createButton.setBounds(buttons.removeFromRight(160));
+        buttons.removeFromRight(10);
+        addToSetlistButton.setBounds(buttons.removeFromRight(200));
+        buttons.removeFromRight(10);
+        showButton.setBounds(buttons.removeFromRight(130));
+    }
+
+private:
+    void chooseFolder()
+    {
+        chooser = std::make_shared<juce::FileChooser>("Choose the folder with your stems", lastFolder);
+
+        chooser->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+            [safe = juce::Component::SafePointer<MerikMakerContent>(this)](const juce::FileChooser& fc)
+            {
+                if (safe == nullptr)
+                    return;
+
+                const auto folder = fc.getResult();
+
+                if (folder.isDirectory())
+                    safe->showFolder(folder);
+            });
+    }
+
+    void showFolder(const juce::File& folder)
+    {
+        lastFolder = folder;
+        plan = MerikBuilder::scan(folder);
+
+        folderLabel.setText(folder.getFullPathName(), juce::dontSendNotification);
+        created = juce::File();
+        addToSetlistButton.setVisible(false);
+        showButton.setVisible(false);
+        statusLabel.setText({}, juce::dontSendNotification);
+
+        juce::String text;
+
+        if (!plan.items.empty())
+        {
+            text << "This will go into the .merik:\n";
+
+            for (const auto& item : plan.items)
+                text << "  +  " << item.description << "\n";
+        }
+
+        if (plan.ignored.size() > 0)
+        {
+            text << "\nNot used (name not recognised):\n";
+
+            for (const auto& name : plan.ignored)
+                text << "  -  " << name << "\n";
+        }
+
+        if (plan.warnings.size() > 0)
+        {
+            text << "\nTo check:\n";
+
+            for (const auto& warning : plan.warnings)
+                text << "  !  " << warning << "\n";
+        }
+
+        if (plan.items.empty())
+            text << "Nothing recognised in this folder.\n\nName the stems like 1-drums.wav, 2-bass.wav, 3-guitars.wav, "
+                    "4-keys.wav, 5-strings.wav, 6-winds.wav, 7-others.wav and 8-click.wav (flac and mp3 also work).\n";
+
+        report.setText(text, false);
+        createButton.setEnabled(plan.usable());
+    }
+
+    void chooseOutput()
+    {
+        if (worker != nullptr)
+            return;
+
+        const auto suggested = plan.folder.getSiblingFile(plan.folder.getFileName() + ".merik");
+
+        chooser = std::make_shared<juce::FileChooser>("Save the .merik file as", suggested, "*.merik");
+
+        chooser->launchAsync(
+            juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                | juce::FileBrowserComponent::warnAboutOverwriting,
+            [safe = juce::Component::SafePointer<MerikMakerContent>(this)](const juce::FileChooser& fc)
+            {
+                if (safe == nullptr)
+                    return;
+
+                auto file = fc.getResult();
+
+                if (file == juce::File())
+                    return;
+
+                if (!file.hasFileExtension("merik"))
+                    file = file.withFileExtension("merik");
+
+                safe->startBuild(file);
+            });
+    }
+
+    void startBuild(const juce::File& output)
+    {
+        cancel = false;
+        finished = false;
+        progress = 0.0f;
+        progressValue = 0.0;
+        message = "Starting...";
+        result = {};
+        created = juce::File();
+
+        createButton.setEnabled(false);
+        folderButton.setEnabled(false);
+        flacToggle.setEnabled(false);
+        addToSetlistButton.setVisible(false);
+        showButton.setVisible(false);
+        statusLabel.setVisible(false);
+        progressBar->setVisible(true);
+
+        const auto copy = plan;
+        const bool convert = flacToggle.getToggleState();
+
+        worker = std::make_unique<Worker>([this, copy, convert, output]
+        {
+            auto outcome = MerikBuilder::build(copy, convert, output, [this](float p, const juce::String& text)
+            {
+                progress = p;
+
+                {
+                    const juce::ScopedLock lock(messageLock);
+                    message = text;
+                }
+
+                return !cancel.load();
+            });
+
+            {
+                const juce::ScopedLock lock(messageLock);
+                result = outcome;
+            }
+
+            outputFile = output;
+            finished = true;
+        });
+
+        startTimerHz(20);
+    }
+
+    void timerCallback() override
+    {
+        progressValue = static_cast<double>(progress.load());
+
+        {
+            const juce::ScopedLock lock(messageLock);
+            progressBar->setTextToDisplay(juce::String(juce::roundToInt(progressValue * 100.0)) + "%   " + message);
+        }
+
+        if (!finished.load())
+            return;
+
+        stopTimer();
+
+        if (worker != nullptr)
+            worker->stopThread(5000);
+
+        worker.reset();
+
+        progressBar->setVisible(false);
+        statusLabel.setVisible(true);
+        folderButton.setEnabled(true);
+        flacToggle.setEnabled(true);
+        createButton.setEnabled(plan.usable());
+
+        MerikBuilder::Result outcome;
+
+        {
+            const juce::ScopedLock lock(messageLock);
+            outcome = result;
+        }
+
+        if (outcome.ok)
+        {
+            created = outputFile;
+            statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(46, 204, 113));
+            statusLabel.setText("Created " + outputFile.getFileName() + " ("
+                                    + juce::String(static_cast<double>(outcome.bytes) / (1024.0 * 1024.0), 1) + " MB)",
+                                juce::dontSendNotification);
+            addToSetlistButton.setEnabled(true);
+            addToSetlistButton.setVisible(true);
+            showButton.setVisible(true);
+        }
+        else
+        {
+            statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 120, 120));
+            statusLabel.setText(outcome.cancelled ? "Cancelled" : outcome.error, juce::dontSendNotification);
+        }
+    }
+
+    class Worker final : public juce::Thread
+    {
+    public:
+        explicit Worker(std::function<void()> jobToRun)
+            : juce::Thread("Merik maker"), job(std::move(jobToRun))
+        {
+            startThread(juce::Thread::Priority::normal);
+        }
+
+        ~Worker() override { stopThread(60000); }
+
+    private:
+        void run() override { job(); }
+        std::function<void()> job;
+    };
+
+    juce::Label heading, hint, folderLabel, statusLabel;
+    juce::TextButton folderButton, createButton, addToSetlistButton, showButton;
+    juce::ToggleButton flacToggle;
+    juce::TextEditor report;
+    std::unique_ptr<juce::ProgressBar> progressBar;
+    double progressValue = 0.0;
+
+    std::shared_ptr<juce::FileChooser> chooser;
+    juce::File lastFolder, created, outputFile;
+    MerikBuilder::Plan plan;
+
+    std::unique_ptr<Worker> worker;
+    std::atomic<bool> cancel { false }, finished { false };
+    std::atomic<float> progress { 0.0f };
+    juce::CriticalSection messageLock;
+    juce::String message;
+    MerikBuilder::Result result;
+};
+
+class MerikMakerWindow final : public juce::DialogWindow
+{
+public:
+    explicit MerikMakerWindow(juce::Component* content, juce::Component* owner)
+        : juce::DialogWindow("Create a .merik file", backgroundColour, true)
+    {
+        setUsingNativeTitleBar(true);
+        setResizable(false, false);
+        setContentOwned(content, true);
+        centreAroundComponent(owner, getWidth(), getHeight());
+        setVisible(true);
+    }
+
+    void closeButtonPressed() override { delete this; }
+};
+
 class AudioSettingsWindow final : public juce::DialogWindow
 {
 public:
@@ -1579,6 +1970,36 @@ public:
 };
 }
 
+void MainComponent::showMerikMaker()
+{
+    if (makerWindow != nullptr)
+    {
+        makerWindow->toFront(true);
+        return;
+    }
+
+    auto* content = new MerikMakerContent(
+        currentMidiFile.existsAsFile() ? currentMidiFile.getParentDirectory() : juce::File());
+
+    // Een gemaakt bestand kan meteen onderaan de getoonde setlist.
+    content->onAddToSetlist = [this](const juce::File& file)
+    {
+        if (selectedSetlist < 0 || selectedSetlist >= static_cast<int>(setlists.size()))
+            return;
+
+        SongEntry entry;
+        entry.file = file;
+        setlists[static_cast<std::size_t>(selectedSetlist)].songs.push_back(std::move(entry));
+
+        savePersistentState();
+        refreshSongModel();
+        refreshSetlistModel();
+        scanSongInfo();
+    };
+
+    makerWindow = new MerikMakerWindow(content, this);
+}
+
 void MainComponent::showAudioSettings()
 {
     if (settingsWindow != nullptr)
@@ -1598,6 +2019,7 @@ void MainComponent::showAudioSettings()
         continuousToggle,
         updateCheckToggle,
         [this] { checkForUpdates(true); },
+        [this] { showMerikMaker(); },
 
         [this]
         {

@@ -18,14 +18,15 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 ## Download
 
-**[Download Merik 0.5.0](https://github.com/erik-nie/Merik2/releases/tag/v0.5.0)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+**[Download Merik 0.5.1](https://github.com/erik-nie/Merik2/releases/tag/v0.5.1)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS** | `Merik-0.5.0-arm64.dmg` | Apple silicon, macOS 14 or later |
-| **Windows** | `Merik-0.5.0-windows-x64.zip` | Windows 10 or 11, 64-bit |
+| **macOS, Apple silicon** (M1 and newer) | `Merik-0.5.1-arm64.dmg` | macOS 14 or later |
+| **macOS, Intel** | `Merik-0.5.1-intel.dmg` | Intel Mac, macOS 15 or later |
+| **Windows** | `Merik-0.5.1-windows-x64.zip` | Windows 10 or 11, 64-bit |
 
-**Install on macOS**
+**Install on macOS** (both versions)
 
 1. Open the DMG and drag **Merik** onto **Applications**.
 2. The app is **not notarized**, so macOS blocks the first start. Right-click **Merik.app**, choose **Open** and confirm. If it is still blocked, run this in Terminal:
@@ -149,7 +150,22 @@ Each family can be sent to **its own output** (Settings → Audio), as a stereo 
 
 ### Making a .merik from a set of audio files
 
-A `.merik` is just a zip. The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
+**Let Merik do it.** In **Settings → General → Create a .merik file from a folder...**:
+
+1. Choose the folder with your stems (`1-drums.wav`, `2-bass.flac`, ..., optionally `song.mid`, `click.wav`, `chords.json`, `lyrics.json`).
+2. Merik shows what it recognised and what it ignored, and warns about stems of different lengths, a missing MIDI file or a missing tempo.
+3. Tick *Convert WAV to FLAC* if you want (lossless, about half the size).
+4. Choose a name and Merik saves the `.merik`, without compression, so it loads instantly. Afterwards you can add it straight to the current setlist.
+
+This is **the recommended way**: it is much more stable than doing it by hand, because Merik checks the file names, compares the stem lengths, converts WAV to FLAC without loss and stores the zip the right way, which removes the common mistakes (a compressed zip, an extra folder, a wrongly named stem).
+
+A ready-made test song is in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). The complete description (lyrics and chord JSON formats, the optional manifest, stem requirements) is in [docs/merik-format.md](docs/merik-format.md).
+
+#### The manual way (advanced)
+
+For the command line, scripts, or to see what happens inside: a `.merik` is just a zip. Doing it by hand works, but it is easier to get wrong: one wrong flag or file name and the song loads slowly or a stem is not recognised. Prefer the automatic way above.
+
+The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
 
 Put the stems in a folder, named `1-drums.wav`, `2-bass.wav`, ... (see naming above), optionally with `song.mid`, `click.wav`, `chords.json`, `lyrics.json`.
 
@@ -198,8 +214,6 @@ Get-ChildItem *.wav | ForEach-Object { ffmpeg -i $_.Name -c:a flac ($_.BaseName 
 Then pack the `.flac` files as above (`zip -0 -j "songname.merik" *.flac song.mid`).
 
 The included script does the same in one go: `python3 scripts/make-merik.py pack "songname.merik" --folder stems/ --midi song.mid`.
-
-A ready-made test song is in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). The complete description (lyrics and chord JSON formats, the optional manifest, stem requirements) is in [docs/merik-format.md](docs/merik-format.md).
 
 
 ### Setlists that stay out of your way
@@ -318,19 +332,19 @@ The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's
 
 ### Releases
 
-Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMG and the Windows zip and creates a draft release with both files:
+Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMGs (Apple silicon and Intel) and the Windows zip and creates a draft release with the three files:
 
 ```sh
-git tag -a v0.5.0 -m "Merik 0.5.0"
-git push origin v0.5.0
+git tag -a v0.5.1 -m "Merik 0.5.1"
+git push origin v0.5.1
 ```
 
 The release notes come from `docs/release-notes/<version>.md`. You can also start the workflow by hand (Actions, Release, Run workflow) to build the files without making a release.
 
-On a Mac you can build the DMG yourself with `scripts/make-release.sh`. It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
+On a Mac you can build the DMG yourself with `scripts/make-release.sh` (it builds for the processor of that Mac). It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
 
 ```sh
-scripts/make-release.sh 0.5.0
+scripts/make-release.sh 0.5.1
 ```
 
 For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.

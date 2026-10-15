@@ -34,6 +34,11 @@ namespace MerikPackage
 
     [[nodiscard]] bool isPackage(const juce::File& file);
 
+    // Herkent een stem aan zijn bestandsnaam ("1-drums.flac", "drums.wav", "8-click.wav"):
+    // familie 0..7 (7 = klik) of -1. De naam na het nummer, max. 8 tekens, via stemLabel().
+    [[nodiscard]] int stemFamily(const juce::String& fileName);
+    [[nodiscard]] juce::String stemLabel(const juce::String& fileName);
+
     // Snel: aantal stems in het manifest (0 als er geen zijn of het bestand ongeldig is).
     [[nodiscard]] int stemCount(const juce::File& package);
 

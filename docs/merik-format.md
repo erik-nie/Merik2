@@ -109,6 +109,14 @@ Only needed for things the file names cannot say:
 
 ## Making a .merik
 
+**Inside Merik (recommended):** *Settings → General → Create a .merik file from a folder...*. Merik recognises the files in a folder by their names (using the rules above), warns about problems (different stem lengths, missing MIDI/tempo, unknown files), converts WAV to FLAC if you want (lossless; 32-bit float becomes 24-bit) and saves the `.merik` without compression. You can add the result to the current setlist right away. This is much more stable than doing it by hand: the common mistakes (a compressed zip, an extra folder, a wrongly named stem) cannot happen.
+
+A test song is included: [docs/demo/Stems Demo.merik](demo/Stems%20Demo.merik) (drums, bass, keys, strings and others as audio, a MIDI file whose guitar part plays through the SoundFont, plus `chords.json` and `lyrics.json`).
+
+### The manual way (advanced)
+
+For the command line and scripts. It works, but it is easier to get wrong: one wrong flag or file name and the song loads slowly or a stem is not recognised.
+
 A `.merik` is just a zip. The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
 
 Put the stems in a folder, named `1-drums.wav`, `2-bass.wav`, ... (see *File names* above), optionally with `song.mid`, `click.wav`, `chords.json`, `lyrics.json`.
@@ -168,5 +176,3 @@ python3 scripts/make-merik.py pack "My Song.merik" --folder stems/ --click click
 python3 scripts/make-merik.py pack "My Song.merik" --folder stems/ --bpm 96 --sig 4/4     # no MIDI
 python3 scripts/make-merik.py demo "Stems Demo.merik"                                       # synthetic test song
 ```
-
-A test song is included: [docs/demo/Stems Demo.merik](demo/Stems%20Demo.merik) (drums, bass, keys, strings and others as audio, a MIDI file whose guitar part plays through the SoundFont, plus `chords.json` and `lyrics.json`).

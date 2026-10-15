@@ -295,6 +295,8 @@ private:
     // met die in het hoofdscherm (leeg zolang het venster dicht is).
     std::function<void()> syncSettingsToggles;
     juce::Component::SafePointer<juce::Component> settingsWindow;
+    juce::Component::SafePointer<juce::Component> makerWindow;
+    void showMerikMaker();
     void play();
     void stop();
 
