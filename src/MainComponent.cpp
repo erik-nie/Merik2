@@ -4464,51 +4464,84 @@ void MainComponent::loadPersistentState()
                 "setlist." + juce::String(i) + ".name",
                 "Setlist " + juce::String(i + 1));
 
-        const int songCount =
-            properties->getIntValue(
-                "setlist." +
-                juce::String(i) +
-                ".songCount",
-                0);
-
-        for (int j = 0; j < songCount; ++j)
+        const auto addSong = [&setlist](SongEntry entry, double length, int lyrics, int chords,
+                                        int midi, int audio, juce::int64 storedTime)
         {
-            const auto path =
-                properties->getValue(
-                    "setlist." +
-                    juce::String(i) +
-                    ".song." +
-                    juce::String(j));
-
-            if (path.isNotEmpty())
+            // Eerder uitgelezen duur / lyrics / akkoorden; alleen geldig
+            // zolang het bestand niet gewijzigd is.
+            if (storedTime != 0 && storedTime == entry.file.getLastModificationTime().toMilliseconds())
             {
-                // Bewust ook bewaren als het bestand momenteel
-                // niet beschikbaar is.
+                entry.fileTime = storedTime;
+                entry.lengthSeconds = length;
+                entry.hasLyrics = lyrics;
+                entry.hasChords = chords;
+                entry.hasMidi = midi;
+                entry.hasAudio = audio;
+            }
+
+            setlist.songs.push_back(std::move(entry));
+        };
+
+        const auto songsKey = "setlist." + juce::String(i) + ".songsXml";
+
+        if (auto songsXml = properties->getXmlValue(songsKey))
+        {
+            for (auto* item : songsXml->getChildWithTagNameIterator("s"))
+            {
+                const auto path = item->getStringAttribute("file");
+
+                if (path.isEmpty())
+                    continue;
+
+                // Bewust ook bewaren als het bestand momenteel niet beschikbaar is.
                 SongEntry entry;
                 entry.file = juce::File(path);
+                entry.displayName = item->getStringAttribute("name");
+                entry.transpose = item->getIntAttribute("transpose", 0);
 
-                const auto base =
-                    "setlist." + juce::String(i) + ".song." + juce::String(j);
+                addSong(std::move(entry),
+                        item->getDoubleAttribute("length", -1.0),
+                        item->getIntAttribute("lyrics", -1),
+                        item->getIntAttribute("chords", -1),
+                        item->getIntAttribute("midi", -1),
+                        item->getIntAttribute("audio", -1),
+                        item->getStringAttribute("fileTime", "0").getLargeIntValue());
+            }
+        }
+        else
+        {
+            // Oud formaat (losse sleutels per nummer): inlezen en opruimen.
+            const int songCount =
+                properties->getIntValue("setlist." + juce::String(i) + ".songCount", 0);
 
-                entry.displayName = properties->getValue(base + ".name", "");
-                entry.transpose = properties->getIntValue(base + ".transpose", 0);
+            for (int j = 0; j < songCount; ++j)
+            {
+                const auto base = "setlist." + juce::String(i) + ".song." + juce::String(j);
+                const auto path = properties->getValue(base);
 
-                // Eerder uitgelezen duur / lyrics / akkoorden; alleen geldig
-                // zolang het bestand niet gewijzigd is.
-                const auto storedTime = properties->getValue(base + ".fileTime", "0").getLargeIntValue();
-
-                if (storedTime != 0 && storedTime == entry.file.getLastModificationTime().toMilliseconds())
+                if (path.isNotEmpty())
                 {
-                    entry.fileTime = storedTime;
-                    entry.lengthSeconds = properties->getDoubleValue(base + ".length", -1.0);
-                    entry.hasLyrics = properties->getIntValue(base + ".lyrics", -1);
-                    entry.hasChords = properties->getIntValue(base + ".chords", -1);
-                    entry.hasMidi = properties->getIntValue(base + ".midi", -1);
-                    entry.hasAudio = properties->getIntValue(base + ".audio", -1);
+                    SongEntry entry;
+                    entry.file = juce::File(path);
+                    entry.displayName = properties->getValue(base + ".name", "");
+                    entry.transpose = properties->getIntValue(base + ".transpose", 0);
+
+                    addSong(std::move(entry),
+                            properties->getDoubleValue(base + ".length", -1.0),
+                            properties->getIntValue(base + ".lyrics", -1),
+                            properties->getIntValue(base + ".chords", -1),
+                            properties->getIntValue(base + ".midi", -1),
+                            properties->getIntValue(base + ".audio", -1),
+                            properties->getValue(base + ".fileTime", "0").getLargeIntValue());
                 }
 
-                setlist.songs.push_back(std::move(entry));
+                for (const char* suffix : { "", ".name", ".transpose", ".fileTime", ".length",
+                                            ".lyrics", ".chords", ".midi", ".audio" })
+                    properties->removeValue(base + suffix);
             }
+
+            properties->removeValue("setlist." + juce::String(i) + ".songCount");
+            songInfoDirty = true;
         }
 
         setlists.push_back(
@@ -4576,34 +4609,30 @@ void MainComponent::savePersistentState()
             "setlist." + index + ".name",
             setlists[i].name);
 
-        properties->setValue(
-            "setlist." + index + ".songCount",
-            static_cast<int>(
-                setlists[i].songs.size()));
+        // Alle nummers van een setlist in één waarde: duizenden losse sleutels
+        // maakten het opslaan traag (elke sleutel zoeken is een lineaire scan).
+        juce::XmlElement songsXml("songs");
 
-        for (std::size_t j = 0;
-             j < setlists[i].songs.size();
-             ++j)
+        for (const auto& song : setlists[i].songs)
         {
-            properties->setValue(
-                "setlist." +
-                index +
-                ".song." +
-                juce::String(static_cast<int>(j)),
-                setlists[i].songs[j].file.getFullPathName());
+            auto* item = songsXml.createNewChildElement("s");
+            item->setAttribute("file", song.file.getFullPathName());
 
-            const auto base =
-                "setlist." + index + ".song." + juce::String(static_cast<int>(j));
+            if (song.displayName.isNotEmpty())
+                item->setAttribute("name", song.displayName);
 
-            properties->setValue(base + ".name", setlists[i].songs[j].displayName);
-            properties->setValue(base + ".transpose", setlists[i].songs[j].transpose);
-            properties->setValue(base + ".fileTime", juce::String(setlists[i].songs[j].fileTime));
-            properties->setValue(base + ".length", setlists[i].songs[j].lengthSeconds);
-            properties->setValue(base + ".lyrics", setlists[i].songs[j].hasLyrics);
-            properties->setValue(base + ".chords", setlists[i].songs[j].hasChords);
-            properties->setValue(base + ".midi", setlists[i].songs[j].hasMidi);
-            properties->setValue(base + ".audio", setlists[i].songs[j].hasAudio);
+            if (song.transpose != 0)
+                item->setAttribute("transpose", song.transpose);
+
+            item->setAttribute("fileTime", juce::String(song.fileTime));
+            item->setAttribute("length", song.lengthSeconds);
+            item->setAttribute("lyrics", song.hasLyrics);
+            item->setAttribute("chords", song.hasChords);
+            item->setAttribute("midi", song.hasMidi);
+            item->setAttribute("audio", song.hasAudio);
         }
+
+        properties->setValue("setlist." + index + ".songsXml", &songsXml);
     }
 
     // Echt onmiddellijk naar disk.
