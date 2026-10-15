@@ -48,6 +48,14 @@ struct TempoPoint
     double bpm = 120.0;
 };
 
+struct TimeSignaturePoint
+{
+    std::int64_t tick = 0;
+    double seconds = 0.0;
+    int numerator = 4;
+    int denominator = 4;
+};
+
 struct Song
 {
     std::string sourceFile;
@@ -56,6 +64,9 @@ struct Song
     double sampleRate = 48000.0;
 
     std::vector<TempoPoint> tempoMap;
+
+    // Maatsoort(en); begint altijd op tick 0 (standaard 4/4).
+    std::vector<TimeSignaturePoint> timeSignatures;
 
     std::vector<RawMidiEvent> playbackEvents;
 

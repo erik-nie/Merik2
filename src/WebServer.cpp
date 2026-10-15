@@ -5,16 +5,129 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
-#include <netinet/in.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+ #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+ #endif
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <winsock2.h>
+ #include <ws2tcpip.h>
+#else
+ #include <netinet/in.h>
+ #include <sys/socket.h>
+ #include <sys/time.h>
+ #include <unistd.h>
+#endif
 
 namespace
 {
 constexpr int backlog = 8;
 
-void sendResponse(int socket, const std::string& body, const char* contentType)
+// ---------------------------------------------------------------------------
+// Sockets: BSD-sockets op macOS/Linux, Winsock op Windows. De rest van de
+// server gebruikt alleen deze kleine laag. Een socket is hier een std::intptr_t
+// (-1 = ongeldig), zodat dezelfde code voor beide werkt.
+// ---------------------------------------------------------------------------
+
+#ifdef _WIN32
+using NativeSocket = SOCKET;
+#else
+using NativeSocket = int;
+#endif
+
+#ifdef _WIN32
+// Winsock moet eenmalig worden gestart.
+struct WinsockSession
+{
+    WinsockSession()
+    {
+        WSADATA data {};
+        ok = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }
+
+    ~WinsockSession()
+    {
+        if (ok)
+            WSACleanup();
+    }
+
+    bool ok = false;
+};
+
+WinsockSession& winsock()
+{
+    static WinsockSession session;
+    return session;
+}
+#endif
+
+std::intptr_t openListeningSocket()
+{
+#ifdef _WIN32
+    if (!winsock().ok)
+        return -1;
+#endif
+    return static_cast<std::intptr_t>(::socket(AF_INET, SOCK_STREAM, 0));
+}
+
+void closeSocket(std::intptr_t handle)
+{
+#ifdef _WIN32
+    ::closesocket(static_cast<SOCKET>(handle));
+#else
+    ::close(static_cast<int>(handle));
+#endif
+}
+
+// Sluit beide richtingen; maakt ook een blokkerende accept() vrij.
+void shutdownSocket(std::intptr_t handle)
+{
+#ifdef _WIN32
+    ::shutdown(static_cast<SOCKET>(handle), SD_BOTH);
+#else
+    ::shutdown(static_cast<int>(handle), SHUT_RDWR);
+#endif
+}
+
+void setSocketTimeouts(std::intptr_t handle, int milliseconds)
+{
+#ifdef _WIN32
+    const DWORD timeout = static_cast<DWORD>(milliseconds);
+    ::setsockopt(static_cast<SOCKET>(handle), SOL_SOCKET, SO_RCVTIMEO,
+                 reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+    ::setsockopt(static_cast<SOCKET>(handle), SOL_SOCKET, SO_SNDTIMEO,
+                 reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
+    timeval timeout {};
+    timeout.tv_sec = milliseconds / 1000;
+    timeout.tv_usec = (milliseconds % 1000) * 1000;
+    ::setsockopt(static_cast<int>(handle), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    ::setsockopt(static_cast<int>(handle), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+#endif
+}
+
+long receiveSome(std::intptr_t handle, char* buffer, std::size_t size)
+{
+#ifdef _WIN32
+    return ::recv(static_cast<SOCKET>(handle), buffer, static_cast<int>(size), 0);
+#else
+    return static_cast<long>(::recv(static_cast<int>(handle), buffer, size, 0));
+#endif
+}
+
+long sendSome(std::intptr_t handle, const char* data, std::size_t size)
+{
+#ifdef _WIN32
+    return ::send(static_cast<SOCKET>(handle), data, static_cast<int>(size), 0);
+#else
+    return static_cast<long>(::send(static_cast<int>(handle), data, size, 0));
+#endif
+}
+
+void sendResponse(std::intptr_t socket, const std::string& body, const char* contentType)
 {
     const std::string header =
         "HTTP/1.1 200 OK\r\n"
@@ -29,7 +142,7 @@ void sendResponse(int socket, const std::string& body, const char* contentType)
 
     while (remaining > 0)
     {
-        const auto sent = ::send(socket, data, remaining, 0);
+        const auto sent = sendSome(socket, data, remaining);
         if (sent <= 0)
             break;
         data += sent;
@@ -47,24 +160,28 @@ bool WebServer::start(int port)
         return true;
 
     port_ = port;
-    serverSocket_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    serverSocket_ = openListeningSocket();
     if (serverSocket_ < 0)
         return false;
 
+#ifndef _WIN32
+    // Opnieuw starten direct na afsluiten mag. (Op Windows geeft dezelfde
+    // optie juist toestemming om een bezette poort over te nemen.)
     int reuseAddress = 1;
-    ::setsockopt(serverSocket_, SOL_SOCKET, SO_REUSEADDR,
+    ::setsockopt(static_cast<int>(serverSocket_), SOL_SOCKET, SO_REUSEADDR,
                  &reuseAddress, sizeof(reuseAddress));
+#endif
 
     sockaddr_in address {};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_ANY);
     address.sin_port = htons(static_cast<std::uint16_t>(port_));
 
-    if (::bind(serverSocket_, reinterpret_cast<sockaddr*>(&address),
-               sizeof(address)) < 0 ||
-        ::listen(serverSocket_, backlog) < 0)
+    if (::bind(static_cast<NativeSocket>(serverSocket_),
+               reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0 ||
+        ::listen(static_cast<NativeSocket>(serverSocket_), backlog) < 0)
     {
-        ::close(serverSocket_);
+        closeSocket(serverSocket_);
         serverSocket_ = -1;
         return false;
     }
@@ -81,8 +198,8 @@ void WebServer::stop()
 
     if (serverSocket_ >= 0)
     {
-        ::shutdown(serverSocket_, SHUT_RDWR);
-        ::close(serverSocket_);
+        shutdownSocket(serverSocket_);
+        closeSocket(serverSocket_);
         serverSocket_ = -1;
     }
 
@@ -264,9 +381,9 @@ void WebServer::serverThread()
     {
         sockaddr_in clientAddress {};
         socklen_t clientLength = sizeof(clientAddress);
-        const int clientSocket = ::accept(
-            serverSocket_, reinterpret_cast<sockaddr*>(&clientAddress),
-            &clientLength);
+        const auto clientSocket = static_cast<std::intptr_t>(::accept(
+            static_cast<NativeSocket>(serverSocket_),
+            reinterpret_cast<sockaddr*>(&clientAddress), &clientLength));
 
         if (clientSocket < 0)
         {
@@ -276,22 +393,19 @@ void WebServer::serverThread()
         }
 
         handleClient(clientSocket);
-        ::shutdown(clientSocket, SHUT_RDWR);
-        ::close(clientSocket);
+        shutdownSocket(clientSocket);
+        closeSocket(clientSocket);
     }
 }
 
-void WebServer::handleClient(int socket)
+void WebServer::handleClient(std::intptr_t socket)
 {
     // Een client die niets stuurt mag de (enkele) serverthread niet
     // eeuwig blokkeren.
-    timeval timeout {};
-    timeout.tv_sec = 2;
-    ::setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    ::setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    setSocketTimeouts(socket, 2000);
 
     char buffer[4096] {};
-    const auto received = ::recv(socket, buffer, sizeof(buffer) - 1, 0);
+    const auto received = receiveSome(socket, buffer, sizeof(buffer) - 1);
 
     if (received <= 0)
         return;
@@ -532,6 +646,29 @@ std::string WebServer::createJson() const
         json += "\"song\":\"" + escapeJson(title) + "\",";
         json += "\"duration\":" + std::to_string(durationSeconds) + ",";
 
+        // Tempo en maatsoort, voor de maatindicator in de browser.
+        json += "\"ppq\":" + std::to_string(song->ticksPerQuarterNote) + ",";
+
+        json += "\"tempo\":[";
+        for (std::size_t i = 0; i < song->tempoMap.size(); ++i)
+        {
+            if (i != 0) json += ",";
+            const auto& point = song->tempoMap[i];
+            json += "[" + std::to_string(point.tick) + "," + std::to_string(point.seconds) + ","
+                  + std::to_string(point.bpm) + "]";
+        }
+        json += "],";
+
+        json += "\"sigs\":[";
+        for (std::size_t i = 0; i < song->timeSignatures.size(); ++i)
+        {
+            if (i != 0) json += ",";
+            const auto& point = song->timeSignatures[i];
+            json += "[" + std::to_string(point.tick) + "," + std::to_string(point.numerator) + ","
+                  + std::to_string(point.denominator) + "]";
+        }
+        json += "],";
+
         json += "\"lyrics\":[";
         for (std::size_t i = 0; i < song->lyrics.size(); ++i)
         {
@@ -755,6 +892,30 @@ footer {
         width 180ms ease,
         opacity 180ms ease;
 }    
+/* Maatsoort met ledjes in de maat; schuift onder de countdown-pil als die zichtbaar is */
+#beatBox {
+    position:fixed; top:22px; right:28px; z-index:90; display:flex; align-items:center; gap:12px;
+    padding:7px 14px; border-radius:999px; background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.10); transition:top 450ms ease; pointer-events:none;
+}
+body.countdown #beatBox { top:134px; }
+#beatSig { font-size:20px; font-weight:600; color:#9ea4b0; font-variant-numeric:tabular-nums; }
+#beatLeds { display:flex; gap:9px; }
+.led {
+    --c:24,118,255; --i:0; width:16px; height:16px; border-radius:50%;
+    background:rgba(var(--c), calc(.06 + var(--i) * .94));
+    border:1px solid rgba(var(--c), .35);
+    box-shadow:0 0 calc(var(--i) * 16px) rgba(var(--c), calc(var(--i) * .85));
+}
+.led.first { --c:255,176,32; }
+@media (max-width:600px) {
+    #beatBox { top:12px; right:12px; padding:5px 10px; gap:8px; }
+    body.countdown #beatBox { top:108px; }
+    #beatSig { font-size:15px; }
+    #beatLeds { gap:6px; }
+    .led { width:12px; height:12px; }
+}
+
 #time .key { margin-left:14px; color:#6aa5ff; }
 #nextSong { margin-top:2px; color:#9ea4b0; font-size:20px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #nextSong:empty { display:none; }
@@ -839,6 +1000,7 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 <header><div id="song">Merik</div><div id="time">00:00 / 00:00</div><div id="nextSong"></div></header>
 <div id="songProgress"><div id="songProgressFill"></div></div>
 <div id="lyricCountdown"></div>
+<div id="beatBox" hidden><span id="beatSig">4/4</span><span id="beatLeds"></span></div>
 <main>
     <div id="lyricsViewport">
         <div id="lyrics"></div>
@@ -1977,6 +2139,114 @@ function renderCountdown()
 const controlKey = new URLSearchParams(location.search).get("key") || "";
 const keyQuery = controlKey ? "key=" + encodeURIComponent(controlKey) : "";
 
+// ---- Maatindicator: tel en fase uit tempo en maatsoort, geanimeerd met
+// requestAnimationFrame (de positie komt maar 10x per seconde binnen en
+// wordt daartussen doorgetrokken zolang er gespeeld wordt).
+let beatSong = null;
+let beatSync = { position: 0, time: 0, playing: false };
+let beatSignature = "";
+let beatValues = [];
+
+function computeBeat(seconds)
+{
+    const ppq = beatSong.ppq || 480;
+    const tempo = beatSong.tempo || [];
+    const sigs = beatSong.sigs || [];
+
+    let tick = seconds * 2 * ppq;      // 120 bpm zonder tempokaart
+
+    if (tempo.length)
+    {
+        let i = 0;
+        while (i + 1 < tempo.length && tempo[i + 1][1] <= seconds)
+            ++i;
+
+        tick = tempo[i][0] + (seconds - tempo[i][1]) * tempo[i][2] * ppq / 60;
+    }
+
+    let active = sigs[0];
+    for (const sig of sigs)
+        if (sig[0] <= tick)
+            active = sig;
+
+    const numerator = active[1];
+    const denominator = active[2];
+    const beatTicks = ppq * 4 / denominator;
+    const beats = (tick - active[0]) / beatTicks;
+
+    if (beats < 0)
+        return { numerator, denominator, index: -1, intensity: 0 };
+
+    const whole = Math.floor(beats);
+    const phase = beats - whole;
+
+    return {
+        numerator,
+        denominator,
+        index: whole % numerator,
+        intensity: 1 - 0.65 * Math.pow(phase, 0.7)
+    };
+}
+
+function beatFrame()
+{
+    requestAnimationFrame(beatFrame);
+
+    const box = document.getElementById("beatBox");
+
+    if (!beatSong || !beatSong.sigs || !beatSong.sigs.length)
+    {
+        box.hidden = true;
+        return;
+    }
+
+    box.hidden = false;
+
+    // Schuif onder de countdown-pil zolang die zichtbaar is.
+    const pill = document.getElementById("lyricCountdown");
+    document.body.classList.toggle("countdown", Number(pill.style.opacity) > 0.02);
+
+    const elapsed = beatSync.playing ? (performance.now() - beatSync.time) / 1000 : 0;
+    const beat = computeBeat(Math.max(0, beatSync.position + elapsed));
+
+    const count = Math.min(12, beat.numerator);
+    const signature = beat.numerator + "/" + beat.denominator;
+
+    if (signature !== beatSignature)
+    {
+        beatSignature = signature;
+        document.getElementById("beatSig").textContent = signature;
+
+        const leds = document.getElementById("beatLeds");
+        leds.textContent = "";
+        beatValues = [];
+
+        for (let i = 0; i < count; ++i)
+        {
+            const led = document.createElement("span");
+            led.className = i === 0 ? "led first" : "led";
+            leds.appendChild(led);
+            beatValues.push(-1);
+        }
+    }
+
+    const leds = document.getElementById("beatLeds").children;
+
+    for (let i = 0; i < leds.length; ++i)
+    {
+        const intensity = beatSync.playing && beat.index === i ? beat.intensity : 0;
+        const rounded = Math.round(intensity * 20) / 20;
+
+        if (rounded !== beatValues[i])
+        {
+            beatValues[i] = rounded;
+            leds[i].style.setProperty("--i", String(rounded));
+        }
+    }
+}
+
+requestAnimationFrame(beatFrame);
+
 let stateInFlight = false;
 let songBase = null;
 let lastRevision = -1;
@@ -2002,6 +2272,9 @@ async function update() {
         }
 
         document.body.classList.toggle("control", state.control === true);
+
+        beatSong = songBase;
+        beatSync = { position: state.position, time: performance.now(), playing: state.playing === true };
 
         songData = Object.assign({}, songBase, { position: state.position });
 

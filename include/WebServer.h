@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -68,7 +69,7 @@ private:
     };
 
     void serverThread();
-    void handleClient(int socket);
+    void handleClient(std::intptr_t socket);
 
     [[nodiscard]] std::string createHtml() const;
     // Volledige songdata (lyrics + akkoorden); wordt gecachet en alleen
@@ -86,7 +87,7 @@ private:
     std::atomic<bool> running { false };
 
     int port_ = defaultPort;
-    int serverSocket_ = -1;
+    std::intptr_t serverSocket_ = -1;   // -1 = geen socket (SOCKET op Windows)
 
     std::thread thread_;
     mutable std::mutex mutex_;

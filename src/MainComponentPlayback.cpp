@@ -79,6 +79,8 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
 
         // Belangrijk: de complete Song inclusief
         // lyrics en akkoorden naar de webserver.
+        beatIndicator.setSong(currentSong);
+
         webServer.setSong(currentSong);
         webServer.setSongTitle(currentDisplayName.toStdString());
 
@@ -269,7 +271,7 @@ const MainComponent::SongEntry* MainComponent::nextSetlistEntry() const
         : nullptr;
 }
 
-void MainComponent::playNextInSetlist()
+void MainComponent::playNextInSetlist(bool startPlaying)
 {
     const int row = currentRowInPlayingSetlist();
     const auto* found = nextSetlistEntry();
@@ -286,7 +288,8 @@ void MainComponent::playNextInSetlist()
     if (selectedSetlist == listIndex)
         songBox.selectRow(row + 1);
 
-    play();
+    if (startPlaying)
+        play();
 }
 
 // Next-knop: tijdens afspelen start het volgende nummer meteen,
@@ -453,8 +456,11 @@ void MainComponent::updateTransportDisplay()
             juce::Colour::fromRGB(0, 164, 235));
     }
 
-    if (songFinished && continuousToggle.getToggleState())
-        playNextInSetlist();
+    // Nummer uit een setlist afgelopen: bij "auto play next" start het
+    // volgende nummer; anders wordt het volgende alleen klaargezet
+    // (geladen en geselecteerd, niet afgespeeld).
+    if (songFinished)
+        playNextInSetlist(continuousToggle.getToggleState());
 }
 
 // ============================================================================

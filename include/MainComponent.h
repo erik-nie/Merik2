@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BeatIndicator.h"
 #include "DropListBox.h"
 #include "ListSplitter.h"
 #include "MidiMapping.h"
@@ -132,6 +133,7 @@ private:
     juce::Label songTitle;
     juce::Label nextSong;
     juce::Label setlistIndexLabel;   // bijv. "6/10"
+    BeatIndicator beatIndicator;     // maatsoort + ledjes in de maat
     juce::Label elapsedTime;
     juce::Label totalTime;
 
@@ -261,7 +263,7 @@ private:
     void loadMidiFile(const juce::File& file, bool fromSetlist = false,
                       const SongEntry* entry = nullptr, int setlistRow = -1,
                       int setlistIndex = -1);
-    void playNextInSetlist();
+    void playNextInSetlist(bool startPlaying = true);
     void skipToNextSong();
     [[nodiscard]] const SongEntry* nextSetlistEntry() const;
 

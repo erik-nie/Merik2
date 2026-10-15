@@ -3758,6 +3758,14 @@ MainComponent::MainComponent()
     setlistIndexLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(setlistIndexLabel);
 
+    beatIndicator.positionSeconds = [this]
+    {
+        return synthEngine.isPlaying()
+            ? static_cast<double>(synthEngine.positionSamples()) / audioSampleRate
+            : -1.0;
+    };
+    addAndMakeVisible(beatIndicator);
+
     songScanner = std::make_unique<SongInfoScanner>(
         midiReadMutex,
         [safeThis = juce::Component::SafePointer<MainComponent>(this)]
@@ -4122,8 +4130,12 @@ void MainComponent::resized()
     setlistIndexLabel.setBounds(titleArea.removeFromRight(90));
     songTitle.setBounds(titleArea.withTrimmedLeft(90));
 
-    nextSong.setBounds(
-        player.removeFromTop(36));
+    // Rechts de maatsoort met ledjes; "Next:" blijft symmetrisch gecentreerd.
+    const auto nextRow = player.removeFromTop(36);
+
+    auto indicatorArea = nextRow;
+    beatIndicator.setBounds(indicatorArea.removeFromRight(200));
+    nextSong.setBounds(nextRow.reduced(210, 0));
 
     auto progressArea =
         player.removeFromTop(35);

@@ -130,6 +130,41 @@ Song MidiFileReader::read(
         tempoMap.points();
 
     // ------------------------------------------------------------------------
+    // Maatsoort (meta-event FF 58 04 nn dd cc bb)
+    // ------------------------------------------------------------------------
+
+    for (int track = 0; track < midi.getTrackCount(); ++track)
+    {
+        for (int index = 0; index < midi[track].getSize(); ++index)
+        {
+            const auto& event = midi[track][index];
+
+            if (event.size() < 5 || event[0] != 0xff || event[1] != 0x58)
+                continue;
+
+            const int numerator = static_cast<int>(event[3]);
+            const int exponent = static_cast<int>(event[4]);
+
+            if (numerator < 1 || numerator > 32 || exponent > 5)
+                continue;
+
+            TimeSignaturePoint point;
+            point.tick = event.tick;
+            point.seconds = tempoMap.tickToSeconds(event.tick);
+            point.numerator = numerator;
+            point.denominator = 1 << exponent;
+            song.timeSignatures.push_back(point);
+        }
+    }
+
+    std::stable_sort(song.timeSignatures.begin(), song.timeSignatures.end(),
+        [](const TimeSignaturePoint& a, const TimeSignaturePoint& b) { return a.tick < b.tick; });
+
+    // Altijd een maatsoort vanaf het begin; zonder meta-event is dat 4/4.
+    if (song.timeSignatures.empty() || song.timeSignatures.front().tick > 0)
+        song.timeSignatures.insert(song.timeSignatures.begin(), TimeSignaturePoint {});
+
+    // ------------------------------------------------------------------------
     // Playback events
     // ------------------------------------------------------------------------
 
