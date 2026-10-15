@@ -15,7 +15,7 @@ public:
 
     const juce::String getApplicationVersion() override
     {
-        return "0.2.0-alpha.3";
+        return "0.4.0-beta.1";
     }
 
     bool moreThanOneInstanceAllowed() override

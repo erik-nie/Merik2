@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Merik2 VERSION 0.2.0)
+project(Merik2 VERSION 0.4.0)
 
 
 set(CMAKE_CXX_STANDARD 20)

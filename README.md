@@ -18,12 +18,12 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 ## Download
 
-**[Download Merik 0.2.0-alpha.2](https://github.com/erik-nie/Merik2/releases/tag/v0.2.0-alpha.2)** for macOS or Windows. This is an early alpha: expect rough edges. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+**[Download Merik 0.4.0-beta.1](https://github.com/erik-nie/Merik2/releases/tag/v0.4.0-beta.1)** for macOS or Windows. This is a beta: expect some rough edges. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS** | `Merik-0.2.0-alpha.2-arm64.dmg` | Apple silicon, macOS 14 or later |
-| **Windows** | `Merik-0.2.0-alpha.2-windows-x64.zip` | Windows 10 or 11, 64-bit |
+| **macOS** | `Merik-0.4.0-beta.1-arm64.dmg` | Apple silicon, macOS 14 or later |
+| **Windows** | `Merik-0.4.0-beta.1-windows-x64.zip` | Windows 10 or 11, 64-bit |
 
 **Install on macOS**
 
@@ -39,7 +39,7 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 2. The build is not code-signed, so SmartScreen may warn about an unknown app. Click **More info**, then **Run anyway**.
 3. Allow Merik on private networks when Windows asks, to use the lyrics and remote control web page.
 
-**First start (both systems):** choose a General MIDI SoundFont (`.sf2`) under **Settings → Audio**. Merik does not include one. `MatrixSF_v2.1.5.sf2` is a great free option, but many others exist.
+**First start (both systems):** choose a General MIDI SoundFont (`.sf2`) under **Settings → Soundfont**. Merik does not include one. `MatrixSF_v2.1.5.sf2` is a great free option, but many others exist.
 
 Prefer to build it yourself? See [Building from source](#building-from-source).
 
@@ -274,8 +274,8 @@ The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's
 Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMG and the Windows zip and creates a draft release with both files:
 
 ```sh
-git tag -a v0.2.0-alpha.2 -m "Alpha 2"
-git push origin v0.2.0-alpha.2
+git tag -a v0.4.0-beta.1 -m "Beta 1"
+git push origin v0.4.0-beta.1
 ```
 
 The release notes come from `docs/release-notes/<version>.md`. You can also start the workflow by hand (Actions, Release, Run workflow) to build the files without making a release.
@@ -283,7 +283,7 @@ The release notes come from `docs/release-notes/<version>.md`. You can also star
 On a Mac you can build the DMG yourself with `scripts/make-release.sh`. It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
 
 ```sh
-scripts/make-release.sh 0.2.0-alpha.2
+scripts/make-release.sh 0.4.0-beta.1
 ```
 
 For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.
