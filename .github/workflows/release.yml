@@ -80,8 +80,9 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -property installationPath
           $crt = Get-ChildItem "$vs\VC\Redist\MSVC" -Directory |
+                 Where-Object { $_.Name -match '^\d' } |
                  Sort-Object Name -Descending |
-                 ForEach-Object { Get-ChildItem "$($_.FullName)\x64" -Directory -Filter 'Microsoft.VC*.CRT' } |
+                 ForEach-Object { Get-ChildItem "$($_.FullName)\x64" -Directory -ErrorAction SilentlyContinue | Where-Object Name -like 'Microsoft.VC*.CRT' } |
                  Select-Object -First 1
           if ($crt) { Copy-Item "$($crt.FullName)\*.dll" $stage -Force } else { Write-Warning "VC runtime not found" }
 
