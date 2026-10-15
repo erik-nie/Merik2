@@ -171,9 +171,25 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-Requirements: a C++20 compiler, CMake 3.22 or newer, FluidSynth 2.2 or newer (found through `pkg-config`) and an internet connection for the first configure (it fetches JUCE).
+Requirements: a C++20 compiler, CMake 3.22 or newer, FluidSynth 2.2 or newer (found through its CMake package or `pkg-config`) and an internet connection for the first configure (it fetches JUCE).
 
-Windows is not supported yet, because the remote-control server uses POSIX sockets.
+**Windows** (work in progress, the `windows-port` branch builds on GitHub Actions but has not been tested on a real machine yet):
+
+1. Install [Git for Windows](https://git-scm.com/download/win) and [Visual Studio 2022](https://visualstudio.microsoft.com/) (Community is free) with the workload **Desktop development with C++**.
+2. Install [vcpkg](https://github.com/microsoft/vcpkg) and set `VCPKG_ROOT`:
+   ```powershell
+   git clone https://github.com/microsoft/vcpkg C:\vcpkg
+   C:\vcpkg\bootstrap-vcpkg.bat
+   setx VCPKG_ROOT C:\vcpkg
+   ```
+3. Open a new terminal in the Merik folder and build. vcpkg fetches and builds FluidSynth automatically (the first time this takes a while):
+   ```powershell
+   cmake --preset windows
+   cmake --build --preset windows-release
+   ```
+   The result is in `build-windows\Merik_artefacts\Release`.
+
+The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's portable output there, so the timing is less tight than the CoreMIDI path on macOS.
 
 ### Releases
 

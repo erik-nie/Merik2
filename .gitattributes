@@ -1,0 +1,19 @@
+# Tekstbestanden: LF in de repo, de editor mag er op Windows CRLF van maken.
+* text=auto
+
+*.sh text eol=lf
+*.cpp text
+*.h text
+*.cmake text
+CMakeLists.txt text
+
+# Binaire bestanden nooit aanraken
+*.png binary
+*.jpg binary
+*.ttf binary
+*.sf2 binary
+*.mid binary
+*.MID binary
+*.dmg binary
+*.icns binary
+*.ico binary

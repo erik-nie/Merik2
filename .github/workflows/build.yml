@@ -1,0 +1,66 @@
+name: Build
+
+on:
+  push:
+    branches: [main, windows-port]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    name: macOS (Apple silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install fluid-synth pkg-config
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j 4
+
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      # vcpkg bouwt FluidSynth en zijn libraries; de binaire pakketten worden
+      # bewaard zodat volgende runs veel sneller zijn.
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\vcpkg\archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+
+      - name: Get vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset windows
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset windows-release --parallel
+
+      - name: Collect the build
+        shell: pwsh
+        run: |
+          $out = Get-ChildItem -Path build-windows -Recurse -Filter Merik.exe | Select-Object -First 1
+          Write-Host "Built: $($out.FullName)"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "$($out.DirectoryName)\*" dist -Recurse -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: merik-windows-x64
+          path: dist

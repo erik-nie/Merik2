@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.22)
 
 project(Merik2 VERSION 0.1.0)
 
@@ -11,14 +11,24 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Dependencies
 # ---------------------------------------------------------------------------
 
-find_package(PkgConfig REQUIRED)
+# FluidSynth: eerst via een CMake-pakket (vcpkg op Windows), anders via
+# pkg-config (Homebrew op macOS, apt op Linux).
+find_package(FluidSynth CONFIG QUIET)
 
-pkg_check_modules(
-    FLUIDSYNTH
-    REQUIRED
-    IMPORTED_TARGET
-    fluidsynth
-)
+if(TARGET FluidSynth::libfluidsynth)
+    set(MERIK_FLUIDSYNTH_TARGET FluidSynth::libfluidsynth)
+else()
+    find_package(PkgConfig REQUIRED)
+
+    pkg_check_modules(
+        FLUIDSYNTH
+        REQUIRED
+        IMPORTED_TARGET
+        fluidsynth
+    )
+
+    set(MERIK_FLUIDSYNTH_TARGET PkgConfig::FLUIDSYNTH)
+endif()
 
 # JUCE
 include(FetchContent)
@@ -112,11 +122,21 @@ target_link_libraries(
     PRIVATE
         MerikAssets
         midifile
-        PkgConfig::FLUIDSYNTH
+        ${MERIK_FLUIDSYNTH_TARGET}
 
         juce::juce_audio_utils
         juce::juce_gui_extra
 )
+
+# Windows: Winsock voor de webserver; MSVC leest de bronbestanden als UTF-8.
+if(WIN32)
+    target_link_libraries(Merik PRIVATE ws2_32)
+endif()
+
+if(MSVC)
+    target_compile_options(Merik PRIVATE /utf-8 /bigobj)
+    target_compile_options(midifile PRIVATE /utf-8)
+endif()
 
 target_compile_definitions(
     Merik

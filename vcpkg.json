@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "merik",
+  "version": "0.1.0",
+  "description": "Live MIDI player with lyrics, chords and a remote control web page",
+  "dependencies": [
+    "fluidsynth"
+  ]
+}
