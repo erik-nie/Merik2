@@ -103,6 +103,7 @@ target_sources(
         src/LyricsParser.cpp
         src/ChordParser.cpp
         src/FluidSynthEngine.cpp
+        src/MerikPackage.cpp
         src/MidiTransformer.cpp
         src/MidiOutSink.cpp
         src/WebServer.cpp
@@ -143,4 +144,5 @@ target_compile_definitions(
     PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_USE_MP3AUDIOFORMAT=1
 )

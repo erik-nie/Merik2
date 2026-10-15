@@ -48,7 +48,33 @@ public:
         return {};
     }
 
-    void initialise(const juce::String&) override
+    // Bestanden die via het besturingssysteem of de opdrachtregel worden geopend.
+    void openFromCommandLine(const juce::String& commandLine)
+    {
+        if (mainWindow == nullptr)
+            return;
+
+        for (const auto& token : juce::StringArray::fromTokens(commandLine, true))
+        {
+            const juce::File file(token.unquoted());
+
+            if (file.existsAsFile() && file.hasFileExtension("mid;midi;kar;merik"))
+            {
+                // macOS meldt een geopend bestand soms twee keer.
+                const auto now = juce::Time::getMillisecondCounter();
+
+                if (file == lastOpened && now - lastOpenedAt < 3000)
+                    return;
+
+                lastOpened = file;
+                lastOpenedAt = now;
+                mainWindow->loadFile(file);
+                return;
+            }
+        }
+    }
+
+    void initialise(const juce::String& commandLine) override
     {
         const auto ip = getLocalAddress();
         const juce::String web = ip.isNotEmpty()
@@ -59,6 +85,10 @@ public:
             getApplicationName() + "    v:" + getApplicationVersion() + "    build:" + getBuildDateTime() + web,
             *this
         );
+
+        // Even wachten tot het audioapparaat klaar is (de stems worden naar
+        // de samplefrequentie van het apparaat omgezet).
+        juce::Timer::callAfterDelay(800, [this, commandLine] { openFromCommandLine(commandLine); });
     }
 
     void shutdown() override
@@ -71,8 +101,9 @@ public:
         quit();
     }
 
-    void anotherInstanceStarted(const juce::String&) override
+    void anotherInstanceStarted(const juce::String& commandLine) override
     {
+        openFromCommandLine(commandLine);
     }
 
 private:
@@ -100,6 +131,12 @@ private:
             app.systemRequestedQuit();
         }
 
+        void loadFile(const juce::File& file)
+        {
+            if (auto* component = dynamic_cast<MainComponent*>(getContentComponent()))
+                component->openFile(file);
+        }
+
     private:
         MerikApplication& app;
 
@@ -107,6 +144,8 @@ private:
     };
 
     std::unique_ptr<MainWindow> mainWindow;
+    juce::File lastOpened;
+    juce::uint32 lastOpenedAt = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MerikApplication)
 };

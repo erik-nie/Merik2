@@ -26,12 +26,16 @@ class MainComponent final
     : public juce::AudioAppComponent,
       public juce::FileDragAndDropTarget,
       public juce::DragAndDropContainer,
+      public juce::KeyListener,
       private juce::MidiInputCallback,
       private juce::Timer
 {
 public:
     MainComponent();
     ~MainComponent() override;
+
+    // Laadt een bestand (bijv. via 'Open met' of de opdrachtregel).
+    void openFile(const juce::File& file);
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -195,6 +199,9 @@ private:
     std::vector<float> clickBuffer;
     void saveClickSettings(int route, int offsetMs);
 
+    bool keyPressed(const juce::KeyPress& key) override;
+    bool keyPressed(const juce::KeyPress& key, juce::Component* origin) override;
+
     // Bewaart de audio-instellingen (apparaat, kanalen) zodra ze veranderen.
     struct DeviceListener final : juce::ChangeListener
     {
@@ -264,6 +271,7 @@ private:
     void ledsAllOff();
     void applyMidiOutput();
     int transpose = 0;
+    bool songHasStems = false;   // audio-stems kunnen niet transponeren
     void setTranspose(int semitones);
 
     void loadMidi();

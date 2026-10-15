@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "MerikPackage.h"
 #include "ClickSettings.h"
 #include "WebServer.h"
 #include "BinaryData.h"
@@ -1672,7 +1673,15 @@ private:
 
                 {
                     const std::scoped_lock lock(readMutex);
-                    song = reader.read(next.getFullPathName().toStdString(), 48000.0);
+                    juce::File midiPath = next;
+
+                    if (MerikPackage::isPackage(next))
+                    {
+                        juce::String packageError;
+                        midiPath = MerikPackage::midiFor(next, packageError);
+                    }
+
+                    song = reader.read(midiPath.getFullPathName().toStdString(), 48000.0);
                 }
 
                 double end = 0.0;
@@ -2047,7 +2056,8 @@ public:
 
         if (extension != ".mid" &&
             extension != ".midi" &&
-            extension != ".kar")
+            extension != ".kar" &&
+            extension != ".merik")
         {
             return false;
         }
@@ -2810,6 +2820,9 @@ private:
 
 void MainComponent::setTranspose(int semitones)
 {
+    if (songHasStems)
+        semitones = 0;   // audio kan niet transponeren
+
     transpose = juce::jlimit(-12, 12, semitones);
 
     transposeValue.setText(
@@ -3950,7 +3963,7 @@ MainComponent::MainComponent()
         auto chooser = std::make_shared<juce::FileChooser>(
             "Add MIDI files",
             startFolder,
-            "*.mid;*.midi;*.kar;*.MID;*.MIDI;*.KAR");
+            "*.mid;*.midi;*.kar;*.merik;*.MID;*.MIDI;*.KAR;*.MERIK");
 
         // canSelectFiles ontbrak: zonder die vlag zijn in het dialoogvenster
         // alle bestanden grijs en niet te kiezen.
@@ -4072,6 +4085,13 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(channelTable);
 
+    // Spatiebalk = play/pauze, ook als een lijst het toetsenbord heeft
+    // (die gebruikt de spatie anders voor selecteren).
+    setWantsKeyboardFocus(true);
+    songBox.addKeyListener(this);
+    setlistBox.addKeyListener(this);
+    channelTable.addKeyListener(this);
+
     // -------------------------------------------------------------------------
     // Audio
     // -------------------------------------------------------------------------
@@ -4172,6 +4192,12 @@ MainComponent::MainComponent()
             if (safe != nullptr && safe->updateCheckToggle.getToggleState())
                 safe->checkForUpdates(false);
         });
+
+    // Knoppen nemen geen toetsenbordfocus: de spatiebalk is altijd play/pauze
+    // en kan geen losse knop (zoals Next) activeren.
+    for (auto* child : getChildren())
+        if (dynamic_cast<juce::Button*>(child) != nullptr)
+            child->setWantsKeyboardFocus(false);
 
     startTimerHz(20);
 
@@ -4784,7 +4810,7 @@ bool MainComponent::isInterestedInFileDrag(
     {
         const juce::File file(path);
 
-        if (file.hasFileExtension(".mid;.midi;.kar"))
+        if (file.hasFileExtension(".mid;.midi;.kar;.merik"))
             return true;
     }
 
@@ -5528,7 +5554,12 @@ void MainComponent::showSongMenu(int row)
 
     juce::PopupMenu menu;
     menu.setLookAndFeel(&merikLookAndFeel);
-    menu.addSubMenu("Transpose", transposeMenu);
+    const bool allowTranspose = std::any_of(entries.begin(), entries.end(), [](const SongEntry& entry)
+    {
+        return !MerikPackage::isPackage(entry.file);
+    });
+
+    menu.addSubMenu("Transpose", transposeMenu, allowTranspose);
     menu.addItem(1, "Rename...", single);
     menu.addItem(2, "Restore file name", anyRenamed);
     menu.addSeparator();

@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "MerikPackage.h"
 
 #include <cmath>
 #include <exception>
@@ -15,7 +16,7 @@ void MainComponent::loadMidi()
             currentMidiFile.existsAsFile()
                 ? currentMidiFile.getParentDirectory()
                 : juce::File(),
-            "*.mid;*.midi;*.MID;*.MIDI;*.kar;*.KAR");
+            "*.mid;*.midi;*.MID;*.MIDI;*.kar;*.KAR;*.merik;*.MERIK");
 
     chooser->launchAsync(
         juce::FileBrowserComponent::openMode |
@@ -50,14 +51,35 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
                 : 48000.0;
 
         Song song;
+        juce::File midiPath = file;
+        std::shared_ptr<const StemSet> stems;
+
+        if (MerikPackage::isPackage(file))
+        {
+            auto contents = MerikPackage::open(file, sampleRate);
+
+            if (contents.error.isNotEmpty())
+            {
+                confirmDialog("Could not load .merik", contents.error, "OK", nullptr);
+                return;
+            }
+
+            midiPath = contents.midiFile;
+            stems = contents.stems;
+        }
 
         {
             const std::scoped_lock lock(midiReadMutex);
 
             song = midiReader.read(
-                file.getFullPathName().toStdString(),
+                midiPath.getFullPathName().toStdString(),
                 sampleRate);
         }
+
+        songHasStems = stems != nullptr;
+        transposeDownButton.setEnabled(!songHasStems);
+        transposeUpButton.setEnabled(!songHasStems);
+        synthEngine.setStems(stems);
 
         currentSong =
             std::make_shared<Song>(
@@ -491,4 +513,29 @@ juce::String MainComponent::formatTime(
         + juce::String(
               remainingSeconds)
               .paddedLeft('0', 2);
+}
+
+// ============================================================================
+// Spatiebalk: play / pauze
+// ============================================================================
+
+bool MainComponent::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::spaceKey)
+    {
+        play();
+        return true;
+    }
+
+    return false;
+}
+
+bool MainComponent::keyPressed(const juce::KeyPress& key, juce::Component*)
+{
+    return keyPressed(key);
+}
+
+void MainComponent::openFile(const juce::File& file)
+{
+    loadMidiFile(file);
 }

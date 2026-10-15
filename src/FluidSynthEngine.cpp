@@ -951,6 +951,8 @@ std::int64_t FluidSynthEngine::lengthSamples() const
     if (!song_ || song_->playbackEvents.empty())
         return 0;
 
+    const auto stemLength = stems_ ? stems_->lengthSamples : 0;
+
     const auto lastEventSample =
         eventSamplePosition(song_->playbackEvents.back());
 
@@ -960,7 +962,7 @@ std::int64_t FluidSynthEngine::lengthSamples() const
         static_cast<std::int64_t>(
             std::llround(sampleRate_ * tailSeconds));
 
-    return lastEventSample + tailSamples;
+    return std::max(lastEventSample + tailSamples, stemLength);
 }
 
 std::int64_t FluidSynthEngine::eventSamplePosition(
@@ -1274,7 +1276,8 @@ void FluidSynthEngine::sendMidiEvent(
 
                 if (velocity == 0)
                     outNoteOff(channel, releaseNote(channel, data1));
-                else if (!channelMuted_[static_cast<std::size_t>(channel)])
+                else if (!channelMuted_[static_cast<std::size_t>(channel)]
+                         && !familyHasStem(channel))
                     outNoteOn(channel, pressNote(channel, data1), velocity);
             }
 
@@ -1326,6 +1329,83 @@ void FluidSynthEngine::sendMidiEvent(
 
         default:
             break;
+    }
+}
+
+void FluidSynthEngine::setStems(std::shared_ptr<const StemSet> stems)
+{
+    std::shared_ptr<const StemSet> old;
+
+    {
+        std::scoped_lock lock(mutex_);
+
+        old = std::move(stems_);
+        stems_ = std::move(stems);
+        stemFamilies_ = stems_ ? stems_->familyMask() : 0;
+        stemGains_.assign(stems_ ? stems_->tracks.size() : 0, -1.0f);
+    }
+}
+
+bool FluidSynthEngine::familyHasStem(int channel) const
+{
+    if (stemFamilies_ == 0)
+        return false;
+
+    const int family = channelFamilyLocked(channel);
+
+    return family >= 0 && (stemFamilies_ & (1u << family)) != 0;
+}
+
+int FluidSynthEngine::channelFamilyLocked(int channel) const
+{
+    if (channel == 9)
+        return 0;
+
+    return midiTransformer_.getChannelState(channel).family;
+}
+
+void FluidSynthEngine::mixStemsLocked(float** output, int numChannels, int numSamples,
+                                      std::int64_t blockStart)
+{
+    if (!stems_)
+        return;
+
+    for (std::size_t t = 0; t < stems_->tracks.size(); ++t)
+    {
+        const auto& track = stems_->tracks[t];
+        const auto& family = familySettings_[static_cast<std::size_t>(track.family)];
+
+        // Kwadratisch, vergelijkbaar met hoe een GM-synth CC7 afbeeldt.
+        const float factor = family.enabled ? static_cast<float>(family.volume) / 127.0f : 0.0f;
+        const float target = track.gain * factor * factor;
+
+        const float from = stemGains_[t] < 0.0f ? target : stemGains_[t];
+        stemGains_[t] = target;
+
+        const auto size = static_cast<std::int64_t>(track.left.size());
+        const float step = (target - from) / static_cast<float>(numSamples);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto index = blockStart + i - track.offset;
+
+            if (index < 0 || index >= size)
+                continue;
+
+            const float gain = from + step * static_cast<float>(i);
+            const float left = track.left[static_cast<std::size_t>(index)] * gain;
+            const float right = track.right[static_cast<std::size_t>(index)] * gain;
+
+            if (numChannels >= 2)
+            {
+                output[0][i] += left;
+                output[1][i] += right;
+            }
+            else
+            {
+                output[0][i] += 0.5f * (left + right);
+            }
+        }
     }
 }
 
@@ -1559,6 +1639,8 @@ void FluidSynthEngine::render(
 
     renderOffsetSamples_ = 0;
     inRender_ = false;
+
+    mixStemsLocked(output, numChannels, numSamples, renderBlockStart_);
 
     if (clickOut != nullptr)
         renderClickLocked(clickOut, numSamples, renderBlockStart_);

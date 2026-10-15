@@ -2,6 +2,7 @@
 
 #include "Song.h"
 #include "MidiTransformer.h"
+#include "StemSet.h"
 
 #include <fluidsynth.h>
 
@@ -122,6 +123,11 @@ public:
     // vertraagt de klik (ms) om bij een extern MIDI-apparaat uit te lijnen.
     void setClickOffsetMs(int milliseconds);
 
+    // Audio-stems naast of in plaats van de MIDI. Een familie met een stem
+    // wordt niet meer uit de MIDI gespeeld; de familiefaders regelen de stems.
+    // Zet vóór loadSong(); nullptr = geen stems.
+    void setStems(std::shared_ptr<const StemSet> stems);
+
     // clickOut (optioneel, numSamples lang) krijgt de klik apart van de mix,
     // op dezelfde samplepositie als de MIDI/soundfont, zodat ze synchroon blijven.
     void render(
@@ -211,6 +217,14 @@ private:
     std::array<std::array<std::int8_t, 128>, 16> soundingNote_ {};
 
     MidiTransformer midiTransformer_;
+
+    void mixStemsLocked(float** output, int numChannels, int numSamples, std::int64_t blockStart);
+    [[nodiscard]] int channelFamilyLocked(int channel) const;
+    [[nodiscard]] bool familyHasStem(int channel) const;
+
+    std::shared_ptr<const StemSet> stems_;
+    std::uint32_t stemFamilies_ = 0;
+    std::vector<float> stemGains_;
 
     void buildClickTrackLocked();
     void renderClickLocked(float* out, int numSamples, std::int64_t blockStart) const;
