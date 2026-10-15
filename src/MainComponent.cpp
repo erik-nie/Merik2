@@ -3048,6 +3048,7 @@ void MainComponent::timerCallback()
     // Niveaus en bron per familie (app en web).
     const auto peaks = synthEngine.takeMeters();
     const auto stemMask = synthEngine.stemFamilyMask();
+    const auto bufferingMask = synthEngine.takeBufferingMask();
     std::array<float, 8> levels {};
 
     for (std::size_t i = 0; i < familyControls.size(); ++i)
@@ -3060,10 +3061,13 @@ void MainComponent::timerCallback()
         // anders MIDI (de klik zelf: CLICK).
         {
             const bool audio = (stemMask & (1u << i)) != 0;
-            control.sourcePill.set(audio ? "AUDIO" : (i == 7 ? "CLICK" : "MIDI"),
-                                   audio ? juce::Colour::fromRGB(0, 164, 235)
-                                         : (i == 7 ? juce::Colour::fromRGB(160, 164, 178)
-                                                   : juce::Colour::fromRGB(160, 120, 255)));
+            if ((bufferingMask & (1u << i)) != 0)
+                control.sourcePill.set("BUFFER", juce::Colour::fromRGB(245, 166, 35));   // stem kon niet op tijd van schijf
+            else
+                control.sourcePill.set(audio ? "AUDIO" : (i == 7 ? "CLICK" : "MIDI"),
+                                       audio ? juce::Colour::fromRGB(0, 164, 235)
+                                             : (i == 7 ? juce::Colour::fromRGB(160, 164, 178)
+                                                       : juce::Colour::fromRGB(160, 120, 255)));
         }
     }
 
@@ -4338,6 +4342,9 @@ MainComponent::MainComponent()
     setlistIndexLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(setlistIndexLabel);
 
+    updatePill.onClick = [this] { showUpdateDialog(); };
+    addChildComponent(updatePill);
+
     beatIndicator.positionSeconds = [this]
     {
         return synthEngine.isPlaying()
@@ -4783,6 +4790,11 @@ void MainComponent::resized()
     //titleArea.translate(0, -10);
     // Symmetrisch, zodat de titel gecentreerd blijft; rechts "6/10".
     setlistIndexLabel.setBounds(titleArea.removeFromRight(90));
+
+    // Links op dezelfde hoogte als de songteller: de pil voor een nieuwe versie.
+    updatePill.setBounds(titleArea.getX(),
+                         setlistIndexLabel.getBounds().getCentreY() - 12,
+                         124, 24);
     songTitle.setBounds(titleArea.withTrimmedLeft(90));
 
     // Rechts de maatsoort met ledjes; "Next:" blijft symmetrisch gecentreerd.
@@ -6531,28 +6543,31 @@ void MainComponent::handleUpdateResult(const UpdateChecker::Result& result,
 
     auto* properties = appProperties.getUserSettings();
 
-    // Bij het opstarten niet zeuren: een versie die je hebt overgeslagen of
-    // waar je net naar gekeken hebt, komt pas na een halve dag terug.
-    if (!userInitiated && properties != nullptr)
-    {
-        const auto now = juce::Time::currentTimeMillis();
-        const auto lastPrompt = properties->getValue("update.lastPrompt", "0").getLargeIntValue();
+    // Een overgeslagen versie krijgt geen pil meer (tenzij je zelf controleert).
+    if (!userInitiated && properties != nullptr && properties->getValue("update.skipped") == result.latestVersion)
+        return;
 
-        if (properties->getValue("update.skipped") == result.latestVersion
-            || now - lastPrompt < 12LL * 60 * 60 * 1000)
-        {
-            return;
-        }
-    }
+    pendingUpdateUrl = result.url;
+    pendingUpdateVersion = result.latestVersion;
+    pendingUpdateCurrent = currentVersion;
 
-    if (properties != nullptr)
-    {
-        properties->setValue("update.lastPrompt", juce::String(juce::Time::currentTimeMillis()));
-        properties->saveIfNeeded();
-    }
+    updatePill.setVisible(true);
+    resized();
 
-    const auto url = result.url;
-    const auto version = result.latestVersion;
+    // Zelf op "Check for updates" gedrukt: dan meteen het venster. Bij de
+    // controle bij het opstarten blijft het bij de pil.
+    if (userInitiated)
+        showUpdateDialog();
+}
+
+void MainComponent::showUpdateDialog()
+{
+    if (pendingUpdateVersion.isEmpty())
+        return;
+
+    const auto url = pendingUpdateUrl;
+    const auto version = pendingUpdateVersion;
+    const auto currentVersion = pendingUpdateCurrent;
 
     showStyledDialog(
         this, "Update available",
@@ -6569,5 +6584,9 @@ void MainComponent::handleUpdateResult(const UpdateChecker::Result& result,
                     settings->setValue("update.skipped", version);
                     settings->saveIfNeeded();
                 }
+
+                // Overgeslagen: de pil verdwijnt.
+                updatePill.setVisible(false);
+                pendingUpdateVersion = {};
             }));
 }

@@ -1,6 +1,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "MainComponent.h"
 #include "WebServer.h"
+#include "ProcessMemory.h"
 
 
 class MerikApplication : public juce::JUCEApplication
@@ -15,7 +16,7 @@ public:
 
     const juce::String getApplicationVersion() override
     {
-        return "0.4.0-beta.1";
+        return "0.5.0";
     }
 
     bool moreThanOneInstanceAllowed() override
@@ -107,7 +108,8 @@ public:
     }
 
 private:
-    class MainWindow : public juce::DocumentWindow
+    class MainWindow : public juce::DocumentWindow,
+                       private juce::Timer
     {
     public:
         MainWindow(const juce::String& name,
@@ -116,6 +118,7 @@ private:
                   name,
                   juce::Colours::black,
                   juce::DocumentWindow::allButtons),
+              baseTitle(name),
               app(application)
         {
             setUsingNativeTitleBar(true);
@@ -124,6 +127,9 @@ private:
             centreWithSize(900, 810);
             setResizeLimits( 500,600,4000,4000);
             setVisible(true);
+
+            updateTitle();
+            startTimer(2000);
         }
 
         void closeButtonPressed() override
@@ -138,6 +144,22 @@ private:
         }
 
     private:
+        // Titelbalk: naam, versie, adres en het geheugen dat Merik nu gebruikt.
+        void updateTitle()
+        {
+            const auto memory = formatMemory(getProcessMemoryBytes());
+            const auto title = memory.isNotEmpty() ? baseTitle + "    mem:" + memory : baseTitle;
+
+            if (title != getName())
+                setName(title);
+        }
+
+        void timerCallback() override
+        {
+            updateTitle();
+        }
+
+        const juce::String baseTitle;
         MerikApplication& app;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)

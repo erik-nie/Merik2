@@ -36,10 +36,13 @@ public:
         loader = loaderToWatch;
         shown = 0.0f;
         phase = 0.0f;
-        setVisible(true);
-        toFront(false);
+
+        // Pas tonen als het laden langer dan een halve seconde duurt; een snel
+        // pakket (of een stream) laadt zonder dat er iets flitst.
+        startedAt = juce::Time::getMillisecondCounter();
+        shownToUser = false;
+        setVisible(false);
         startTimerHz(60);
-        repaint();
     }
 
     void stop()
@@ -139,6 +142,16 @@ private:
 
     void timerCallback() override
     {
+        if (!shownToUser)
+        {
+            if (juce::Time::getMillisecondCounter() - startedAt < showAfterMs)
+                return;
+
+            shownToUser = true;
+            setVisible(true);
+            toFront(false);
+        }
+
         const float target = loader != nullptr ? loader->progress.fraction.load() : 0.0f;
 
         // Vloeiend naar het echte getal, nooit terug, en altijd een klein stapje
@@ -156,6 +169,9 @@ private:
         repaint();
     }
 
+    static constexpr juce::uint32 showAfterMs = 500;
+    juce::uint32 startedAt = 0;
+    bool shownToUser = false;
     PackageLoader* loader = nullptr;
     juce::String title;
     float shown = 0.0f;

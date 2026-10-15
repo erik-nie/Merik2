@@ -10,6 +10,7 @@
 #include "MidiFileReader.h"
 #include "LevelMeter.h"
 #include "SourcePill.h"
+#include "UpdatePill.h"
 #include "WebServer.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -350,6 +351,11 @@ private:
 
     // Controle op een nieuwe versie (GitHub).
     void checkForUpdates(bool userInitiated);
+
+    // Een nieuwe versie: eerst alleen een rode pil; de klik opent het venster.
+    UpdatePill updatePill;
+    juce::String pendingUpdateUrl, pendingUpdateVersion, pendingUpdateCurrent;
+    void showUpdateDialog();
     void handleUpdateResult(const UpdateChecker::Result& result, const juce::String& currentVersion,
                             bool userInitiated);
 

@@ -100,7 +100,7 @@ Only needed for things the file names cannot say:
 - The click (family 8) follows the MIDI tempo and time signature, so it stays in sync with the stems **if the stems start exactly at the start of the song** (bar 1 at time 0).
 - **Transpose** is not available for songs with stems.
 - With an external MIDI output, the audio is delayed by the same 20 ms as the MIDI so they stay together.
-- Stems are decoded to memory when the song is loaded (about 11 MB per minute per stereo stem at 48 kHz).
+- **Loading and memory:** a `.merik` whose audio is stored **without compression** in the zip is *streamed*: Merik loads only the first ~11 seconds of each stem (the song starts in a fraction of a second) and reads the rest from disk a few seconds ahead while playing, using about 17 MB per stem. After a seek there can be a very short silence (about 0.1 s) while the new position is loaded; a family that could not be read in time briefly shows **BUFFER**. Stems in a compressed zip (or when the file cannot be streamed) are decoded completely at load time instead (about 11 MB per minute per stereo stem at 48 kHz), with a progress screen. A slow or network drive can cause stutter when streaming: copy the file to a local drive.
 
 ## Stem requirements
 
@@ -109,7 +109,57 @@ Only needed for things the file names cannot say:
 
 ## Making a .merik
 
-Use [scripts/make-merik.py](../scripts/make-merik.py) (needs only Python 3), or just zip the files yourself (store the audio without compression for fast loading):
+A `.merik` is just a zip. The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
+
+Put the stems in a folder, named `1-drums.wav`, `2-bass.wav`, ... (see *File names* above), optionally with `song.mid`, `click.wav`, `chords.json`, `lyrics.json`.
+
+**macOS** (Terminal, `cd` to the folder):
+
+```sh
+zip -0 -j "songname.merik" *.wav song.mid
+# or, when there is only audio:
+zip -0 -j "songname.merik" *.wav
+```
+
+`-0` means "store, don't compress" and `-j` leaves out the folder name. This takes a second or two and the result loads almost instantly. **Don't use right-click → Compress in Finder**: it compresses the audio (slow to make, slow to load, Merik can't stream it) and adds an extra folder.
+
+**Windows** (PowerShell, in the folder). The simplest is the `tar` that ships with Windows 10 and 11:
+
+```powershell
+tar --format zip --options zip:compression=store -cf "songname.merik" *.wav song.mid
+```
+
+or with PowerShell's own zip command (it needs the name `.zip` first):
+
+```powershell
+Compress-Archive -Path *.wav,song.mid -CompressionLevel NoCompression -DestinationPath songname.zip
+Rename-Item songname.zip songname.merik
+```
+
+or with [7-Zip](https://www.7-zip.org/): `7z a -tzip -mx=0 songname.merik *.wav song.mid`. Don't use right-click → *Send to → Compressed folder* in Explorer: that compresses the audio.
+
+(Leave out `song.mid` if you have none. The Windows commands were not tested on a Windows machine; the `tar` one works the same way as the macOS `tar`.)
+
+**Converting WAV to FLAC** (about half the size, lossless):
+
+macOS: install ffmpeg once with [Homebrew](https://brew.sh), then convert everything in the folder:
+
+```sh
+brew install ffmpeg
+for f in *.wav; do ffmpeg -i "$f" -c:a flac "${f%.wav}.flac"; done
+```
+
+Windows: install ffmpeg once (`winget install ffmpeg`, then open a new PowerShell), then:
+
+```powershell
+Get-ChildItem *.wav | ForEach-Object { ffmpeg -i $_.Name -c:a flac ($_.BaseName + ".flac") }
+```
+
+Then pack the `.flac` files as above (`zip -0 -j "songname.merik" *.flac song.mid`).
+
+The included script does the same in one go: `python3 scripts/make-merik.py pack "songname.merik" --folder stems/ --midi song.mid`.
+
+More ways with the script (needs only Python 3):
 
 ```bash
 python3 scripts/make-merik.py pack "My Song.merik" --folder stems/ --midi song.mid

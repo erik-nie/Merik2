@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Merik2 VERSION 0.4.0)
+project(Merik2 VERSION 0.5.0)
 
 
 set(CMAKE_CXX_STANDARD 20)
@@ -104,6 +104,7 @@ target_sources(
         src/ChordParser.cpp
         src/FluidSynthEngine.cpp
         src/MerikPackage.cpp
+        src/StemStreamer.cpp
         src/MidiTransformer.cpp
         src/MidiOutSink.cpp
         src/WebServer.cpp
@@ -131,7 +132,7 @@ target_link_libraries(
 
 # Windows: Winsock voor de webserver; MSVC leest de bronbestanden als UTF-8.
 if(WIN32)
-    target_link_libraries(Merik PRIVATE ws2_32)
+    target_link_libraries(Merik PRIVATE ws2_32 psapi)
 endif()
 
 if(MSVC)

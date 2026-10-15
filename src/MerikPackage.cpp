@@ -1,4 +1,5 @@
 #include "MerikPackage.h"
+#include "StemStreamer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -93,20 +94,27 @@ namespace
         return {};
     }
 
-    bool readEntry(juce::ZipFile& zip, const juce::String& name, juce::MemoryBlock& block)
+    int entryIndex(juce::ZipFile& zip, const juce::String& name)
     {
         if (!safeName(name))
-            return false;
+            return -1;
 
         int index = zip.getIndexOfFileName(name);
 
         if (index < 0)
         {
-            // Andere hoofdletters of backslashes in de zip.
+            // Andere hoofdletters, backslashes of een omhullende map in de zip.
             for (int i = 0; i < zip.getNumEntries() && index < 0; ++i)
                 if (entryName(zip, i).equalsIgnoreCase(name))
                     index = i;
         }
+
+        return index;
+    }
+
+    bool readEntry(juce::ZipFile& zip, const juce::String& name, juce::MemoryBlock& block)
+    {
+        const int index = entryIndex(zip, name);
 
         if (index < 0)
             return false;
@@ -645,7 +653,8 @@ namespace MerikPackage
         if (contents.error.isNotEmpty())
             return contents;
 
-        juce::ZipFile zip(package);
+        auto zipShared = std::make_shared<juce::ZipFile>(package);
+        auto& zip = *zipShared;
         Manifest manifest;
 
         if (!parseManifest(zip, manifest, contents.error))
@@ -665,8 +674,6 @@ namespace MerikPackage
             progress->fraction = 0.02f;
         }
 
-        // 1. De bestanden uit de zip lezen (snel, achter elkaar).
-        std::vector<juce::MemoryBlock> blocks(count);
         std::vector<std::atomic<float>> stemProgress(count);
 
         for (auto& value : stemProgress)
@@ -685,6 +692,14 @@ namespace MerikPackage
             progress->fraction = std::max(progress->fraction.load(), 0.02f + 0.98f * sum / static_cast<float>(count));
         };
 
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+
+        // 1. Per stem: staat hij zonder compressie in de zip (en is het wav/flac/mp3), dan
+        //    streamen we hem van schijf; anders lezen we hem helemaal in en decoderen we hem.
+        std::vector<std::shared_ptr<StemStreamer>> streamers(count);
+        std::vector<juce::MemoryBlock> blocks(count);
+
         for (std::size_t i = 0; i < count; ++i)
         {
             if (cancelled())
@@ -692,6 +707,33 @@ namespace MerikPackage
                 contents.cancelled = true;
                 return contents;
             }
+
+            const int index = entryIndex(zip, manifest.stems[i].file);
+
+            if (index < 0)
+            {
+                contents.error = "Stem not found in the .merik file: " + manifest.stems[i].file;
+                return contents;
+            }
+
+            std::unique_ptr<juce::InputStream> stream(zip.createStreamForEntry(index));
+
+            if (stream != nullptr && stream->getTotalLength() == zip.getEntry(index)->uncompressedSize)
+            {
+                // Opgeslagen zonder compressie: een buffer maakt de vele kleine leesacties van de decoder snel.
+                auto buffered = std::make_unique<juce::BufferedInputStream>(stream.release(), 1 << 17, true);
+
+                if (std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(std::move(buffered)));
+                    reader != nullptr && reader->lengthInSamples > 0 && reader->sampleRate > 0.0)
+                {
+                    streamers[i] = std::make_shared<StemStreamer>(zipShared, std::move(reader), deviceRate);
+                    stemProgress[i] = 0.1f;
+                    publish();
+                    continue;
+                }
+            }
+
+            stream.reset();
 
             if (!readEntry(zip, manifest.stems[i].file, blocks[i]))
             {
@@ -703,7 +745,7 @@ namespace MerikPackage
             publish();
         }
 
-        // 2. Decoderen en omzetten naar de samplefrequentie van het apparaat, parallel.
+        // 2. Het begin van de streams laden en de rest decoderen, parallel.
         auto set = std::make_shared<StemSet>();
         set->tracks.resize(count);
 
@@ -736,9 +778,19 @@ namespace MerikPackage
                     }
 
                     const auto& info = manifest.stems[i];
+                    auto& track = set->tracks[i];
+                    track.family = info.family;
+                    track.gain = info.gain;
+                    track.offset = offset;
 
-                    juce::AudioFormatManager formats;
-                    formats.registerBasicFormats();
+                    if (streamers[i] != nullptr)
+                    {
+                        streamers[i]->preloadHead(progress != nullptr ? &progress->cancel : nullptr,
+                                                  [&](float p) { stemProgress[i] = p; publish(); });
+                        track.streamer = streamers[i];
+                        finish();
+                        return;
+                    }
 
                     auto reader = makeReader(formats, blocks[i]);
 
@@ -771,11 +823,6 @@ namespace MerikPackage
 
                     if (reader->numChannels < 2)
                         buffer.copyFrom(1, 0, buffer, 0, 0, length);
-
-                    auto& track = set->tracks[i];
-                    track.family = info.family;
-                    track.gain = info.gain;
-                    track.offset = offset;
 
                     if (std::abs(reader->sampleRate - deviceRate) > 0.5)
                     {
@@ -825,8 +872,16 @@ namespace MerikPackage
             if (set->names[static_cast<std::size_t>(info.family)].empty() && info.label.isNotEmpty())
                 set->names[static_cast<std::size_t>(info.family)] = info.label.toStdString();
 
-            set->lengthSamples = std::max(set->lengthSamples, offset + static_cast<std::int64_t>(track.left.size()));
+            const auto length = track.streamer != nullptr ? track.streamer->lengthSamples()
+                                                          : static_cast<std::int64_t>(track.left.size());
+
+            set->lengthSamples = std::max(set->lengthSamples, offset + length);
         }
+
+        // Pas nu de achtergrondthreads starten die de rest van elke stem vooruit laden.
+        for (auto& track : set->tracks)
+            if (track.streamer != nullptr)
+                track.streamer->startStreaming();
 
         if (progress != nullptr)
             progress->fraction = 1.0f;

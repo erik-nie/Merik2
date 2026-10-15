@@ -1,4 +1,5 @@
 #include "FluidSynthEngine.h"
+#include "StemStreamer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -389,6 +390,7 @@ void FluidSynthEngine::loadSong(
     buildClickTrackLocked();
 
     currentSample_ = 0;
+    hintStemsLocked(0);
     nextEvent_ = 0;
     playing_ = false;
 
@@ -409,6 +411,7 @@ void FluidSynthEngine::start()
         resetSynth();
     }
 
+    hintStemsLocked(currentSample_);
     playing_ = true;
 }
 
@@ -442,6 +445,7 @@ void FluidSynthEngine::seekSamples(
     rebuildSynthStateAt(samplePosition);
 
     currentSample_ = samplePosition;
+    hintStemsLocked(samplePosition);
 
     /*
         Keep playback running when the user was already playing,
@@ -1362,6 +1366,8 @@ void FluidSynthEngine::setStems(std::shared_ptr<const StemSet> stems)
             for (auto& channel : family)
                 channel.assign(stems_ ? 8192 : 0, 0.0f);
         stemGains_.assign(stems_ ? stems_->tracks.size() : 0, -1.0f);
+        stemScratch_[0].assign(stems_ ? 8192 : 0, 0.0f);
+        stemScratch_[1].assign(stems_ ? 8192 : 0, 0.0f);
     }
 }
 
@@ -1401,6 +1407,17 @@ int FluidSynthEngine::channelFamilyLocked(int channel) const
     return midiTransformer_.getChannelState(channel).family;
 }
 
+// Vertelt de streams waar we zijn (spoelen, starten), zodat ze daar vooruit laden.
+void FluidSynthEngine::hintStemsLocked(std::int64_t samplePosition)
+{
+    if (!stems_)
+        return;
+
+    for (const auto& track : stems_->tracks)
+        if (track.streamer != nullptr)
+            track.streamer->setPosition(samplePosition - track.offset);
+}
+
 void FluidSynthEngine::mixStemsLocked(float* clickOut, int numSamples, std::int64_t blockStart)
 {
     if (!stems_)
@@ -1430,7 +1447,7 @@ void FluidSynthEngine::mixStemsLocked(float* clickOut, int numSamples, std::int6
         const float from = stemGains_[t] < 0.0f ? target : stemGains_[t];
         stemGains_[t] = target;
 
-        const auto size = static_cast<std::int64_t>(track.left.size());
+        const auto size = static_cast<std::int64_t>(track.left.size());   // 0 bij een stream
         const float step = (target - from) / static_cast<float>(numSamples);
         const auto offset = track.offset + lead + (isClick ? clickDelay : 0);
         float peak = 0.0f;
@@ -1438,16 +1455,41 @@ void FluidSynthEngine::mixStemsLocked(float* clickOut, int numSamples, std::int6
         float* outLeft = isClick ? clickOut : familyAudio_[static_cast<std::size_t>(track.family)][0].data();
         float* outRight = isClick ? nullptr : familyAudio_[static_cast<std::size_t>(track.family)][1].data();
 
+        // Het stuk van deze stem dat bij dit blok hoort, in de werkruimte.
+        if (stemScratch_[0].size() < static_cast<std::size_t>(numSamples))
+        {
+            stemScratch_[0].resize(static_cast<std::size_t>(numSamples));   // zelden: groter blok dan verwacht
+            stemScratch_[1].resize(static_cast<std::size_t>(numSamples));
+        }
+
+        float* scratchLeft = stemScratch_[0].data();
+        float* scratchRight = stemScratch_[1].data();
+        const auto first = blockStart - offset;
+
+        if (track.streamer != nullptr)
+        {
+            track.streamer->setPosition(first);
+
+            if (!track.streamer->read(first, numSamples, scratchLeft, scratchRight) && playing_)
+                bufferingMask_.fetch_or(1u << track.family, std::memory_order_relaxed);
+        }
+        else
+        {
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto index = first + i;
+                const bool inside = index >= 0 && index < size;
+
+                scratchLeft[i] = inside ? track.left[static_cast<std::size_t>(index)] : 0.0f;
+                scratchRight[i] = inside ? track.right[static_cast<std::size_t>(index)] : 0.0f;
+            }
+        }
+
         for (int i = 0; i < numSamples; ++i)
         {
-            const auto index = blockStart + i - offset;
-
-            if (index < 0 || index >= size)
-                continue;
-
             const float gain = from + step * static_cast<float>(i);
-            const float left = track.left[static_cast<std::size_t>(index)] * gain;
-            const float right = track.right[static_cast<std::size_t>(index)] * gain;
+            const float left = scratchLeft[i] * gain;
+            const float right = scratchRight[i] * gain;
 
             peak = std::max(peak, std::max(std::fabs(left), std::fabs(right)));
 

@@ -18,12 +18,12 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 ## Download
 
-**[Download Merik 0.4.0-beta.1](https://github.com/erik-nie/Merik2/releases/tag/v0.4.0-beta.1)** for macOS or Windows. This is a beta: expect some rough edges. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+**[Download Merik 0.5.0](https://github.com/erik-nie/Merik2/releases/tag/v0.5.0)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS** | `Merik-0.4.0-beta.1-arm64.dmg` | Apple silicon, macOS 14 or later |
-| **Windows** | `Merik-0.4.0-beta.1-windows-x64.zip` | Windows 10 or 11, 64-bit |
+| **macOS** | `Merik-0.5.0-arm64.dmg` | Apple silicon, macOS 14 or later |
+| **Windows** | `Merik-0.5.0-windows-x64.zip` | Windows 10 or 11, 64-bit |
 
 **Install on macOS**
 
@@ -143,14 +143,61 @@ So these are all valid: a song that is only MIDI; a song that is only stems; MID
 - *Your band's backing track from a DAW:* export each family as a FLAC with the same start point, add `click.wav` and the MIDI file, and zip them.
 - *A MIDI song with a live vocal stem:* `song.mid` and `7-void.mp3`.
 
+**Fast loading, low memory:** when the audio is stored without compression in the zip, Merik streams the stems from disk: the song is ready in a fraction of a second and uses about 17 MB per stem instead of the whole song. Compressed zips are loaded completely, with a progress screen. See [Making a .merik](#making-a-merik-from-a-set-of-audio-files).
+
 Each family can be sent to **its own output** (Settings → Audio), as a stereo pair or a single mono channel, and the click to another. Each family button shows **AUDIO** or **MIDI** with a level meter, and the song list tags the file with **AUDIO** and/or **MIDI**. Transpose is not available for songs with stems.
 
-Make one with the included script, or just zip the files yourself:
+### Making a .merik from a set of audio files
 
-```bash
-python3 scripts/make-merik.py pack "My Song.merik" --folder stems/ --midi song.mid
-python3 scripts/make-merik.py pack "My Song.merik" --stem 1=drums.wav --stem 7=void.mp3 --midi song.mid
+A `.merik` is just a zip. The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
+
+Put the stems in a folder, named `1-drums.wav`, `2-bass.wav`, ... (see naming above), optionally with `song.mid`, `click.wav`, `chords.json`, `lyrics.json`.
+
+**macOS** (Terminal, `cd` to the folder):
+
+```sh
+zip -0 -j "songname.merik" *.wav song.mid
+# or, when there is only audio:
+zip -0 -j "songname.merik" *.wav
 ```
+
+`-0` means "store, don't compress" and `-j` leaves out the folder name. This takes a second or two and the result loads almost instantly. **Don't use right-click → Compress in Finder**: it compresses the audio (slow to make, slow to load, Merik can't stream it) and adds an extra folder.
+
+**Windows** (PowerShell, in the folder). The simplest is the `tar` that ships with Windows 10 and 11:
+
+```powershell
+tar --format zip --options zip:compression=store -cf "songname.merik" *.wav song.mid
+```
+
+or with PowerShell's own zip command (it needs the name `.zip` first):
+
+```powershell
+Compress-Archive -Path *.wav,song.mid -CompressionLevel NoCompression -DestinationPath songname.zip
+Rename-Item songname.zip songname.merik
+```
+
+or with [7-Zip](https://www.7-zip.org/): `7z a -tzip -mx=0 songname.merik *.wav song.mid`. Don't use right-click → *Send to → Compressed folder* in Explorer: that compresses the audio.
+
+(Leave out `song.mid` if you have none. The Windows commands were not tested on a Windows machine; the `tar` one works the same way as the macOS `tar`.)
+
+**Converting WAV to FLAC** (about half the size, lossless):
+
+macOS: install ffmpeg once with [Homebrew](https://brew.sh), then convert everything in the folder:
+
+```sh
+brew install ffmpeg
+for f in *.wav; do ffmpeg -i "$f" -c:a flac "${f%.wav}.flac"; done
+```
+
+Windows: install ffmpeg once (`winget install ffmpeg`, then open a new PowerShell), then:
+
+```powershell
+Get-ChildItem *.wav | ForEach-Object { ffmpeg -i $_.Name -c:a flac ($_.BaseName + ".flac") }
+```
+
+Then pack the `.flac` files as above (`zip -0 -j "songname.merik" *.flac song.mid`).
+
+The included script does the same in one go: `python3 scripts/make-merik.py pack "songname.merik" --folder stems/ --midi song.mid`.
 
 A ready-made test song is in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). The complete description (lyrics and chord JSON formats, the optional manifest, stem requirements) is in [docs/merik-format.md](docs/merik-format.md).
 
@@ -274,8 +321,8 @@ The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's
 Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMG and the Windows zip and creates a draft release with both files:
 
 ```sh
-git tag -a v0.4.0-beta.1 -m "Beta 1"
-git push origin v0.4.0-beta.1
+git tag -a v0.5.0 -m "Merik 0.5.0"
+git push origin v0.5.0
 ```
 
 The release notes come from `docs/release-notes/<version>.md`. You can also start the workflow by hand (Actions, Release, Run workflow) to build the files without making a release.
@@ -283,7 +330,7 @@ The release notes come from `docs/release-notes/<version>.md`. You can also star
 On a Mac you can build the DMG yourself with `scripts/make-release.sh`. It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
 
 ```sh
-scripts/make-release.sh 0.4.0-beta.1
+scripts/make-release.sh 0.5.0
 ```
 
 For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.

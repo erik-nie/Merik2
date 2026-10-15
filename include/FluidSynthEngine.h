@@ -140,6 +140,9 @@ public:
         return familyAudio_[static_cast<std::size_t>(family)][static_cast<std::size_t>(channel & 1)].data();
     }
 
+    // Bit n = familie n kon sinds de vorige aanroep een deel niet op tijd van schijf lezen.
+    [[nodiscard]] std::uint32_t takeBufferingMask() { return bufferingMask_.exchange(0, std::memory_order_relaxed); }
+
     [[nodiscard]] std::uint32_t stemFamilyMask() const { return stemMask_.load(std::memory_order_relaxed); }
 
     // Pieken per familie sinds de vorige aanroep (0..1). Audiofamilies en de
@@ -249,7 +252,10 @@ private:
     std::array<float, familyCount> midiLevel_ {};
     void notePeak(int family, float value);
     std::vector<float> stemGains_;
+    std::vector<float> stemScratch_[2];
+    std::atomic<std::uint32_t> bufferingMask_ { 0 };
 
+    void hintStemsLocked(std::int64_t samplePosition);
     void buildClickTrackLocked();
     void renderClickLocked(float* out, int numSamples, std::int64_t blockStart) const;
 
