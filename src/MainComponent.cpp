@@ -573,6 +573,8 @@ struct SettingsContext
     juce::TextButton& directPlay;
     juce::TextButton& normalize;
     juce::TextButton& autoNext;
+    juce::TextButton& updateCheck;
+    std::function<void()> checkNow;
 
     std::function<juce::String()> midiInActivity;
 
@@ -593,7 +595,7 @@ class SettingsContent final : public juce::Component,
 public:
     explicit SettingsContent(SettingsContext contextToUse)
         : context(std::move(contextToUse)),
-          sources { &context.directPlay, &context.normalize, &context.autoNext },
+          sources { &context.directPlay, &context.normalize, &context.autoNext, &context.updateCheck },
           comboSources { &context.midiIn, &context.midiOut, &context.ledOut }
     {
         setLookAndFeel(&merikLookAndFeel);
@@ -688,10 +690,11 @@ private:
         generalPage.addAndMakeVisible(webHint);
         updateWebHint();
 
-        static const char* optionLabels[3] = {
+        static const char* optionLabels[4] = {
             "Doubleclick starts playing",
             "Normalize based on drumchannel level",
-            "Auto play next song in setlist"
+            "Auto play next song in setlist",
+            "Check for updates at startup"
         };
 
         for (std::size_t i = 0; i < optionCopies.size(); ++i)
@@ -714,6 +717,14 @@ private:
             generalPage.addAndMakeVisible(copy);
         }
 
+        checkNowButton.setButtonText("Check for updates now");
+        checkNowButton.onClick = [this]
+        {
+            if (context.checkNow)
+                context.checkNow();
+        };
+        generalPage.addAndMakeVisible(checkNowButton);
+
         generalPage.layout = [this](juce::Rectangle<int> bounds)
         {
             const int controlX = bounds.proportionOfWidth(0.30f);
@@ -732,6 +743,9 @@ private:
                 copy.setBounds(controlX, y, controlWidth, 30);
                 y += 34;
             }
+
+            y += 8;
+            checkNowButton.setBounds(controlX, y, 190, 30);
         };
     }
 
@@ -1115,8 +1129,9 @@ private:
     SettingsPage generalPage;
     juce::Label webKeyLabel, webHint;
     juce::TextEditor webKeyEditor;
-    std::array<juce::ToggleButton, 3> optionCopies;
-    std::array<juce::TextButton*, 3> sources;
+    std::array<juce::ToggleButton, 4> optionCopies;
+    std::array<juce::TextButton*, 4> sources;
+    juce::TextButton checkNowButton;
 
     // Audio
     ScrollPage audioPage;
@@ -1182,6 +1197,8 @@ void MainComponent::showAudioSettings()
         doubleClickToggle,
         normalizeToggle,
         continuousToggle,
+        updateCheckToggle,
+        [this] { checkForUpdates(true); },
 
         [this]
         {
@@ -3351,7 +3368,7 @@ MainComponent::MainComponent()
     continuousToggle.setButtonText("Auto Next");
 
     for (auto* button :
-        { &doubleClickToggle, &normalizeToggle, &continuousToggle })
+        { &doubleClickToggle, &normalizeToggle, &continuousToggle, &updateCheckToggle })
     {
         button->setColour(
             juce::TextButton::buttonColourId,
@@ -3648,6 +3665,12 @@ MainComponent::MainComponent()
         if (syncSettingsToggles) syncSettingsToggles();
     };
 
+    updateCheckToggle.onClick = [this]
+    {
+        savePersistentState();
+        if (syncSettingsToggles) syncSettingsToggles();
+    };
+
 
     // -------------------------------------------------------------------------
     // Channel table
@@ -3778,6 +3801,15 @@ MainComponent::MainComponent()
     updateMissingFlags();
     scanSongInfo();
 
+    // Een paar seconden na de start kijken of er een nieuwe versie is.
+    juce::Timer::callAfterDelay(
+        4000,
+        [safe = juce::Component::SafePointer<MainComponent>(this)]
+        {
+            if (safe != nullptr && safe->updateCheckToggle.getToggleState())
+                safe->checkForUpdates(false);
+        });
+
     startTimerHz(20);
 
     //setSize(1200, 850);
@@ -3842,6 +3874,10 @@ void MainComponent::loadPersistentState()
         properties->getBoolValue(
             "continuousPlay",
             false),
+        juce::dontSendNotification);
+
+    updateCheckToggle.setToggleState(
+        properties->getBoolValue("checkForUpdates", true),
         juce::dontSendNotification);
 
     setlists.clear();
@@ -3946,6 +3982,10 @@ void MainComponent::savePersistentState()
     properties->setValue(
         "continuousPlay",
         continuousToggle.getToggleState());
+
+    properties->setValue(
+        "checkForUpdates",
+        updateCheckToggle.getToggleState());
 
     properties->setValue(
         "selectedSetlist",
@@ -4427,8 +4467,12 @@ public:
                  const juce::String* initialText,
                  const juce::String& okText,
                  bool showCancel,
-                 std::function<void(const juce::String&)> onAcceptedToUse)
-        : onAccepted(std::move(onAcceptedToUse))
+                 std::function<void(const juce::String&)> onAcceptedToUse,
+                 const juce::String& cancelText = "Cancel",
+                 const juce::String& extraText = {},
+                 std::function<void()> extraCallback = nullptr)
+        : onAccepted(std::move(onAcceptedToUse)),
+          onExtra(std::move(extraCallback))
     {
         setLookAndFeel(&merikLookAndFeel);
 
@@ -4465,9 +4509,24 @@ public:
 
         if (showCancel)
         {
-            cancelButton.setButtonText("Cancel");
+            cancelButton.setButtonText(cancelText);
             cancelButton.onClick = [this] { close(); };
             addAndMakeVisible(cancelButton);
+        }
+
+        hasExtra = extraText.isNotEmpty();
+
+        if (hasExtra)
+        {
+            extraButton.setButtonText(extraText);
+            extraButton.onClick = [this]
+            {
+                if (onExtra)
+                    onExtra();
+
+                close();
+            };
+            addAndMakeVisible(extraButton);
         }
 
         const int lines = message.retainCharacters("\n").length() + 1;
@@ -4506,6 +4565,9 @@ public:
 
         if (hasCancel)
             cancelButton.setBounds(buttons.removeFromRight(110));
+
+        if (hasExtra)
+            extraButton.setBounds(buttons.removeFromLeft(150));
     }
 
     bool keyPressed(const juce::KeyPress& key) override
@@ -4577,9 +4639,11 @@ private:
     std::function<void(const juce::String&)> onAccepted;
     juce::Label messageLabel;
     juce::TextEditor editor;
-    juce::TextButton okButton, cancelButton;
+    std::function<void()> onExtra;
+    juce::TextButton okButton, cancelButton, extraButton;
     bool hasEditor = false;
     bool hasCancel = false;
+    bool hasExtra = false;
 };
 
 void showStyledDialog(juce::Component* centreAround,
@@ -5784,4 +5848,88 @@ bool MainComponent::hasNextSong() const
         index = songBox.getSelectedRow();
 
     return index + 1 >= 0 && index + 1 < static_cast<int>(songs.size());
+}
+
+
+// ============================================================================
+// Nieuwe versie (GitHub)
+// ============================================================================
+
+void MainComponent::checkForUpdates(bool userInitiated)
+{
+    const auto current = juce::JUCEApplication::getInstance()->getApplicationVersion();
+
+    UpdateChecker::check(
+        current,
+        [safe = juce::Component::SafePointer<MainComponent>(this), current, userInitiated]
+        (UpdateChecker::Result result)
+        {
+            if (safe != nullptr)
+                safe->handleUpdateResult(result, current, userInitiated);
+        });
+}
+
+void MainComponent::handleUpdateResult(const UpdateChecker::Result& result,
+                                       const juce::String& currentVersion,
+                                       bool userInitiated)
+{
+    if (!result.ok)
+    {
+        if (userInitiated)
+            confirmDialog("Check for updates",
+                          "Could not check for updates.\nCheck your internet connection and try again.",
+                          "OK", nullptr);
+        return;
+    }
+
+    if (!result.updateAvailable)
+    {
+        if (userInitiated)
+            confirmDialog("Check for updates",
+                          "You have the latest version (" + currentVersion + ").",
+                          "OK", nullptr);
+        return;
+    }
+
+    auto* properties = appProperties.getUserSettings();
+
+    // Bij het opstarten niet zeuren: een versie die je hebt overgeslagen of
+    // waar je net naar gekeken hebt, komt pas na een halve dag terug.
+    if (!userInitiated && properties != nullptr)
+    {
+        const auto now = juce::Time::currentTimeMillis();
+        const auto lastPrompt = properties->getValue("update.lastPrompt", "0").getLargeIntValue();
+
+        if (properties->getValue("update.skipped") == result.latestVersion
+            || now - lastPrompt < 12LL * 60 * 60 * 1000)
+        {
+            return;
+        }
+    }
+
+    if (properties != nullptr)
+    {
+        properties->setValue("update.lastPrompt", juce::String(juce::Time::currentTimeMillis()));
+        properties->saveIfNeeded();
+    }
+
+    const auto url = result.url;
+    const auto version = result.latestVersion;
+
+    showStyledDialog(
+        this, "Update available",
+        std::make_unique<StyledDialog>(
+            "Merik " + version + " is available.\nYou have " + currentVersion + ".",
+            nullptr, "Download", true,
+            [url](const juce::String&) { juce::URL(url).launchInDefaultBrowser(); },
+            "Later",
+            "Skip this version",
+            [this, version]
+            {
+                if (auto* settings = appProperties.getUserSettings())
+                {
+                    settings->setValue("update.skipped", version);
+                    settings->saveIfNeeded();
+                }
+            }));
 }

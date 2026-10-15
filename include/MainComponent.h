@@ -3,6 +3,7 @@
 #include "BeatIndicator.h"
 #include "DropListBox.h"
 #include "ListSplitter.h"
+#include "UpdateChecker.h"
 #include "MidiMapping.h"
 #include "MidiOutSink.h"
 #include "FluidSynthEngine.h"
@@ -164,6 +165,7 @@ private:
     juce::TextButton doubleClickToggle;
     juce::TextButton normalizeToggle;
     juce::TextButton continuousToggle;
+    juce::TextButton updateCheckToggle;   // "Check for updates at startup"
 
     juce::TextButton addButton;
 
@@ -281,6 +283,11 @@ private:
     void removeSongs(juce::Array<int> rows);
     [[nodiscard]] juce::Array<int> selectedSongRows() const;
     void addSetlist();
+
+    // Controle op een nieuwe versie (GitHub).
+    void checkForUpdates(bool userInitiated);
+    void handleUpdateResult(const UpdateChecker::Result& result, const juce::String& currentVersion,
+                            bool userInitiated);
 
     // Duur, lyrics en akkoorden van de nummers: op de achtergrond uitgelezen.
     std::mutex midiReadMutex;       // de MIDI-lezer wordt niet door twee threads tegelijk gebruikt
