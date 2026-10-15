@@ -1,6 +1,6 @@
 name: Release
 
-# Bouwt een DMG (macOS, Apple silicon) en een zip (Windows) en zet ze als
+# Bouwt een DMG voor Apple silicon, een DMG voor Intel-Macs en een zip (Windows) en zet ze als
 # concept-release op GitHub. Starten door een tag te pushen:
 #
 #   git tag -a v0.2.0-alpha.2 -m "Alpha 2" && git push origin v0.2.0-alpha.2
@@ -35,6 +35,26 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
+          path: dist/*.dmg
+
+  macos-intel:
+    name: macOS DMG (Intel)
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install fluid-synth pkg-config dylibbundler
+
+      - name: Build the DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then VERSION="dev"; fi
+          scripts/make-release.sh "$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg-intel
           path: dist/*.dmg
 
   windows:
@@ -112,7 +132,7 @@ jobs:
 
   release:
     name: Create the draft release
-    needs: [macos, windows]
+    needs: [macos, macos-intel, windows]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:

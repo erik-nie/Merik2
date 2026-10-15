@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Maakt een macOS-release (Apple silicon) van Merik:
+# Maakt een macOS-release van Merik, voor de processor van deze Mac
+# (Apple silicon: -arm64.dmg, Intel: -intel.dmg):
 #
 #   1. Release-build in build-release/
 #   2. FluidSynth en zijn libraries in de app stoppen (dylibbundler)
@@ -28,7 +29,13 @@ fail() { echo "Fout: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "dit script werkt alleen op macOS."
-[[ "$(uname -m)" == "arm64" ]]  || fail "alleen Apple silicon wordt ondersteund."
+# Apple silicon of Intel: de build volgt de Mac waarop dit draait (de Homebrew-libraries
+# die erin gaan zijn voor die processor gebouwd).
+case "$(uname -m)" in
+    arm64)  ARCH=arm64;  ARCH_NAME=arm64 ;;
+    x86_64) ARCH=x86_64; ARCH_NAME=intel ;;
+    *)      fail "onbekende processor: $(uname -m)." ;;
+esac
 
 for tool in cmake pkg-config dylibbundler hdiutil codesign otool vtool shasum; do
     command -v "$tool" >/dev/null || fail "'$tool' ontbreekt (brew install cmake pkg-config fluid-synth dylibbundler)."
@@ -43,10 +50,10 @@ APP_NAME="Merik"
 BUILD_DIR="$ROOT/build-release"
 DIST_DIR="$ROOT/dist"
 APP="$DIST_DIR/$APP_NAME.app"
-DMG="$DIST_DIR/$APP_NAME-$VERSION-arm64.dmg"
+DMG="$DIST_DIR/$APP_NAME-$VERSION-$ARCH_NAME.dmg"
 
-step "Merik $VERSION bouwen (Release, arm64)"
-cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 >/dev/null
+step "Merik $VERSION bouwen (Release, $ARCH)"
+cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH" >/dev/null
 cmake --build "$BUILD_DIR" -j "$(sysctl -n hw.ncpu)"
 
 BUILT_APP="$BUILD_DIR/${APP_NAME}_artefacts/$APP_NAME.app"
