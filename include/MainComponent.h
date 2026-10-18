@@ -123,6 +123,15 @@ private:
     juce::Rectangle<int> transposeBounds;
     juce::Rectangle<int> volumeBounds;
 
+    // Het afgeronde vlak achter een capsule (ligt boven de kop van de songlijst).
+    struct CapsuleBackdrop final : juce::Component
+    {
+        CapsuleBackdrop() { setInterceptsMouseClicks(false, false); }
+        void paint(juce::Graphics& g) override;
+    };
+
+    CapsuleBackdrop transposeBackdrop, volumeBackdrop;
+
     WebServer webServer;
 
     using Clock = std::chrono::steady_clock;

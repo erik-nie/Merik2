@@ -155,6 +155,7 @@ Settings → **Tools → Render MIDI files...**. The whole workflow is described
 - Reads lyrics from standard MIDI files, including karaoke (KAR) and Midisoft files, with word-by-word highlighting and correct handling of accented characters.
 - Finds chords in the places MIDI files actually hide them: **Yamaha XF** chord data, **Midisoft** chord lines, markers and text events. Slash chords and bass notes (such as F/A or C/E) are shown properly.
 - Chords transpose together with the music.
+- **Section names** found in the MIDI file (Intro, Verse, Refrain, Solo, ... including the `15@Refrain:` style markers of many karaoke files) appear in yellow at the top right of the browser page: the current section with a line that runs out (like the chords), and the next one. The beat counter with its LEDs sits in its own block at the bottom right, under the text size slider; the chords fade out beneath it.
 
 ### Remote display and control in your browser
 - Open Merik's address on any phone, tablet or laptop on the same network and get a full-screen **lyrics and chord display** with a progress bar for the current chord, a countdown before the first line, and an adjustable text size.

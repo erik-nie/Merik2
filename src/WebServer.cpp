@@ -796,6 +796,15 @@ std::string WebServer::createJson() const
         }
         json += "],";
 
+        json += "\"sections\":[";
+        for (std::size_t i = 0; i < song->sections.size(); ++i)
+        {
+            if (i != 0) json += ",";
+            json += "{\"time\":" + std::to_string(song->sections[i].seconds)
+                  + ",\"name\":\"" + escapeJson(song->sections[i].name) + "\"}";
+        }
+        json += "],";
+
         json += "\"lyrics\":[";
         for (std::size_t i = 0; i < song->lyrics.size(); ++i)
         {
@@ -996,8 +1005,10 @@ footer {
 {
     position: fixed;
 
-    top: 20px;
-    right: 25px;
+    /* Onderin in het midden, boven de akkoorden */
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
     width: 300px;
     text-align: center;
     z-index: 100;
@@ -1019,12 +1030,17 @@ footer {
         width 180ms ease,
         opacity 180ms ease;
 }    
-/* Maatsoort met ledjes in de maat; schuift onder de countdown-pil als die zichtbaar is */
+/* Maatsoort met ledjes: een eigen blokje rechtsonder, onder de tekstgrootte-schuif. Eén vlak met
+   een doorzichtig verloop aan de linkerkant: de akkoorden die er langs lopen verdwijnen eronder.
+   De maat wordt kleiner naarmate er meer tellen zijn. */
 #beatBox {
-    position:fixed; top:22px; right:28px; z-index:90; display:flex; align-items:center; gap:12px;
-    padding:7px 14px; border-radius:999px; background:rgba(255,255,255,.06);
-    border:1px solid rgba(255,255,255,.10); transition:top 450ms ease; pointer-events:none;
+    --led:18px; --ledgap:10px; --sig:24px;
+    position:fixed; right:0; bottom:10px; z-index:25; display:flex; align-items:center; gap:14px;
+    padding:8px 14px 8px 120px; pointer-events:none;
+    background:linear-gradient(to right, rgba(0,0,0,0) 0, rgba(0,0,0,.92) 100px, rgba(0,0,0,.92) 100%);
 }
+#beatBox.medium { --led:15px; --ledgap:8px; --sig:20px; padding-left:100px; }
+#beatBox.small { --led:12px; --ledgap:6px; --sig:17px; padding-left:90px; gap:10px; }
 #beatBox[hidden] { display:none; }
 /* Zoeken (alleen met de bedieningssleutel) */
 #searchOverlay { position:fixed; inset:0; z-index:900; display:flex; align-items:flex-start; justify-content:center;
@@ -1068,22 +1084,39 @@ body:not(.control) #btnSearch { display:none; }
 #offline .dots span:nth-child(2) { animation-delay:.2s; }
 #offline .dots span:nth-child(3) { animation-delay:.4s; }
 @keyframes offlinePulse { 0%,80%,100% { opacity:.25; } 40% { opacity:1; } }
-body.countdown #beatBox { top:134px; }
-#beatSig { font-size:20px; font-weight:600; color:#9ea4b0; font-variant-numeric:tabular-nums; }
-#beatLeds { display:flex; gap:9px; }
+/* Songonderdelen rechtsboven: de huidige met een aflopend streepje, en de volgende */
+#sections {
+    position:fixed; top:18px; right:30px; z-index:12; display:flex; align-items:flex-end; gap:28px;
+    pointer-events:none;
+}
+#sections[hidden] { display:none; }
+.section-slot { display:flex; flex-direction:column; align-items:stretch; gap:3px; min-width:90px; }
+.section-name { color:#ffd23f; font-size:32px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    white-space:nowrap; text-align:right; line-height:1.05; transition:opacity 180ms ease; }
+.section-slot.next .section-name { font-size:24px; opacity:.55; }
+.section-progress { position:relative; width:100%; height:6px; overflow:hidden; background:rgba(255,210,63,.28); border-radius:999px; }
+.section-progress-fill { position:absolute; top:0; right:0; bottom:0; width:100%; background:#ffd23f; border-radius:999px;
+    transition:width 100ms linear; }
+.section-slot.next .section-progress { background:rgba(255,210,63,.14); }
+@media (max-width:700px) {
+    #lyricCountdown { bottom:72px; width:220px; font-size:36px; padding:12px 14px; }
+    #sections { top:12px; right:12px; gap:16px; }
+    .section-name { font-size:20px; }
+    .section-slot.next .section-name { font-size:16px; }
+}
+#beatSig { font-size:var(--sig); font-weight:700; color:#fff; font-variant-numeric:tabular-nums; }
+#beatLeds { display:flex; gap:var(--ledgap); }
 .led {
-    --c:24,118,255; --i:0; width:16px; height:16px; border-radius:50%;
+    --c:24,118,255; --i:0; width:var(--led); height:var(--led); border-radius:50%;
     background:rgba(var(--c), calc(.06 + var(--i) * .94));
     border:1px solid rgba(var(--c), .35);
-    box-shadow:0 0 calc(var(--i) * 16px) rgba(var(--c), calc(var(--i) * .85));
+    box-shadow:0 0 calc(var(--i) * 14px) rgba(var(--c), calc(var(--i) * .85));
 }
 .led.first { --c:255,176,32; }
 @media (max-width:600px) {
-    #beatBox { top:12px; right:12px; padding:5px 10px; gap:8px; }
-    body.countdown #beatBox { top:108px; }
-    #beatSig { font-size:15px; }
-    #beatLeds { gap:6px; }
-    .led { width:12px; height:12px; }
+    #beatBox { --led:13px; --ledgap:6px; --sig:17px; padding:6px 8px 6px 70px; gap:8px; }
+    #beatBox.medium { --led:11px; --ledgap:5px; --sig:15px; }
+    #beatBox.small { --led:9px; --ledgap:4px; --sig:13px; }
 }
 
 #time .key { margin-left:14px; color:#6aa5ff; }
@@ -1176,6 +1209,7 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 <div id="songProgress"><div id="songProgressFill"></div></div>
 <div id="lyricCountdown"></div>
 <div id="offline" hidden><div class="card"><div class="title">Merik is not running</div><div class="text">Start Merik on the computer.<br>This page reconnects by itself.</div><div class="dots"><span></span><span></span><span></span></div></div></div>
+<div id="sections" hidden><div class="section-slot current"><span class="section-name" id="sectionCurrent"></span><div class="section-progress"><div id="sectionRemaining" class="section-progress-fill"></div></div></div><div class="section-slot next"><span class="section-name" id="sectionNext"></span><div class="section-progress"></div></div></div>
 <div id="beatBox" hidden><span id="beatSig">4/4</span><span id="beatLeds"></span></div>
 <main>
     <div id="lyricsViewport">
@@ -2152,6 +2186,66 @@ function renderChords()
 }
 
 
+// Songonderdelen uit het MIDI-bestand rechtsboven: de huidige met een aflopend streepje
+// (zoals bij de akkoorden) en de volgende.
+let lastSectionKey = "";
+
+function renderSections()
+{
+    const box = document.getElementById("sections");
+    const sections = (songData && songData.sections) || [];
+
+    if (!songData || sections.length === 0)
+    {
+        box.hidden = true;
+        lastSectionKey = "";
+        return;
+    }
+
+    box.hidden = false;
+
+    const position = Number(songData.position || 0);
+    let current = -1;
+
+    for (let i = 0; i < sections.length; ++i)
+    {
+        if (Number(sections[i].time) <= position)
+            current = i;
+        else
+            break;
+    }
+
+    const currentSlot = box.querySelector(".section-slot.current");
+    const nextSlot = box.querySelector(".section-slot.next");
+    const next = current + 1 < sections.length ? sections[current + 1] : null;
+
+    const key = current + "|" + songData.songRev;
+
+    if (key !== lastSectionKey)
+    {
+        lastSectionKey = key;
+        document.getElementById("sectionCurrent").textContent = current >= 0 ? sections[current].name : "";
+        document.getElementById("sectionNext").textContent = next ? next.name : "";
+
+        // Een korte invlieg bij een nieuw onderdeel.
+        box.animate([{ opacity: 0.2, transform: "translateX(18px)" }, { opacity: 1, transform: "none" }],
+                    { duration: 220, easing: "ease-out" });
+    }
+
+    currentSlot.style.visibility = current >= 0 ? "visible" : "hidden";
+    nextSlot.style.visibility = next ? "visible" : "hidden";
+
+    // Streepje onder het huidige onderdeel: loopt af tot het volgende begint (of het nummer eindigt).
+    if (current >= 0)
+    {
+        const start = Number(sections[current].time);
+        const end = next ? Number(next.time) : Math.max(start + 1, Number(songData.duration) || start + 1);
+        const remaining = Math.max(0, Math.min(1, (end - position) / Math.max(0.001, end - start)));
+
+        document.getElementById("sectionRemaining").style.width = (remaining * 100) + "%";
+    }
+}
+
 const lyricsFontSizeSlider =
     document.getElementById("lyricsFontSize");
 
@@ -2399,10 +2493,6 @@ function beatFrame()
 
     box.hidden = false;
 
-    // Schuif onder de countdown-pil zolang die zichtbaar is.
-    const pill = document.getElementById("lyricCountdown");
-    document.body.classList.toggle("countdown", Number(pill.style.opacity) > 0.02);
-
     const elapsed = beatSync.playing ? (performance.now() - beatSync.time) / 1000 : 0;
     const beat = computeBeat(Math.max(0, beatSync.position + elapsed));
 
@@ -2413,6 +2503,10 @@ function beatFrame()
     {
         beatSignature = signature;
         document.getElementById("beatSig").textContent = signature;
+
+        // Lange maatsoorten (veel tellen) krijgen een kleiner blokje.
+        box.classList.toggle("medium", count > 6 && count <= 9);
+        box.classList.toggle("small", count > 9);
 
         const leds = document.getElementById("beatLeds");
         leds.textContent = "";
@@ -2531,6 +2625,7 @@ async function update() {
         renderLyrics();
         renderChords();
         renderCountdown();
+        renderSections();
     } catch (error) {
         console.log(error);
         failedPolls = failedPolls + 1;

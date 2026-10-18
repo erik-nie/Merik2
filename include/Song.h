@@ -56,6 +56,14 @@ struct TimeSignaturePoint
     int denominator = 4;
 };
 
+// Songonderdeel uit een marker van het MIDI-bestand ("Intro", "Verse 1", "Refrain", ...).
+struct SongSection
+{
+    std::int64_t tick = 0;
+    double seconds = 0.0;
+    std::string name;
+};
+
 struct Song
 {
     std::string sourceFile;
@@ -76,4 +84,5 @@ struct Song
 
     std::vector<LyricEvent> lyrics;
     std::vector<SongChordEvent> chords;
+    std::vector<SongSection> sections;
 };

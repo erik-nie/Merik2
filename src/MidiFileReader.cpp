@@ -2,6 +2,7 @@
 #include "LyricsParser.h"
 #include "TextEncoding.h"
 #include "ChordParser.h"
+#include "SectionParser.h"
 #include "TempoMap.h"
 
 #include "MidiFile.h"
@@ -307,6 +308,65 @@ Song MidiFileReader::read(
         song.chords.push_back(
             std::move(chord));
     }
+    // ------------------------------------------------------------------------
+    // Songonderdelen (markers: "Intro", "Verse 1", "15@Refrain:", ...)
+    // ------------------------------------------------------------------------
+
+    for (int track = 0; track < midi.getTrackCount(); ++track)
+    {
+        for (int index = 0; index < midi[track].getSize(); ++index)
+        {
+            const auto& event = midi[track][index];
+
+            if (event.size() < 3 || event[0] != 0xff || event[1] != 0x06)
+                continue;
+
+            // FF 06 <lengte (VLQ)> <tekst>
+            std::size_t position = 2;
+            std::size_t length = 0;
+
+            while (position < event.size())
+            {
+                const auto byte = static_cast<std::uint8_t>(event[position++]);
+                length = (length << 7) | (byte & 0x7F);
+
+                if ((byte & 0x80) == 0)
+                    break;
+            }
+
+            std::string text;
+
+            for (std::size_t i = 0; i < length && position + i < event.size(); ++i)
+                text += static_cast<char>(event[position + i]);
+
+            if (!TextEncoding::isValidUtf8(text))
+                text = TextEncoding::windows1252ToUtf8(text);
+
+            const auto name = SectionParser::parse(text);
+
+            if (!name)
+                continue;
+
+            SongSection section;
+            section.tick = event.tick;
+            section.seconds = tempoMap.tickToSeconds(event.tick);
+            section.name = *name;
+
+            // Dezelfde naam op dezelfde plek (meerdere sporen) maar één keer.
+            const bool duplicate = std::any_of(song.sections.begin(), song.sections.end(),
+                [&section](const SongSection& other)
+                {
+                    return other.name == section.name && std::llabs(other.tick - section.tick) <= 1;
+                });
+
+            if (!duplicate)
+                song.sections.push_back(std::move(section));
+        }
+    }
+
+    std::stable_sort(song.sections.begin(), song.sections.end(),
+        [](const SongSection& a, const SongSection& b) { return a.tick < b.tick; });
+
     // ------------------------------------------------------------------------
     // Sorteren
     // ------------------------------------------------------------------------

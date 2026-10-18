@@ -3190,7 +3190,7 @@ public:
         playNowButton.onClick = [this] { chooseSelected(Choice::now); };
         addAndMakeVisible(playNowButton);
 
-        playAfterButton.setButtonText("Play after current song");
+        playAfterButton.setButtonText("Play next");
         playAfterButton.onClick = [this] { chooseSelected(Choice::after); };
         addAndMakeVisible(playAfterButton);
 
@@ -3244,7 +3244,7 @@ public:
         area.removeFromBottom(10);
         playNowButton.setBounds(buttons.removeFromRight(130));
         buttons.removeFromRight(10);
-        playAfterButton.setBounds(buttons.removeFromRight(290));
+        playAfterButton.setBounds(buttons.removeFromRight(210));
 
         statusLabel.setBounds(area.removeFromTop(22));
         area.removeFromTop(4);
@@ -3280,7 +3280,7 @@ private:
             statusLabel.setText(results.empty() ? juce::String("No songs found")
                                                 : juce::String(static_cast<int>(results.size()))
                                                       + (results.size() == 1 ? " song" : " songs")
-                                                      + " (Enter or double-click: play after the current song, or now if nothing plays)",
+                                                      + " (Enter or double-click: play next, or now if nothing plays)",
                                 juce::dontSendNotification);
         }
 
@@ -3327,7 +3327,7 @@ private:
         // Beide keuzes blijven beschikbaar; klinkt er niets, dan begint "erachter" meteen.
         const bool playing = isSongPlaying && isSongPlaying();
 
-        playAfterButton.setButtonText(playing ? "Play after current song" : "Play after current song (starts now)");
+        playAfterButton.setButtonText(playing ? "Play next" : "Play next (starts now)");
         playAfterButton.setEnabled(!results.empty());
         playNowButton.setEnabled(!results.empty());
     }
@@ -5236,6 +5236,12 @@ void MainComponent::showFamilyNames(const std::array<std::string, 8>& names)
     webServer.setFamilyNames(names);
 }
 
+void MainComponent::CapsuleBackdrop::paint(juce::Graphics& g)
+{
+    g.setColour(panelLightColour);
+    g.fillRoundedRectangle(getLocalBounds().toFloat(), static_cast<float>(getHeight()) * 0.5f);
+}
+
 void MainComponent::setTranspose(int semitones, bool remember)
 {
     if (songHasStems)
@@ -5505,7 +5511,12 @@ MainComponent::MainComponent()
 
     webServer.setControlKey(webControlKey.toStdString());
 
-    webServer.start(WebServer::defaultPort);
+    // Voor ontwikkeling: een andere poort (MERIK_WEB_PORT), zodat een tweede kopie de eerste niet stoort.
+    {
+        const char* portText = std::getenv("MERIK_WEB_PORT");
+        const int port = portText != nullptr ? std::atoi(portText) : 0;
+        webServer.start(port > 0 ? port : WebServer::defaultPort);
+    }
 
     // -------------------------------------------------------------------------
     // MIDI Control
@@ -6078,7 +6089,7 @@ MainComponent::MainComponent()
 
     transposeValue.setText("0", juce::dontSendNotification);
     transposeValue.setColour(juce::Label::textColourId, textColour);
-    transposeValue.setFont(merikLookAndFeel.getMediumFont(16.0f));
+    transposeValue.setFont(merikLookAndFeel.getMediumFont(14.0f));
     transposeValue.setJustificationType(juce::Justification::centred);
     transposeValue.setTooltip("Transpose (semitones)");
     addAndMakeVisible(transposeValue);
@@ -6099,7 +6110,7 @@ MainComponent::MainComponent()
 
     volumeValue.setText("0 dB", juce::dontSendNotification);
     volumeValue.setColour(juce::Label::textColourId, textColour);
-    volumeValue.setFont(merikLookAndFeel.getMediumFont(13.0f));
+    volumeValue.setFont(merikLookAndFeel.getMediumFont(12.0f));
     volumeValue.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(volumeValue);
 
@@ -6219,6 +6230,15 @@ MainComponent::MainComponent()
         juce::Justification::centredLeft);
 
     addAndMakeVisible(songsTitle);
+
+    // De capsules voor transpose en volume liggen in de kop van de songlijst: boven het titelvlak.
+    addAndMakeVisible(transposeBackdrop);
+    addAndMakeVisible(volumeBackdrop);
+
+    for (auto* component : std::initializer_list<juce::Component*> {
+             &transposeBackdrop, &transposeDownButton, &transposeValue, &transposeUpButton,
+             &volumeBackdrop, &volumeDownButton, &volumeValue, &volumeUpButton })
+        component->toFront(false);
 
     totalTimeTitle.setText(
         "Total time",
@@ -7084,15 +7104,6 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillAll(backgroundColour);
 
     // Transpose-capsule
-    for (const auto& capsule : { transposeBounds, volumeBounds })
-    {
-        if (capsule.isEmpty())
-            continue;
-
-        g.setColour(panelLightColour);
-        g.fillRoundedRectangle(capsule.toFloat(), static_cast<float>(capsule.getHeight()) * 0.5f);
-    }
-
     // Family-blokken als afgeronde kaarten
     for (const auto& block : familyBlockBounds)
     {
@@ -7208,7 +7219,7 @@ void MainComponent::resized()
     constexpr int buttonHeight = 30;
 
     // ------------------------------------------------------------
-    // Links: Play / Stop / Next / Transpose / Volume
+    // Links: Play / Stop / Next
     // ------------------------------------------------------------
 
     playButton.setBounds(
@@ -7227,31 +7238,6 @@ void MainComponent::resized()
         transport.removeFromLeft(70)
             .withHeight(buttonHeight));
 
-    transport.removeFromLeft(12);
-
-    transposeBounds =
-        transport.removeFromLeft(86).withHeight(buttonHeight);
-
-    {
-        auto area = transposeBounds;
-
-        transposeDownButton.setBounds(area.removeFromLeft(26));
-        transposeUpButton.setBounds(area.removeFromRight(26));
-        transposeValue.setBounds(area);
-    }
-
-    transport.removeFromLeft(8);
-
-    volumeBounds =
-        transport.removeFromLeft(102).withHeight(buttonHeight);
-
-    {
-        auto area = volumeBounds;
-
-        volumeDownButton.setBounds(area.removeFromLeft(26));
-        volumeUpButton.setBounds(area.removeFromRight(26));
-        volumeValue.setBounds(area);
-    }
 
     // ------------------------------------------------------------
     // Rechts: Panic / Lyrics / Channels
@@ -7427,6 +7413,34 @@ void MainComponent::resized()
     addButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
     playFileButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
     searchButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
+
+    // Transpose en volume van het nummer: compacte capsules in de kop van de songlijst.
+    songHeader.removeFromRight(10);
+
+    volumeBounds = songHeader.removeFromRight(86).reduced(0, 1);
+
+    {
+        auto area = volumeBounds;
+
+        volumeDownButton.setBounds(area.removeFromLeft(20));
+        volumeUpButton.setBounds(area.removeFromRight(20));
+        volumeValue.setBounds(area);
+    }
+
+    songHeader.removeFromRight(6);
+
+    transposeBounds = songHeader.removeFromRight(66).reduced(0, 1);
+
+    {
+        auto area = transposeBounds;
+
+        transposeDownButton.setBounds(area.removeFromLeft(20));
+        transposeUpButton.setBounds(area.removeFromRight(20));
+        transposeValue.setBounds(area);
+    }
+
+    transposeBackdrop.setBounds(transposeBounds);
+    volumeBackdrop.setBounds(volumeBounds);
 
     songBox.setBounds(songArea);
 }    
