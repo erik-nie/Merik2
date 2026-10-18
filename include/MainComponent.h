@@ -12,6 +12,7 @@
 #include "SourcePill.h"
 #include "UpdatePill.h"
 #include "IconButton.h"
+#include "SongSearch.h"
 #include "RenderEngine.h"
 #include "RenderJob.h"
 #include "WebServer.h"
@@ -189,6 +190,7 @@ private:
     juce::TextButton updateCheckToggle;   // "Check for updates at startup"
 
     juce::TextButton addButton;
+    IconButton searchButton { IconButton::Icon::search };       // nummers zoeken in de setlists
     IconButton playFileButton { IconButton::Icon::openFile };   // een bestand openen en eenmalig afspelen
 
     juce::TableListBox channelTable;
@@ -292,6 +294,7 @@ private:
     void ledsAllOff();
     void applyMidiOutput();
     int transpose = 0;
+    bool clickOnAtStart = true;  // de klik (familie 8) staat bij het opstarten aan
     int songVolumeDb = 0;        // volume van het huidige nummer (delta, dB)
     void setSongVolume(int db, bool remember = true);
     bool songHasStems = false;   // audio-stems kunnen niet transponeren
@@ -307,6 +310,42 @@ private:
     juce::Component::SafePointer<juce::Component> settingsWindow;
     juce::Component::SafePointer<juce::Component> makerWindow;
     void showMerikMaker();
+
+    // Zoeken in de setlists (app en webpagina) en verder gaan met de laatste setlist.
+    juce::Component::SafePointer<juce::Component> searchWindow;
+    bool searchAllSetlists = true;
+    int resumeSetlist = -1, resumeRow = -1;
+    bool resumeValid = false;
+    void showSongSearch();
+    void rememberResumePoint();
+    [[nodiscard]] juce::String resumeLabel() const;
+    void resumeSetlistPosition();
+    // Wat er met een gevonden nummer gebeurt: alleen laden, nu afspelen, of na het huidige nummer.
+    enum class SearchAction { load, playNow, playAfter };
+    void playFromSearch(int setlist, int row, SearchAction action);
+    void startInsert(const SongEntry& entry, bool playNow);
+
+    // Een ingevoegd nummer ("play after current song") dat na het huidige nummer start.
+    struct QueuedInsert
+    {
+        bool valid = false;
+        SongEntry entry;
+    };
+
+    QueuedInsert queuedInsert;
+    bool currentIsInsert = false;     // het huidige nummer komt uit de zoekresultaten
+
+    // De plek in de lopende setlist waar het vervolg begint (ook tijdens een ingevoegd nummer).
+    struct FlowCursor
+    {
+        int setlist = -1;
+        int row = -1;
+        bool fromResume = false;   // plek waar we waren; row -1 = nog voor het eerste nummer
+    };
+
+    [[nodiscard]] FlowCursor flowCursor() const;
+    [[nodiscard]] std::vector<SetlistSnapshot> librarySnapshot() const;
+    void syncLibraryToWebServer();
 
     // Opnemen van MIDI via een externe module (Settings > Tools).
     std::unique_ptr<RenderEngine> renderEngine;
@@ -334,7 +373,7 @@ private:
 
     void loadMidiFile(const juce::File& file, bool fromSetlist = false,
                       const SongEntry* entry = nullptr, int setlistRow = -1,
-                      int setlistIndex = -1);
+                      int setlistIndex = -1, bool insert = false);
 
     // Een .merik wordt op een eigen thread geladen, met een voortgangsscherm.
     struct PendingLoad
@@ -345,6 +384,7 @@ private:
         SongEntry entry;
         int row = -1;
         int index = -1;
+        bool insert = false;      // een nummer uit de zoekresultaten, naast de lopende setlist
     };
 
     void completeLoad(const PendingLoad& pending, const juce::File& midiPath,

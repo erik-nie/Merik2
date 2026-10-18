@@ -18,13 +18,13 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 ## Download
 
-**[Download Merik 0.5.1](https://github.com/erik-nie/Merik2/releases/tag/v0.5.1)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+**[Download Merik 0.6.0](https://github.com/erik-nie/Merik2/releases/tag/v0.6.0)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS, Apple silicon** (M1 and newer) | `Merik-0.5.1-arm64.dmg` | macOS 14 or later |
-| **macOS, Intel** | `Merik-0.5.1-intel.dmg` | Intel Mac, macOS 15 or later |
-| **Windows** | `Merik-0.5.1-windows-x64.zip` | Windows 10 or 11, 64-bit |
+| **macOS, Apple silicon** (M1 and newer) | `Merik-0.6.0-arm64.dmg` | macOS 14 or later |
+| **macOS, Intel** | `Merik-0.6.0-intel.dmg` | Intel Mac, macOS 15 or later |
+| **Windows** | `Merik-0.6.0-windows-x64.zip` | Windows 10 or 11, 64-bit |
 
 **Install on macOS** (both versions)
 
@@ -146,6 +146,7 @@ Settings → **Tools → Render MIDI files...**. The whole workflow is described
 - Drag songs to reorder them, to move them to another setlist, or hold <kbd>Command</kbd> (<kbd>Ctrl</kbd> on Windows and Linux) to copy them. Select several songs at once.
 - The same song can appear more than once.
 - **Volume per song** (a difference in dB, next to the transpose control or in the right-click menu): audio stems and the built-in SoundFont can go louder or softer; for an external MIDI device Merik adjusts the channel volumes (softer works fully, louder only where the file's own volume is below the maximum). It is remembered per song.
+- **Search** (magnifier next to the song list, or Ctrl/Cmd+F): type 3 letters and pick from the candidates; search in the current setlist or in all setlists. Choose **Play after current song** (shown as the next song, and it starts by itself when the current one ends) or **Play now**. An inserted song does not change where you are in your setlist: when it ends, or when you press Next, the setlist goes on where it was. The **Continue** button also takes you back to that setlist and position.
 - Right-click menus to rename (your own title, the file name is untouched), transpose, duplicate, copy, move, delete, or show a file in the Finder.
 - Song length, setlist total time, and tags that show which songs have **lyrics**, **chords**, **MIDI** and **audio**. Missing files are flagged in red.
 - Everything is remembered between sessions.
@@ -159,6 +160,7 @@ Settings → **Tools → Render MIDI files...**. The whole workflow is described
 - Open Merik's address on any phone, tablet or laptop on the same network and get a full-screen **lyrics and chord display** with a progress bar for the current chord, a countdown before the first line, and an adjustable text size.
 - By default the page is **view only**, so the audience and the band can't change anything by accident.
 - If Merik is not running, the page shows a neat "Merik is not running" message and reconnects by itself when it is started again.
+- With the key the page also has a **search** button (magnifier) with a keyboard: type 3 letters, choose between the current and all setlists, tap a song and choose *Play after current song* or *Play now*, or **Continue** with the last setlist.
 - Add your secret key to the address and the same page also shows **Play / Pause, Stop, Next** and the **family mixer**.
 
 <p align="center">
@@ -176,7 +178,7 @@ Settings → **Tools → Render MIDI files...**. The whole workflow is described
 </p>
 
 ### Settings
-- **General:** remote-control key, the playback options, and the update check. Merik can tell you at startup when a newer version is available on GitHub, and you can switch that off or check by hand.
+- **General:** remote-control key, the playback options, whether the click track is on at startup, and the update check. Merik can tell you at startup when a newer version is available on GitHub, and you can switch that off or check by hand.
 - **Soundfont:** the SoundFont, and the gain and reverb of the built-in sound.
 - **Tools:** create a `.merik` from a folder, and render MIDI files through a hardware sound module into audio stems (see [Rendering through an external module](#rendering-midi-through-an-external-module)).
 - **Audio:** output device, sample rate and buffer size, the main output (a stereo pair or one channel), the click output (any other channel or pair), and an output per audio-stem family.
@@ -263,8 +265,8 @@ The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's
 Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMGs (Apple silicon and Intel) and the Windows zip and creates a draft release with the three files:
 
 ```sh
-git tag -a v0.5.1 -m "Merik 0.5.1"
-git push origin v0.5.1
+git tag -a v0.6.0 -m "Merik 0.6.0"
+git push origin v0.6.0
 ```
 
 The release notes come from `docs/release-notes/<version>.md`. You can also start the workflow by hand (Actions, Release, Run workflow) to build the files without making a release.
@@ -272,7 +274,7 @@ The release notes come from `docs/release-notes/<version>.md`. You can also star
 On a Mac you can build the DMG yourself with `scripts/make-release.sh` (it builds for the processor of that Mac). It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
 
 ```sh
-scripts/make-release.sh 0.5.1
+scripts/make-release.sh 0.6.0
 ```
 
 For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.

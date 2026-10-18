@@ -6,7 +6,7 @@
 class IconButton final : public juce::TextButton
 {
 public:
-    enum class Icon { playFile, openFile };
+    enum class Icon { playFile, openFile, search };
 
     explicit IconButton(Icon iconToUse) : icon(iconToUse) {}
 
@@ -27,6 +27,12 @@ public:
                                  centre.x - 4.0f, centre.y + 5.5f,
                                  centre.x + 6.0f, centre.y);
             g.fillPath(triangle);
+        }
+        else if (icon == Icon::search)
+        {
+            // Een vergrootglas.
+            g.drawEllipse(centre.x - 6.0f, centre.y - 6.5f, 10.5f, 10.5f, 1.8f);
+            g.drawLine(centre.x + 2.0f, centre.y + 2.2f, centre.x + 6.5f, centre.y + 6.8f, 2.2f);
         }
         else if (icon == Icon::openFile)
         {

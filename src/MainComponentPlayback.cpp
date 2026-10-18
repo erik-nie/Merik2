@@ -34,7 +34,7 @@ void MainComponent::loadMidi()
         });
 }
 void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
-                                 const SongEntry* entry, int setlistRow, int setlistIndex)
+                                 const SongEntry* entry, int setlistRow, int setlistIndex, bool insert)
 {
     if (!file.existsAsFile())
     {
@@ -58,6 +58,7 @@ void MainComponent::loadMidiFile(const juce::File& file, bool fromSetlist,
 
     pending.row = setlistRow;
     pending.index = setlistIndex;
+    pending.insert = insert;
 
     if (!MerikPackage::isPackage(file))
     {
@@ -188,6 +189,11 @@ void MainComponent::completeLoad(const PendingLoad& pending, const juce::File& m
 
         // Alleen een nummer uit de songlijst mag een volgend nummer starten.
         currentSongFromSetlist = fromSetlist;
+        currentIsInsert = pending.insert;
+
+        // Weer een gewoon nummer uit een setlist: het "verder met de laatste setlist" is niet meer nodig.
+        if (fromSetlist)
+            resumeValid = false;
         playingRow = fromSetlist ? setlistRow : -1;
         playingSetlist = fromSetlist ? setlistIndex : -1;
 
@@ -196,7 +202,8 @@ void MainComponent::completeLoad(const PendingLoad& pending, const juce::File& m
         beatIndicator.setSong(currentSong);
 
         webServer.setSong(currentSong);
-        webServer.setSongTitle(currentDisplayName.toStdString());
+        // Bij een .merik is het MIDI-bestand intern "song.mid": toon dan de naam van het pakket.
+        webServer.setSongTitle((currentDisplayName.isNotEmpty() ? currentDisplayName : file.getFileNameWithoutExtension()).toStdString());
 
         isPlaying = false;
         playButton.setButtonText("Play");
@@ -380,36 +387,76 @@ int MainComponent::currentRowInPlayingSetlist() const
     return -1;
 }
 
+// Waar het vervolg van de setlist begint: het nummer uit de setlist dat nu klinkt, of (bij een
+// ingevoegd nummer uit de zoekresultaten) de plek waar we waren.
+MainComponent::FlowCursor MainComponent::flowCursor() const
+{
+    if (currentSongFromSetlist
+        && playingSetlist >= 0 && playingSetlist < static_cast<int>(setlists.size()))
+    {
+        return { playingSetlist, currentRowInPlayingSetlist() };
+    }
+
+    if (currentIsInsert && resumeValid
+        && resumeSetlist >= 0 && resumeSetlist < static_cast<int>(setlists.size()))
+    {
+        return { resumeSetlist, resumeRow, true };
+    }
+
+    return {};
+}
+
 const MainComponent::SongEntry* MainComponent::nextSetlistEntry() const
 {
-    const int row = currentRowInPlayingSetlist();
+    // Een ingevoegd nummer ("play after current song") komt eerst.
+    if (queuedInsert.valid)
+        return &queuedInsert.entry;
 
-    if (row < 0)
+    const auto cursor = flowCursor();
+
+    // Bij een nummer uit een setlist moet de rij bekend zijn; na een ingevoegd nummer mag de
+    // plek "voor het eerste nummer" zijn (er was nog niets gespeeld).
+    if (cursor.setlist < 0 || (cursor.row < 0 && !cursor.fromResume))
         return nullptr;
 
-    const auto& songs = setlists[static_cast<std::size_t>(playingSetlist)].songs;
+    const auto& songs = setlists[static_cast<std::size_t>(cursor.setlist)].songs;
 
-    return row + 1 < static_cast<int>(songs.size())
-        ? &songs[static_cast<std::size_t>(row + 1)]
+    return cursor.row + 1 < static_cast<int>(songs.size())
+        ? &songs[static_cast<std::size_t>(cursor.row + 1)]
         : nullptr;
 }
 
 void MainComponent::playNextInSetlist(bool startPlaying)
 {
-    const int row = currentRowInPlayingSetlist();
-    const auto* found = nextSetlistEntry();
+    // Een ingevoegd nummer begint altijd vanzelf.
+    if (queuedInsert.valid)
+    {
+        const SongEntry entry = queuedInsert.entry;
+        queuedInsert.valid = false;
+        startInsert(entry, true);
+        return;
+    }
 
-    if (found == nullptr || !found->file.existsAsFile())
+    const auto cursor = flowCursor();
+
+    if (cursor.setlist < 0 || (cursor.row < 0 && !cursor.fromResume))
         return;
 
-    const SongEntry next = *found;
-    const int listIndex = playingSetlist;
+    const auto& songs = setlists[static_cast<std::size_t>(cursor.setlist)].songs;
 
-    loadMidiFile(next.file, true, &next, row + 1, listIndex);
+    if (cursor.row + 1 >= static_cast<int>(songs.size()))
+        return;
+
+    const SongEntry next = songs[static_cast<std::size_t>(cursor.row + 1)];
+
+    if (!next.file.existsAsFile())
+        return;
+
+    loadMidiFile(next.file, true, &next, cursor.row + 1, cursor.setlist);
 
     // De selectie volgt alleen als de spelende setlist ook getoond wordt.
-    if (selectedSetlist == listIndex)
-        songBox.selectRow(row + 1);
+    if (selectedSetlist == cursor.setlist)
+        songBox.selectRow(cursor.row + 1);
 
     if (startPlaying)
         play();
@@ -419,9 +466,41 @@ void MainComponent::playNextInSetlist(bool startPlaying)
 // bij stop of pauze wordt het volgende nummer alleen klaargezet.
 void MainComponent::skipToNextSong()
 {
-    // Een nummer uit een setlist gaat door in die setlist, ook als er
-    // intussen een andere setlist getoond wordt.
-    const int listIndex = currentSongFromSetlist ? playingSetlist : selectedSetlist;
+    const bool wasPlaying = synthEngine.isPlaying();
+
+    // Een ingevoegd nummer ("play after current song") is het volgende nummer.
+    if (queuedInsert.valid)
+    {
+        const SongEntry entry = queuedInsert.entry;
+        queuedInsert.valid = false;
+        startInsert(entry, wasPlaying);
+        return;
+    }
+
+    // Een nummer uit een setlist gaat door in die setlist, ook als er intussen een andere
+    // setlist getoond wordt. Na een ingevoegd nummer gaat de setlist verder waar hij was.
+    int listIndex = -1;
+    int index = -1;
+
+    if (currentSongFromSetlist)
+    {
+        listIndex = playingSetlist;
+        index = currentRowInPlayingSetlist();
+
+        if (index < 0 && listIndex == selectedSetlist)
+            index = songBox.getSelectedRow();
+    }
+    else if (currentIsInsert && resumeValid)
+    {
+        listIndex = resumeSetlist;
+        index = resumeRow;
+    }
+    else
+    {
+        // Een los geladen bestand: de geselecteerde rij van de getoonde setlist geldt als "huidig".
+        listIndex = selectedSetlist;
+        index = songBox.getSelectedRow();
+    }
 
     if (listIndex < 0 ||
         listIndex >= static_cast<int>(setlists.size()))
@@ -432,19 +511,10 @@ void MainComponent::skipToNextSong()
     const auto& songs =
         setlists[static_cast<std::size_t>(listIndex)].songs;
 
-    // Huidige positie in de lijst; staat het nummer er niet in
-    // (bijv. via Load), dan geldt de geselecteerde rij als "huidig".
-    int index = currentRowInPlayingSetlist();
-
-    if (index < 0 && listIndex == selectedSetlist)
-        index = songBox.getSelectedRow();
-
     const int nextIndex = index + 1;
 
     if (nextIndex < 0 || nextIndex >= static_cast<int>(songs.size()))
         return;
-
-    const bool wasPlaying = synthEngine.isPlaying();
 
     const SongEntry nextEntry = songs[static_cast<std::size_t>(nextIndex)];
     loadMidiFile(nextEntry.file, true, &nextEntry, nextIndex, listIndex);
@@ -625,6 +695,12 @@ bool MainComponent::keyPressed(const juce::KeyPress& key)
     if (key == juce::KeyPress::spaceKey)
     {
         play();
+        return true;
+    }
+
+    if (key == juce::KeyPress('f', juce::ModifierKeys::commandModifier, 0))
+    {
+        showSongSearch();
         return true;
     }
 

@@ -1,5 +1,7 @@
 #include "MainComponent.h"
+#include <cstdio>
 #include "MerikBuilder.h"
+#include "SongSearch.h"
 #include "MerikPackage.h"
 #include "LoadingOverlay.h"
 #include "PackageLoader.h"
@@ -653,6 +655,9 @@ struct SettingsContext
     std::function<void(int family, int route)> stemRouteChanged;
 
     std::function<void()> openRender;
+
+    bool clickOnAtStart = true;
+    std::function<void(bool)> clickOnAtStartChanged;
 };
 
 class SettingsContent final : public juce::Component,
@@ -784,6 +789,15 @@ private:
             generalPage.addAndMakeVisible(copy);
         }
 
+        clickAtStartToggle.setButtonText("Click track on at startup");
+        clickAtStartToggle.setToggleState(context.clickOnAtStart, juce::dontSendNotification);
+        clickAtStartToggle.onClick = [this]
+        {
+            if (context.clickOnAtStartChanged)
+                context.clickOnAtStartChanged(clickAtStartToggle.getToggleState());
+        };
+        generalPage.addAndMakeVisible(clickAtStartToggle);
+
         checkNowButton.setButtonText("Check for updates now");
         checkNowButton.onClick = [this]
         {
@@ -810,6 +824,9 @@ private:
                 copy.setBounds(controlX, y, controlWidth, 30);
                 y += 34;
             }
+
+            clickAtStartToggle.setBounds(controlX, y, controlWidth, 30);
+            y += 34;
 
             y += 8;
             checkNowButton.setBounds(controlX, y, 190, 30);
@@ -1587,6 +1604,7 @@ private:
     std::array<juce::ToggleButton, 4> optionCopies;
     std::array<juce::TextButton*, 4> sources;
     juce::TextButton checkNowButton, createMerikButton;
+    juce::ToggleButton clickAtStartToggle;
 
     // Audio
     ScrollPage soundFontPage;
@@ -3094,6 +3112,350 @@ private:
     juce::Component::SafePointer<RenderContent> renderContent;
 };
 
+// ============================================================================
+// Nummers zoeken in de setlists
+// ============================================================================
+
+class SongSearchContent final : public juce::Component,
+                                private juce::ListBoxModel,
+                                private juce::TextEditor::Listener,
+                                private juce::KeyListener,
+                                private juce::Timer
+{
+public:
+    std::function<std::vector<SetlistSnapshot>()> getLibrary;
+    std::function<int()> getCurrentSetlist;
+    std::function<juce::String()> getResumeLabel;
+    std::function<bool()> isSongPlaying;
+    std::function<void(int setlist, int row)> onPlayNow;
+    std::function<void(int setlist, int row)> onPlayAfter;
+    std::function<void()> onResume;
+    std::function<void(bool all)> onScopeChanged;
+    std::function<void()> requestClose;
+
+    explicit SongSearchContent(bool searchAll)
+    {
+        setLookAndFeel(&merikLookAndFeel);
+
+        heading.setText("Search songs", juce::dontSendNotification);
+        heading.setFont(merikLookAndFeel.getBoldFont(20.0f));
+        heading.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(heading);
+
+        query.setTextToShowWhenEmpty("Type at least 3 letters...", secondaryTextColour);
+        query.setFont(merikLookAndFeel.getMediumFont(22.0f));
+        query.setColour(juce::TextEditor::backgroundColourId, panelLightColour);
+        query.setColour(juce::TextEditor::textColourId, textColour);
+        query.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        query.setColour(juce::TextEditor::focusedOutlineColourId, merikBlue);
+        query.setIndents(12, 0);
+        query.setJustification(juce::Justification::centredLeft);
+        query.addListener(this);
+        query.addKeyListener(this);
+        addAndMakeVisible(query);
+
+        for (auto* button : { &allButton, &currentButton })
+        {
+            button->setClickingTogglesState(true);
+            button->setRadioGroupId(7001);
+            button->setColour(juce::TextButton::buttonOnColourId, merikBlue);
+            addAndMakeVisible(button);
+        }
+
+        allButton.setButtonText("All setlists");
+        currentButton.setButtonText("Current setlist");
+        allButton.setToggleState(searchAll, juce::dontSendNotification);
+        currentButton.setToggleState(!searchAll, juce::dontSendNotification);
+
+        allButton.onClick = [this] { scopeChanged(); };
+        currentButton.onClick = [this] { scopeChanged(); };
+
+        resumeButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(122, 20, 28));
+        resumeButton.onClick = [this]
+        {
+            if (onResume)
+                onResume();
+
+            if (requestClose)
+                requestClose();
+        };
+        addChildComponent(resumeButton);
+
+        statusLabel.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        statusLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        addAndMakeVisible(statusLabel);
+
+        playNowButton.setButtonText("Play now");
+        playNowButton.setColour(juce::TextButton::buttonColourId, merikBlue);
+        playNowButton.onClick = [this] { chooseSelected(Choice::now); };
+        addAndMakeVisible(playNowButton);
+
+        playAfterButton.setButtonText("Play after current song");
+        playAfterButton.onClick = [this] { chooseSelected(Choice::after); };
+        addAndMakeVisible(playAfterButton);
+
+        list.setModel(this);
+        list.setRowHeight(46);
+        list.setColour(juce::ListBox::backgroundColourId, panelDarkColour);
+        list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
+        addAndMakeVisible(list);
+
+        refresh();
+        setSize(580, 640);
+        startTimerHz(4);
+    }
+
+    ~SongSearchContent() override
+    {
+        stopTimer();
+        query.removeKeyListener(this);
+        query.removeListener(this);
+        list.setModel(nullptr);
+        setLookAndFeel(nullptr);
+    }
+
+    void focusQuery() { query.grabKeyboardFocus(); }
+
+    void paint(juce::Graphics& g) override { g.fillAll(backgroundColour); }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(20, 16);
+
+        heading.setBounds(area.removeFromTop(30));
+        area.removeFromTop(8);
+        query.setBounds(area.removeFromTop(46));
+        area.removeFromTop(10);
+
+        auto scope = area.removeFromTop(34);
+        allButton.setBounds(scope.removeFromLeft(scope.getWidth() / 2 - 4));
+        scope.removeFromLeft(8);
+        currentButton.setBounds(scope);
+
+        area.removeFromTop(10);
+
+        if (resumeButton.isVisible())
+        {
+            resumeButton.setBounds(area.removeFromTop(38));
+            area.removeFromTop(10);
+        }
+
+        auto buttons = area.removeFromBottom(38);
+        area.removeFromBottom(10);
+        playNowButton.setBounds(buttons.removeFromRight(130));
+        buttons.removeFromRight(10);
+        playAfterButton.setBounds(buttons.removeFromRight(290));
+
+        statusLabel.setBounds(area.removeFromTop(22));
+        area.removeFromTop(4);
+        list.setBounds(area);
+    }
+
+private:
+    void scopeChanged()
+    {
+        if (onScopeChanged)
+            onScopeChanged(allButton.getToggleState());
+
+        refresh();
+        query.grabKeyboardFocus();
+    }
+
+    void refresh()
+    {
+        results.clear();
+        const auto text = query.getText().trim();
+
+        if (text.length() < SongSearch::minimumLetters)
+        {
+            statusLabel.setText("Type at least " + juce::String(SongSearch::minimumLetters) + " letters", juce::dontSendNotification);
+        }
+        else
+        {
+            const auto library = getLibrary ? getLibrary() : std::vector<SetlistSnapshot>();
+            const int current = getCurrentSetlist ? getCurrentSetlist() : 0;
+
+            results = SongSearch::search(library, text.toStdString(), allButton.getToggleState() ? -1 : current);
+
+            statusLabel.setText(results.empty() ? juce::String("No songs found")
+                                                : juce::String(static_cast<int>(results.size()))
+                                                      + (results.size() == 1 ? " song" : " songs")
+                                                      + " (Enter or double-click: play after the current song, or now if nothing plays)",
+                                juce::dontSendNotification);
+        }
+
+        list.updateContent();
+        list.deselectAllRows();
+
+        if (!results.empty())
+            list.selectRow(0);
+
+        list.repaint();
+    }
+
+    void updateResumeButton()
+    {
+        const auto label = getResumeLabel ? getResumeLabel() : juce::String();
+
+        if (label.isEmpty())
+        {
+            if (resumeButton.isVisible())
+            {
+                resumeButton.setVisible(false);
+                resized();
+            }
+
+            return;
+        }
+
+        const auto text = "Continue: " + label;
+
+        if (resumeButton.getButtonText() != text)
+            resumeButton.setButtonText(text);
+
+        if (!resumeButton.isVisible())
+        {
+            resumeButton.setVisible(true);
+            resized();
+        }
+    }
+
+    void timerCallback() override
+    {
+        updateResumeButton();
+
+        // Beide keuzes blijven beschikbaar; klinkt er niets, dan begint "erachter" meteen.
+        const bool playing = isSongPlaying && isSongPlaying();
+
+        playAfterButton.setButtonText(playing ? "Play after current song" : "Play after current song (starts now)");
+        playAfterButton.setEnabled(!results.empty());
+        playNowButton.setEnabled(!results.empty());
+    }
+
+    void textEditorTextChanged(juce::TextEditor&) override { refresh(); }
+
+    void textEditorReturnKeyPressed(juce::TextEditor&) override { chooseSelected(Choice::automatic); }
+
+    void textEditorEscapeKeyPressed(juce::TextEditor&) override
+    {
+        if (requestClose)
+            requestClose();
+    }
+
+    bool keyPressed(const juce::KeyPress& key, juce::Component*) override
+    {
+        const int rows = static_cast<int>(results.size());
+
+        if (rows == 0)
+            return false;
+
+        if (key == juce::KeyPress::downKey)
+        {
+            list.selectRow(juce::jmin(rows - 1, list.getSelectedRow() + 1));
+            return true;
+        }
+
+        if (key == juce::KeyPress::upKey)
+        {
+            list.selectRow(juce::jmax(0, list.getSelectedRow() - 1));
+            return true;
+        }
+
+        return false;
+    }
+
+    // automatic: klinkt er een nummer, dan erachter (rustig doorspelen); anders meteen.
+    enum class Choice { automatic, now, after };
+
+    void chooseSelected(Choice choice)
+    {
+        chooseRow(list.getSelectedRow(), choice);
+    }
+
+    void chooseRow(int row, Choice choice)
+    {
+        if (row < 0 || row >= static_cast<int>(results.size()))
+            return;
+
+        const auto& hit = results[static_cast<std::size_t>(row)];
+        const bool playing = isSongPlaying && isSongPlaying();
+
+        if (choice == Choice::automatic)
+            choice = playing ? Choice::after : Choice::now;
+
+        if (choice == Choice::after)
+        {
+            if (onPlayAfter)
+                onPlayAfter(hit.setlist, hit.row);
+        }
+        else if (onPlayNow)
+        {
+            onPlayNow(hit.setlist, hit.row);
+        }
+
+        if (requestClose)
+            requestClose();
+    }
+
+    // ListBoxModel
+    int getNumRows() override { return static_cast<int>(results.size()); }
+
+    void paintListBoxItem(int row, juce::Graphics& g, int width, int height, bool selected) override
+    {
+        if (row < 0 || row >= static_cast<int>(results.size()))
+            return;
+
+        const auto& hit = results[static_cast<std::size_t>(row)];
+
+        if (selected)
+            g.fillAll(merikBlue);
+        else if ((row & 1) != 0)
+            g.fillAll(panelColour);
+
+        g.setColour(selected ? juce::Colours::white : textColour);
+        g.setFont(makeNotoFont(17.0f));
+        g.drawText(hit.title, 14, 3, width - 28, height / 2 + 2, juce::Justification::centredLeft, true);
+
+        g.setColour(selected ? juce::Colours::white.withAlpha(0.8f) : secondaryTextColour);
+        g.setFont(makeNotoFont(13.0f));
+        g.drawText(juce::String(hit.setlistName) + "   \xc2\xb7   #" + juce::String(hit.row + 1), 14, height / 2 + 2,
+                   width - 28, height / 2 - 4, juce::Justification::centredLeft, true);
+    }
+
+    void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override { chooseRow(row, Choice::automatic); }
+
+    std::vector<SearchHit> results;
+    juce::Label heading, statusLabel;
+    juce::TextEditor query;
+    juce::TextButton allButton, currentButton, resumeButton, playNowButton, playAfterButton;
+    juce::ListBox list;
+};
+
+class SongSearchWindow final : public juce::DialogWindow
+{
+public:
+    SongSearchWindow(SongSearchContent* content, juce::Component* owner)
+        : juce::DialogWindow("Search songs", backgroundColour, true), searchContent(content)
+    {
+        setUsingNativeTitleBar(true);
+        setResizable(false, false);
+        setContentOwned(content, true);
+        centreAroundComponent(owner, getWidth(), getHeight());
+        setVisible(true);
+
+        juce::Timer::callAfterDelay(80, [safe = juce::Component::SafePointer<SongSearchWindow>(this)]
+        {
+            if (safe != nullptr && safe->searchContent != nullptr)
+                safe->searchContent->focusQuery();
+        });
+    }
+
+    void closeButtonPressed() override { delete this; }
+
+private:
+    juce::Component::SafePointer<SongSearchContent> searchContent;
+};
+
 class AudioSettingsWindow final : public juce::DialogWindow
 {
 public:
@@ -3278,6 +3640,164 @@ void MainComponent::showRenderCalibration()
     calibrationWindow = new RenderCalibrationWindow(content, this);
 }
 
+std::vector<SetlistSnapshot> MainComponent::librarySnapshot() const
+{
+    std::vector<SetlistSnapshot> lists;
+    lists.reserve(setlists.size());
+
+    for (const auto& setlist : setlists)
+    {
+        SetlistSnapshot snapshot;
+        snapshot.name = setlist.name.toStdString();
+        snapshot.titles.reserve(setlist.songs.size());
+
+        for (const auto& song : setlist.songs)
+            snapshot.titles.push_back(song.shownName(false).toStdString());
+
+        lists.push_back(std::move(snapshot));
+    }
+
+    return lists;
+}
+
+void MainComponent::syncLibraryToWebServer()
+{
+    webServer.setLibrary(librarySnapshot());
+}
+
+// Waar we waren voordat een nummer uit de zoekresultaten gespeeld werd.
+void MainComponent::rememberResumePoint()
+{
+    if (resumeValid)
+        return;   // het eerste punt blijft gelden, ook na meerdere zoekacties
+
+    if (currentSongFromSetlist)
+    {
+        resumeSetlist = playingSetlist;
+        resumeRow = currentRowInPlayingSetlist();
+    }
+    else
+    {
+        resumeSetlist = selectedSetlist;
+        resumeRow = songBox.getSelectedRow();
+    }
+
+    resumeValid = resumeSetlist >= 0 && resumeSetlist < static_cast<int>(setlists.size());
+}
+
+juce::String MainComponent::resumeLabel() const
+{
+    if (!resumeValid || resumeSetlist < 0 || resumeSetlist >= static_cast<int>(setlists.size()))
+        return {};
+
+    const auto& setlist = setlists[static_cast<std::size_t>(resumeSetlist)];
+
+    return resumeRow >= 0 ? setlist.name + " (after #" + juce::String(resumeRow + 1) + ")" : setlist.name;
+}
+
+// Terug naar de laatste setlist en positie: de setlist wordt getoond en het laatste
+// nummer geselecteerd, zodat Next het volgende nummer van die setlist speelt.
+void MainComponent::resumeSetlistPosition()
+{
+    if (!resumeValid || resumeSetlist < 0 || resumeSetlist >= static_cast<int>(setlists.size()))
+        return;
+
+    const int setlist = resumeSetlist;
+    const int row = resumeRow;
+    resumeValid = false;
+
+    setlistBox.selectRow(setlist);   // toont de lijst via de gewone selectie
+
+    if (row >= 0 && row < static_cast<int>(setlists[static_cast<std::size_t>(setlist)].songs.size()))
+        songBox.selectRow(row);
+}
+
+// Een ingevoegd nummer: eenmalig laden, los van de lopende setlist; daarna gaat de setlist
+// verder waar hij was (Next of het einde van het nummer).
+void MainComponent::startInsert(const SongEntry& entry, bool playNow)
+{
+    rememberResumePoint();
+    loadMidiFile(entry.file, false, &entry, -1, -1, true);
+
+    if (playNow)
+        play();
+}
+
+void MainComponent::playFromSearch(int setlist, int row, SearchAction action)
+{
+    if (setlist < 0 || setlist >= static_cast<int>(setlists.size()))
+        return;
+
+    const auto& songs = setlists[static_cast<std::size_t>(setlist)].songs;
+
+    if (row < 0 || row >= static_cast<int>(songs.size()))
+        return;
+
+    const SongEntry entry = songs[static_cast<std::size_t>(row)];
+
+    // Klinkt er niets, dan is "na het huidige nummer" gewoon nu.
+    if (action == SearchAction::playAfter && !synthEngine.isPlaying())
+        action = SearchAction::playNow;
+
+    if (action == SearchAction::playAfter)
+    {
+        rememberResumePoint();
+        queuedInsert.valid = true;
+        queuedInsert.entry = entry;
+        updateSongDisplay();   // "Next:" toont het ingevoegde nummer
+        return;
+    }
+
+    queuedInsert.valid = false;
+    startInsert(entry, action == SearchAction::playNow);
+}
+
+void MainComponent::showSongSearch()
+{
+    if (searchWindow != nullptr)
+    {
+        searchWindow->toFront(true);
+        return;
+    }
+
+    if (auto* properties = appProperties.getUserSettings())
+        searchAllSetlists = properties->getBoolValue("search.all", true);
+
+    auto* content = new SongSearchContent(searchAllSetlists);
+
+    content->getLibrary = [this] { return librarySnapshot(); };
+    content->getCurrentSetlist = [this] { return selectedSetlist; };
+    content->getResumeLabel = [this] { return resumeLabel(); };
+
+    content->isSongPlaying = [this] { return synthEngine.isPlaying(); };
+    content->onPlayNow = [this](int setlist, int row) { playFromSearch(setlist, row, SearchAction::playNow); };
+    content->onPlayAfter = [this](int setlist, int row) { playFromSearch(setlist, row, SearchAction::playAfter); };
+
+    content->onResume = [this] { resumeSetlistPosition(); };
+
+    content->onScopeChanged = [this](bool all)
+    {
+        searchAllSetlists = all;
+
+        if (auto* properties = appProperties.getUserSettings())
+        {
+            properties->setValue("search.all", all);
+            properties->saveIfNeeded();
+        }
+    };
+
+    searchWindow = new SongSearchWindow(content, this);
+
+    content->requestClose = [window = juce::Component::SafePointer<juce::Component>(searchWindow)]
+    {
+        juce::MessageManager::callAsync([window]
+        {
+            if (window != nullptr)
+                delete window.getComponent();
+        });
+    };
+}
+
 void MainComponent::showMerikMaker()
 {
     if (makerWindow != nullptr)
@@ -3400,7 +3920,19 @@ void MainComponent::showAudioSettings()
             }
         },
 
-        [this] { showRenderWindow(); }
+        [this] { showRenderWindow(); },
+
+        clickOnAtStart,
+        [this](bool on)
+        {
+            clickOnAtStart = on;
+
+            if (auto* properties = appProperties.getUserSettings())
+            {
+                properties->setValue("click.onAtStart", on);
+                properties->saveIfNeeded();
+            }
+        }
     };
 
     auto* content = new SettingsContent(std::move(context));
@@ -4853,6 +5385,7 @@ void MainComponent::timerCallback()
     }
 
     webServer.setMeters(levels, stemMask);
+    webServer.setSearchContext(selectedSetlist, resumeLabel().toStdString());
 
     for (std::size_t i = 0; i < familyControls.size(); ++i)
     {
@@ -4944,6 +5477,24 @@ MainComponent::MainComponent()
                         safeThis->stop();
                     else if (command == "next")
                         safeThis->skipToNextSong();
+                    else if (command == "resume")
+                        safeThis->resumeSetlistPosition();
+                    else if (command.rfind("load:", 0) == 0)
+                    {
+                        // "load:<setlist>:<rij>" uit de zoekresultaten van de webpagina.
+                        int setlist = -1, row = -1;
+
+                        if (std::sscanf(command.c_str(), "load:%d:%d", &setlist, &row) == 2)
+                            safeThis->playFromSearch(setlist, row, SearchAction::load);
+                    }
+                    else if (command.rfind("playnow:", 0) == 0 || command.rfind("queue:", 0) == 0)
+                    {
+                        const bool now = command.rfind("playnow:", 0) == 0;
+                        int setlist = -1, row = -1;
+
+                        if (std::sscanf(command.c_str() + (now ? 8 : 6), "%d:%d", &setlist, &row) == 2)
+                            safeThis->playFromSearch(setlist, row, now ? SearchAction::playNow : SearchAction::playAfter);
+                    }
                 });
         });
 
@@ -5085,6 +5636,11 @@ MainComponent::MainComponent()
 
         mainRoute = properties->getIntValue("main.route", ClickRoute::pairBase);
         clickRoute = properties->getIntValue("click.route", ClickRoute::automatic);
+
+        // De klik staat bij het opstarten aan of uit (instelbaar in Settings > General).
+        clickOnAtStart = properties->getBoolValue("click.onAtStart", true);
+        synthEngine.setFamilyEnabled(7, clickOnAtStart);
+
         loadRenderPrefs();
 
         for (std::size_t i = 0; i < stemRoutes.size(); ++i)
@@ -5710,6 +6266,7 @@ MainComponent::MainComponent()
     // Eerst opgeslagen toestand laden.
     // Daarna pas de ListBox-modellen maken.
     loadPersistentState();
+    syncLibraryToWebServer();
 
     setlistModel =
         std::make_unique<SetlistModel>(
@@ -5781,6 +6338,7 @@ MainComponent::MainComponent()
         if (const auto* found = songModel->getEntry(row))
         {
             const SongEntry entry = *found;
+            queuedInsert.valid = false;   // zelf een ander nummer gekozen: de wachtrij vervalt
             loadMidiFile(entry.file, true, &entry, row, selectedSetlist);
 
             if (doubleClickToggle.getToggleState())
@@ -5916,8 +6474,10 @@ MainComponent::MainComponent()
     newSetlistButton.setTooltip("New setlist");
     addButton.setTooltip("Add songs");
     playFileButton.setTooltip("Open a MIDI file and play it once (it is not added to a setlist)");
+    searchButton.setTooltip("Search songs in the setlists (Ctrl/Cmd+F)");
 
-    for (auto* button : { &newSetlistButton, &addButton, static_cast<juce::TextButton*>(&playFileButton) })
+    for (auto* button : { &newSetlistButton, &addButton, static_cast<juce::TextButton*>(&playFileButton),
+                          static_cast<juce::TextButton*>(&searchButton) })
     {
         button->setColour(
             juce::TextButton::buttonColourId,
@@ -5932,6 +6492,7 @@ MainComponent::MainComponent()
 
     newSetlistButton.onClick = [this] { addSetlist(); };
     playFileButton.onClick = [this] { loadMidi(); };
+    searchButton.onClick = [this] { showSongSearch(); };
 
     addButton.onClick = [this]
     {
@@ -6467,6 +7028,8 @@ void MainComponent::savePersistentState()
 
     // Echt onmiddellijk naar disk.
     properties->save();
+
+    syncLibraryToWebServer();
 }
 
 void MainComponent::refreshSetlistModel()
@@ -6863,6 +7426,7 @@ void MainComponent::resized()
     songsTitle.setBounds(songHeader);
     addButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
     playFileButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
+    searchButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
 
     songBox.setBounds(songArea);
 }    

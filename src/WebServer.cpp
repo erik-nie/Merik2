@@ -335,6 +335,19 @@ void WebServer::setFamilyVolumeCallback(FamilyVolumeCallback callback)
     std::scoped_lock lock(mutex_);
     familyVolumeCallback_ = std::move(callback);
 }
+void WebServer::setLibrary(std::vector<SetlistSnapshot> lists)
+{
+    std::scoped_lock lock(mutex_);
+    library_ = std::move(lists);
+}
+
+void WebServer::setSearchContext(int currentSetlist, const std::string& resumeLabel)
+{
+    std::scoped_lock lock(mutex_);
+    searchSetlist_ = currentSetlist;
+    resumeLabel_ = resumeLabel;
+}
+
 void WebServer::setFamilyNames(const std::array<std::string, familyCount>& names)
 {
     std::scoped_lock lock(mutex_);
@@ -463,7 +476,23 @@ void WebServer::handleClient(std::intptr_t socket)
             return;
         }
 
-        if (callback && (command == "play" || command == "stop" || command == "next"))
+        // "load:<setlist>:<rij>" laadt een nummer (uit de zoekresultaten), "resume" gaat verder
+        // met de laatste setlist.
+        bool loadCommand = false;
+
+        for (const char* prefix : { "load:", "playnow:", "queue:" })
+        {
+            const std::string name(prefix);
+
+            if (command.rfind(name, 0) == 0)
+            {
+                int setlistIndex = -1, rowIndex = -1;
+                loadCommand = std::sscanf(command.c_str() + name.size(), "%d:%d", &setlistIndex, &rowIndex) == 2
+                              && setlistIndex >= 0 && rowIndex >= 0;
+            }
+        }
+
+        if (callback && (command == "play" || command == "stop" || command == "next" || command == "resume" || loadCommand))
         {
             callback(command);
             sendResponse(socket, R"({"ok":true})", "application/json; charset=utf-8");
@@ -473,6 +502,78 @@ void WebServer::handleClient(std::intptr_t socket)
             sendResponse(socket, R"({"ok":false})", "application/json; charset=utf-8");
         }
 
+        return;
+    }
+
+    if (request.rfind("GET /api/search", 0) == 0)
+    {
+        if (!isAuthorized(request))
+        {
+            sendResponse(socket, R"({"ok":false,"error":"unauthorized"})", "application/json; charset=utf-8");
+            return;
+        }
+
+        const auto targetStart = request.find(' ') + 1;
+        const auto targetEnd = request.find(' ', targetStart);
+        const std::string target = request.substr(targetStart, targetEnd == std::string::npos ? std::string::npos : targetEnd - targetStart);
+
+        const auto parameter = [&target](const std::string& name) -> std::string
+        {
+            const auto position = target.find("?" + name + "=") != std::string::npos ? target.find("?" + name + "=") + 1
+                                                                                     : target.find("&" + name + "=");
+
+            if (position == std::string::npos)
+                return {};
+
+            const auto begin = position + name.size() + 1;
+            const auto end = target.find('&', begin);
+            const auto raw = target.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+
+            // %xx en + terugzetten.
+            std::string decoded;
+
+            for (std::size_t i = 0; i < raw.size(); ++i)
+            {
+                if (raw[i] == '+')
+                    decoded += ' ';
+                else if (raw[i] == '%' && i + 2 < raw.size() + 0 && std::isxdigit(static_cast<unsigned char>(raw[i + 1]))
+                         && std::isxdigit(static_cast<unsigned char>(raw[i + 2])))
+                {
+                    decoded += static_cast<char>(std::stoi(raw.substr(i + 1, 2), nullptr, 16));
+                    i += 2;
+                }
+                else
+                    decoded += raw[i];
+            }
+
+            return decoded;
+        };
+
+        std::vector<SetlistSnapshot> library;
+        int current = 0;
+
+        {
+            std::scoped_lock lock(mutex_);
+            library = library_;
+            current = searchSetlist_;
+        }
+
+        const bool all = parameter("scope") != "current";
+        const auto hits = SongSearch::search(library, parameter("q"), all ? -1 : current);
+
+        std::string json = "{\"ok\":true,\"results\":[";
+
+        for (std::size_t i = 0; i < hits.size(); ++i)
+        {
+            if (i > 0)
+                json += ",";
+
+            json += "{\"setlist\":" + std::to_string(hits[i].setlist) + ",\"row\":" + std::to_string(hits[i].row)
+                  + ",\"setlistName\":\"" + escapeJson(hits[i].setlistName) + "\",\"title\":\"" + escapeJson(hits[i].title) + "\"}";
+        }
+
+        json += "]}";
+        sendResponse(socket, json, "application/json; charset=utf-8");
         return;
     }
 
@@ -594,9 +695,11 @@ std::string WebServer::createStateJson(bool control) const
     int transpose = 0;
     bool playing = false;
     std::string nextTitle;
+    std::string resumeLabel;
 
     {
         std::scoped_lock lock(mutex_);
+        resumeLabel = resumeLabel_;
         song = song_;
         positionSamples = positionSamples_;
         contentRevision = contentRevision_;
@@ -624,6 +727,7 @@ std::string WebServer::createStateJson(bool control) const
     {
         const auto families = createFamilyJson();
         json += "," + families.substr(1, families.size() - 2);   // "families":[...]
+        json += ",\"resume\":\"" + escapeJson(resumeLabel) + "\"";
     }
 
     json += "}";
@@ -922,6 +1026,34 @@ footer {
     border:1px solid rgba(255,255,255,.10); transition:top 450ms ease; pointer-events:none;
 }
 #beatBox[hidden] { display:none; }
+/* Zoeken (alleen met de bedieningssleutel) */
+#searchOverlay { position:fixed; inset:0; z-index:900; display:flex; align-items:flex-start; justify-content:center;
+    background:rgba(8,9,12,.92); padding:18px 14px; overflow:auto; }
+#searchOverlay[hidden] { display:none; }
+.searchPanel { width:min(760px,100%); display:flex; flex-direction:column; gap:12px; }
+.searchHead { display:flex; align-items:center; justify-content:space-between; color:#fff; font-size:22px; font-weight:700; }
+.searchHead button { width:44px; height:44px; border:0; border-radius:50%; background:#2b2e35; color:#fff; font-size:20px; cursor:pointer; }
+#searchInput { width:100%; box-sizing:border-box; font-size:26px; padding:14px 18px; border-radius:14px;
+    border:2px solid #30333a; background:#14161a; color:#fff; outline:none; }
+#searchInput:focus { border-color:#1876ff; }
+.searchScope { display:flex; gap:8px; }
+.searchScope button { flex:1; padding:12px 8px; font-size:17px; border-radius:12px; border:1px solid #30333a; background:#1b1d22; color:#9ea4b0; cursor:pointer; }
+.searchScope button.on { background:#1876ff; border-color:#1876ff; color:#fff; font-weight:600; }
+#searchResume { padding:13px 16px; font-size:18px; border-radius:12px; border:1px solid #7a141c; background:#3a1217; color:#fff; cursor:pointer; text-align:left; }
+#searchResume[hidden] { display:none; }
+#searchStatus { color:#8a8f9c; font-size:16px; min-height:22px; }
+#searchResults { display:flex; flex-direction:column; gap:8px; }
+.resultRow { display:flex; align-items:center; gap:12px; padding:10px 12px 10px 18px; min-height:64px;
+    border-radius:12px; border:1px solid #30333a; background:#1b1d22; }
+.resultText { flex:1; min-width:0; color:#fff; font-size:22px; overflow-wrap:anywhere; }
+.resultText small { display:block; margin-top:3px; font-size:15px; color:#8a8f9c; }
+.resultActions { display:flex; gap:8px; flex-shrink:0; }
+.resultActions button { padding:13px 16px; font-size:17px; border-radius:10px; border:1px solid #3a3e47;
+    background:#2b2e35; color:#fff; cursor:pointer; white-space:nowrap; }
+.resultActions button.next { background:#1876ff; border-color:#1876ff; font-weight:600; }
+.resultActions button:active { filter:brightness(1.25); }
+@media (max-width:560px) { .resultRow { flex-wrap:wrap; } .resultActions { width:100%; } .resultActions button { flex:1; } }
+body:not(.control) #btnSearch { display:none; }
 /* Merik draait niet (meer): nette melding in plaats van een stille, bevroren pagina */
 #offline { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center;
     background:rgba(12,13,16,.94); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
@@ -1085,6 +1217,23 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
     <button id="btnNext" type="button" aria-label="Volgende nummer">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l8 6-8 6zM12 6l8 6-8 6zM19.5 6H22v12h-2.5z"/></svg>
     </button>
+    <button id="btnSearch" type="button" aria-label="Zoek een nummer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.2 15.2L20.5 20.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+    </button>
+</div>
+
+<div id="searchOverlay" hidden>
+    <div class="searchPanel" role="dialog" aria-label="Zoek een nummer">
+        <div class="searchHead"><span>Search songs</span><button id="searchClose" type="button" aria-label="Sluiten">&#10005;</button></div>
+        <input id="searchInput" type="search" placeholder="Type at least 3 letters..." autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search" inputmode="search">
+        <div class="searchScope">
+            <button id="scopeAll" type="button" class="on">All setlists</button>
+            <button id="scopeCurrent" type="button">Current setlist</button>
+        </div>
+        <button id="searchResume" type="button" hidden></button>
+        <div id="searchStatus">Type at least 3 letters</div>
+        <div id="searchResults"></div>
+    </div>
 </div>
 
 <footer>
@@ -2373,6 +2522,12 @@ async function update() {
         if (window.applyFamilies)
             window.applyFamilies(state.families);
 
+        window.resumeLabel = state.resume || "";
+        window.appPlaying = state.playing === true;
+
+        if (window.updateSearchResume)
+            window.updateSearchResume();
+
         renderLyrics();
         renderChords();
         renderCountdown();
@@ -2399,6 +2554,148 @@ document.getElementById("btnPlay").addEventListener("click", () => sendControl("
 document.getElementById("btnStop").addEventListener("click", () => sendControl("stop"));
 document.getElementById("btnNext").addEventListener("click", () => sendControl("next"));
 
+
+// Zoeken in de setlists (alleen met de bedieningssleutel).
+(function initSearch() {
+    const overlay = document.getElementById("searchOverlay");
+    const input = document.getElementById("searchInput");
+    const results = document.getElementById("searchResults");
+    const status = document.getElementById("searchStatus");
+    const resume = document.getElementById("searchResume");
+    const scopeAll = document.getElementById("scopeAll");
+    const scopeCurrent = document.getElementById("scopeCurrent");
+
+    let scope = "all";
+    let timer = 0;
+    let sequence = 0;
+    let lastHits = [];
+
+    function setScope(value) {
+        scope = value;
+        scopeAll.classList.toggle("on", value === "all");
+        scopeCurrent.classList.toggle("on", value === "current");
+        run();
+    }
+
+    function updateResume() {
+        const label = window.resumeLabel || "";
+        resume.hidden = label === "";
+        resume.textContent = label ? "Continue: " + label : "";
+    }
+
+    window.updateSearchResume = function () { if (!overlay.hidden) updateResume(); };
+
+    function open() {
+        overlay.hidden = false;
+        input.value = "";
+        results.textContent = "";
+        lastHits = [];
+        status.textContent = "Type at least 3 letters";
+        updateResume();
+        setTimeout(function () { input.focus(); }, 50);
+    }
+
+    function close() { overlay.hidden = true; input.blur(); }
+
+    async function act(command, hit) {
+        try {
+            await fetch("/api/control?cmd=" + command + ":" + hit.setlist + ":" + hit.row + (keyQuery ? "&" + keyQuery : ""),
+                        { method: "POST", cache: "no-store" });
+        } catch (error) { console.log(error); }
+        close();
+        update();
+    }
+
+    async function run() {
+        const query = input.value.trim();
+
+        if (query.length < 3) {
+            results.textContent = "";
+            lastHits = [];
+            status.textContent = "Type at least 3 letters";
+            return;
+        }
+
+        const mine = ++sequence;
+
+        try {
+            const response = await fetch("/api/search?q=" + encodeURIComponent(query) + "&scope=" + scope
+                                         + (keyQuery ? "&" + keyQuery : ""), { cache: "no-store" });
+            const data = await response.json();
+
+            if (mine !== sequence || !data.ok)
+                return;
+
+            results.textContent = "";
+            status.textContent = data.results.length === 0 ? "No songs found"
+                : data.results.length + (data.results.length === 1 ? " song" : " songs");
+
+            lastHits = data.results;
+
+            // Elke regel: de titel met daarin twee knoppen, [ nummer [Play now] [Play next] ].
+            data.results.forEach(function (hit) {
+                const row = document.createElement("div");
+                row.className = "resultRow";
+
+                const text = document.createElement("div");
+                text.className = "resultText";
+                text.textContent = hit.title;
+                const small = document.createElement("small");
+                small.textContent = hit.setlistName + "  \u00b7  #" + (hit.row + 1);
+                text.appendChild(small);
+                row.appendChild(text);
+
+                const actions = document.createElement("div");
+                actions.className = "resultActions";
+
+                const now = document.createElement("button");
+                now.type = "button";
+                now.className = "now";
+                now.textContent = "Play now";
+                now.addEventListener("click", function () { act("playnow", hit); });
+                actions.appendChild(now);
+
+                const next = document.createElement("button");
+                next.type = "button";
+                next.className = "next";
+                next.textContent = "Play next";
+                next.addEventListener("click", function () { act("queue", hit); });
+                actions.appendChild(next);
+
+                row.appendChild(actions);
+                results.appendChild(row);
+            });
+        } catch (error) { console.log(error); }
+    }
+
+    input.addEventListener("input", function () {
+        clearTimeout(timer);
+        timer = setTimeout(run, 150);
+    });
+
+    input.addEventListener("keydown", function (event) {
+        if (event.key === "Escape")
+            close();
+        else if (event.key === "Enter") {
+            // Enter: erachter als er een nummer klinkt, anders meteen.
+            if (lastHits.length > 0)
+                act(window.appPlaying ? "queue" : "playnow", lastHits[0]);
+        }
+    });
+
+    scopeAll.addEventListener("click", function () { setScope("all"); });
+    scopeCurrent.addEventListener("click", function () { setScope("current"); });
+    document.getElementById("searchClose").addEventListener("click", close);
+    document.getElementById("btnSearch").addEventListener("click", open);
+
+    resume.addEventListener("click", async function () {
+        try {
+            await fetch("/api/control?cmd=resume" + (keyQuery ? "&" + keyQuery : ""), { method: "POST", cache: "no-store" });
+        } catch (error) { console.log(error); }
+        close();
+        update();
+    });
+})();
 
 // Family mixer gekoppeld aan de FluidSynth-engine.
 (function initFamilyMixer() {

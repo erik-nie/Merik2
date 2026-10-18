@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Song.h"
+#include "SongSearch.h"
 
 #include <array>
 #include <atomic>
@@ -57,6 +58,12 @@ public:
     void setTransportInfo(bool playing, const std::string& nextSongTitle);
 
     void setFamilyVolumeCallback(FamilyVolumeCallback callback);
+
+    // Zoeken in de setlists (alleen voor bedienende clients): de titels van alle
+    // setlists, welke setlist nu getoond wordt ("huidige"), en de tekst van de knop
+    // om verder te gaan met de laatste setlist (leeg = niet beschikbaar).
+    void setLibrary(std::vector<SetlistSnapshot> lists);
+    void setSearchContext(int currentSetlist, const std::string& resumeLabel);
 
     // Niveaus (0..1) en welke families uit audio-stems komen (bit n = familie n).
     // Eigen namen van families (uit de stems van een .merik); leeg = standaardnaam.
@@ -118,6 +125,10 @@ private:
 
     mutable std::string songJsonCache_;
     mutable std::uint64_t songJsonCacheRevision_ = 0;
+
+    std::vector<SetlistSnapshot> library_;
+    int searchSetlist_ = 0;
+    std::string resumeLabel_;
 
     std::array<float, familyCount> familyLevels_ {};
     std::uint32_t stemMask_ = 0;
