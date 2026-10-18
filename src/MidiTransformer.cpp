@@ -123,13 +123,13 @@ int MidiTransformer::getAdjustedChannelVolume(int channel) const
         (channel == 9) ? 0 : state.family;
 
     int adjustedVolume = state.cc7;
+    float factor = songVolumeFactor;
 
     if (family >= 0 && family < familyCount)
-    {
-        adjustedVolume = scaleMidiValue(
-            state.cc7,
-            familyVolumeFactors[static_cast<std::size_t>(family)]);
-    }
+        factor *= familyVolumeFactors[static_cast<std::size_t>(family)];
+
+    if (family >= 0 && family < familyCount || songVolumeFactor != 1.0f)
+        adjustedVolume = scaleMidiValue(state.cc7, factor);
 
     // Stap 2: normalisatie is optioneel.
     if (!normalizeEnabled)

@@ -922,6 +922,20 @@ footer {
     border:1px solid rgba(255,255,255,.10); transition:top 450ms ease; pointer-events:none;
 }
 #beatBox[hidden] { display:none; }
+/* Merik draait niet (meer): nette melding in plaats van een stille, bevroren pagina */
+#offline { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center;
+    background:rgba(12,13,16,.94); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
+#offline[hidden] { display:none; }
+#offline .card { text-align:center; padding:34px 44px; border-radius:18px; background:#1b1d22;
+    border:1px solid #30333a; max-width:80vw; }
+#offline .title { font-size:30px; font-weight:700; color:#fff; margin-bottom:10px; }
+#offline .text { font-size:18px; color:#9ea4b0; line-height:1.4; }
+#offline .dots { margin-top:22px; display:flex; gap:10px; justify-content:center; }
+#offline .dots span { width:10px; height:10px; border-radius:50%; background:#1876ff; opacity:.25;
+    animation:offlinePulse 1.2s infinite ease-in-out; }
+#offline .dots span:nth-child(2) { animation-delay:.2s; }
+#offline .dots span:nth-child(3) { animation-delay:.4s; }
+@keyframes offlinePulse { 0%,80%,100% { opacity:.25; } 40% { opacity:1; } }
 body.countdown #beatBox { top:134px; }
 #beatSig { font-size:20px; font-weight:600; color:#9ea4b0; font-variant-numeric:tabular-nums; }
 #beatLeds { display:flex; gap:9px; }
@@ -1029,6 +1043,7 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 <header><div id="song">Merik</div><div id="time">00:00 / 00:00</div><div id="nextSong"></div></header>
 <div id="songProgress"><div id="songProgressFill"></div></div>
 <div id="lyricCountdown"></div>
+<div id="offline" hidden><div class="card"><div class="title">Merik is not running</div><div class="text">Start Merik on the computer.<br>This page reconnects by itself.</div><div class="dots"><span></span><span></span><span></span></div></div></div>
 <div id="beatBox" hidden><span id="beatSig">4/4</span><span id="beatLeds"></span></div>
 <main>
     <div id="lyricsViewport">
@@ -2286,16 +2301,37 @@ let lastRevision = -1;
 
 // Haalt iedere 100 ms alleen de kleine toestand op. De zware songdata
 // (lyrics + akkoorden) komt pas binnen als die echt verandert.
+// Geen verbinding met Merik: een melding over de pagina, en rustiger opnieuw proberen.
+let failedPolls = 0;
+let appOffline = false;
+let offlineSince = 0;
+let lastAttempt = 0;
+
+function setOffline(offline) {
+    if (offline === appOffline)
+        return;
+
+    appOffline = offline;
+    document.getElementById("offline").hidden = !offline;
+}
+
 async function update() {
     if (stateInFlight)
         return;
 
+    // Offline: hooguit een keer per seconde proberen.
+    if (appOffline && performance.now() - lastAttempt < 1000)
+        return;
+
+    lastAttempt = performance.now();
     stateInFlight = true;
 
     try {
         const stateResponse = await fetch("/api/state" + (keyQuery ? "?" + keyQuery : ""), { cache: "no-store" });
-        if (!stateResponse.ok) return;
+        if (!stateResponse.ok) { failedPolls = failedPolls + 1; if (failedPolls >= 2) setOffline(true); return; }
         const state = await stateResponse.json();
+        failedPolls = 0;
+        setOffline(false);
 
         if (!songBase || state.rev !== lastRevision) {
             const songResponse = await fetch("/api/song", { cache: "no-store" });
@@ -2340,7 +2376,13 @@ async function update() {
         renderLyrics();
         renderChords();
         renderCountdown();
-    } catch (error) { console.log(error); }
+    } catch (error) {
+        console.log(error);
+        failedPolls = failedPolls + 1;
+
+        if (failedPolls >= 2)
+            setOffline(true);
+    }
     finally { stateInFlight = false; }
 }
 

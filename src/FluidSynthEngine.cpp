@@ -106,7 +106,10 @@ void FluidSynthEngine::applySynthSettingsLocked()
     const auto& v = synthSettings_;
     const auto unit = [](int value) { return std::clamp(value, 0, 100) / 100.0; };
 
-    fluid_synth_set_gain(synth_, static_cast<float>(unit(v.gain)));
+    // Intern: het volume van het nummer werkt via de gain (kan ook harder).
+    const double songFactor = external_ != nullptr ? 1.0 : std::pow(10.0, static_cast<double>(songVolumeDb_) / 20.0);
+
+    fluid_synth_set_gain(synth_, static_cast<float>(std::clamp(unit(v.gain) * songFactor, 0.0, 10.0)));
 
     fluid_synth_set_reverb_group_roomsize(synth_, -1, unit(v.reverbRoom));
     fluid_synth_set_reverb_group_damp(synth_, -1, unit(v.reverbDamp));
@@ -117,6 +120,24 @@ void FluidSynthEngine::applySynthSettingsLocked()
     fluid_synth_set_chorus_group_nr(synth_, -1, 0);
     fluid_synth_set_chorus_group_level(synth_, -1, 0.0);
     fluid_synth_chorus_on(synth_, -1, 0);
+}
+
+void FluidSynthEngine::setSongVolumeDb(float db)
+{
+    std::scoped_lock lock(mutex_);
+
+    songVolumeDb_ = std::clamp(db, -36.0f, 18.0f);
+    applySongVolumeLocked();
+}
+
+void FluidSynthEngine::applySongVolumeLocked()
+{
+    const float factor = std::pow(10.0f, songVolumeDb_ / 20.0f);
+
+    // Extern: via het CC7-volume van elk kanaal (opnieuw uitsturen); intern: via de gain.
+    midiTransformer_.setSongVolumeFactor(external_ != nullptr ? factor : 1.0f);
+    applySynthSettingsLocked();
+    dirtyFamilies_.fetch_or(0xFFu, std::memory_order_relaxed);
 }
 
 void FluidSynthEngine::setSynthSettings(const SynthSettings& settings)
@@ -1157,6 +1178,7 @@ void FluidSynthEngine::setExternalOutput(ExternalMidiOutput* output)
 
     external_ = output;
     clearExternalCache();
+    applySongVolumeLocked();
 
     // Alles wat nog klinkt in de interne synth stopt; het nieuwe doel
     // krijgt programma's, volumes en controllers van het huidige punt.
@@ -1442,7 +1464,7 @@ void FluidSynthEngine::mixStemsLocked(float* clickOut, int numSamples, std::int6
 
         // Kwadratisch, vergelijkbaar met hoe een GM-synth CC7 afbeeldt.
         const float factor = family.enabled ? static_cast<float>(family.volume) / 127.0f : 0.0f;
-        const float target = track.gain * factor * factor;
+        const float target = track.gain * factor * factor * (isClick ? 1.0f : std::pow(10.0f, songVolumeDb_ / 20.0f));
 
         const float from = stemGains_[t] < 0.0f ? target : stemGains_[t];
         stemGains_[t] = target;

@@ -98,3 +98,25 @@ RenderPlan buildRenderPlan(const Song& song)
 
     return plan;
 }
+
+void RenderPlan::limitTo(double seconds)
+{
+    lengthSeconds = std::min(lengthSeconds, seconds);
+
+    for (std::size_t family = 0; family < passes.size(); ++family)
+    {
+        auto& pass = passes[family];
+
+        pass.erase(std::remove_if(pass.begin(), pass.end(),
+                                  [seconds](const ScheduledMidi& message) { return message.seconds > seconds; }),
+                   pass.end());
+
+        int notes = 0;
+
+        for (const auto& message : pass)
+            if ((message.data[0] & 0xF0) == 0x90 && message.size >= 3 && message.data[2] > 0)
+                ++notes;
+
+        noteCount[family] = notes;
+    }
+}

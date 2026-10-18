@@ -69,7 +69,12 @@ const char* RenderJob::familyName(int family)
     return names[std::clamp(family, 0, 6)];
 }
 
-RenderEstimate RenderJob::estimate(const std::vector<juce::File>& files)
+juce::String RenderJob::outputBaseName(const juce::File& midiFile, bool demo)
+{
+    return midiFile.getFileNameWithoutExtension() + (demo ? " (demo 30s)" : "");
+}
+
+RenderEstimate RenderJob::estimate(const std::vector<juce::File>& files, bool demo)
 {
     RenderEstimate result;
 
@@ -79,7 +84,10 @@ RenderEstimate RenderJob::estimate(const std::vector<juce::File>& files)
         {
             MidiFileReader reader;
             const auto song = reader.read(file.getFullPathName().toStdString(), 48000.0);
-            const auto plan = buildRenderPlan(song);
+            auto plan = buildRenderPlan(song);
+
+            if (demo)
+                plan.limitTo(demoSeconds);
 
             int passes = 0;
 
@@ -156,6 +164,9 @@ void RenderJob::run()
             item.song = reader.read(file.getFullPathName().toStdString(), 48000.0);
             item.plan = buildRenderPlan(item.song);
 
+            if (options.demo)
+                item.plan.limitTo(demoSeconds);
+
             int passes = 0;
 
             for (int family = 0; family < RenderPlan::passCount; ++family)
@@ -191,7 +202,7 @@ void RenderJob::run()
     for (std::size_t index = 0; index < items.size() && !stopRequested.load(); ++index)
     {
         auto& item = items[index];
-        const auto name = item.file.getFileNameWithoutExtension();
+        const auto name = outputBaseName(item.file, options.demo);
 
         int passCount = 0;
 
@@ -213,6 +224,13 @@ void RenderJob::run()
         const auto folder = options.keepWav ? options.outputFolder.getChildFile(name + "_wav") : temporary;
 
         folder.createDirectory();
+
+        // Een eerdere keer (met toestemming overschreven): de oude bestanden eerst weg.
+        for (int family = 0; family < RenderPlan::passCount; ++family)
+            folder.getChildFile(stemFileName(family)).deleteFile();
+
+        folder.getChildFile("delay.json").deleteFile();
+        folder.getChildFile("song.mid").deleteFile();
         item.file.copyFileTo(folder.getChildFile("song.mid"));
 
         bool ok = true;

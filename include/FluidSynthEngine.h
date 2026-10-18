@@ -80,6 +80,11 @@ public:
     void seekSamples(std::int64_t samplePosition);
 
     void setNormalizeEnabled(bool enabled);
+
+    // Volume van dit nummer in dB, bovenop de faders: bij audio-stems de stemniveaus,
+    // bij de interne SoundFont de gain, bij een extern MIDI-apparaat het CC7-volume
+    // (daar kan het niet boven het maximum van het bestand zelf uit).
+    void setSongVolumeDb(float db);
     [[nodiscard]] FamilySettings getFamilySettings(int family) const;
 
     [[nodiscard]] std::array<FamilySettings, familyCount>
@@ -256,6 +261,8 @@ private:
     std::atomic<std::uint32_t> bufferingMask_ { 0 };
 
     void hintStemsLocked(std::int64_t samplePosition);
+    void applySongVolumeLocked();
+    float songVolumeDb_ = 0.0f;
     void buildClickTrackLocked();
     void renderClickLocked(float* out, int numSamples, std::int64_t blockStart) const;
 

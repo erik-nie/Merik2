@@ -2566,6 +2566,11 @@ public:
         gmResetToggle.onClick = [this] { prefs.gmReset = gmResetToggle.getToggleState(); savePrefs(); };
         addAndMakeVisible(gmResetToggle);
 
+        demoToggle.setButtonText("Demo: only the first 30 seconds of every track (the file name gets \"(demo 30s)\")");
+        demoToggle.setToggleState(prefs.demo, juce::dontSendNotification);
+        demoToggle.onClick = [this] { prefs.demo = demoToggle.getToggleState(); savePrefs(); updateEstimate(); };
+        addAndMakeVisible(demoToggle);
+
         errorLabel.setFont(merikLookAndFeel.getMediumFont(14.0f));
         errorLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 120, 120));
         errorLabel.setMinimumHorizontalScale(1.0f);
@@ -2702,7 +2707,7 @@ public:
         folderPath.setBounds(controlX + 200, y, controlWidth - 200, row);
         y += 42;
 
-        for (auto* toggle : { &keepWavToggle, &flacToggle, &gmResetToggle })
+        for (auto* toggle : { &keepWavToggle, &flacToggle, &gmResetToggle, &demoToggle })
         {
             toggle->setBounds(controlX, y, controlWidth, 26);
             y += 28;
@@ -2756,13 +2761,21 @@ private:
                 for (const auto& file : fc.getResults())
                     safe->files.push_back(file);
 
-                const auto estimate = RenderJob::estimate(safe->files);
-
-                safe->filesInfo.setText(juce::String(estimate.songs) + (estimate.songs == 1 ? " song, " : " songs, ")
-                                            + juce::String(estimate.passes) + " passes, about " + formatDuration(estimate.seconds),
-                                        juce::dontSendNotification);
-                safe->errorLabel.setText(estimate.notes.joinIntoString("  "), juce::dontSendNotification);
+                safe->updateEstimate();
             });
+    }
+
+    void updateEstimate()
+    {
+        if (files.empty())
+            return;
+
+        const auto estimate = RenderJob::estimate(files, prefs.demo);
+
+        filesInfo.setText(juce::String(estimate.songs) + (estimate.songs == 1 ? " song, " : " songs, ")
+                              + juce::String(estimate.passes) + " passes, about " + formatDuration(estimate.seconds),
+                          juce::dontSendNotification);
+        errorLabel.setText(estimate.notes.joinIntoString("  "), juce::dontSendNotification);
     }
 
     void chooseFolder()
@@ -2797,22 +2810,66 @@ private:
         else if (prefs.inputRoute == 0)
             problem = "Choose the input channels.";
 
-        if (problem.isEmpty())
+        if (problem.isNotEmpty())
         {
-            RenderOptions options;
-            options.midiOutIdentifier = prefs.midiOutIdentifier;
-            options.inputDevice = prefs.inputDevice;
-            options.inputRoute = prefs.inputRoute;
-            options.delayMs = prefs.delayMs;
-            options.outputFolder = juce::File(prefs.outputFolder);
-            options.keepWav = prefs.keepWav;
-            options.toFlac = prefs.toFlac;
-            options.gmReset = prefs.gmReset;
-            options.midiFiles = files;
-
-            if (context.start)
-                problem = context.start(options);
+            errorLabel.setText(problem, juce::dontSendNotification);
+            return;
         }
+
+        // Staat het resultaat er al (de .merik of de map met WAV's), dan eerst vragen.
+        const juce::File folder(prefs.outputFolder);
+        juce::StringArray existing;
+
+        for (const auto& file : files)
+        {
+            const auto base = RenderJob::outputBaseName(file, prefs.demo);
+
+            if (folder.getChildFile(base + ".merik").exists())
+                existing.add(base + ".merik");
+
+            if (prefs.keepWav && folder.getChildFile(base + "_wav").exists())
+                existing.add(base + "_wav (folder)");
+        }
+
+        if (existing.isEmpty())
+        {
+            beginRender();
+            return;
+        }
+
+        const auto shown = existing.size() > 6 ? existing.joinIntoString("\n", 0, 6) + "\n... and " + juce::String(existing.size() - 6) + " more"
+                                               : existing.joinIntoString("\n");
+
+        juce::AlertWindow::showAsync(
+            juce::MessageBoxOptions()
+                .withIconType(juce::MessageBoxIconType::WarningIcon)
+                .withTitle("Overwrite existing files?")
+                .withMessage("These already exist in " + folder.getFileName() + ":\n\n" + shown + "\n\nOverwrite them?")
+                .withButton("Overwrite")
+                .withButton("Cancel")
+                .withAssociatedComponent(this),
+            [safe = juce::Component::SafePointer<RenderContent>(this)](int result)
+            {
+                if (safe != nullptr && result == 1)
+                    safe->beginRender();
+            });
+    }
+
+    void beginRender()
+    {
+        RenderOptions options;
+        options.midiOutIdentifier = prefs.midiOutIdentifier;
+        options.inputDevice = prefs.inputDevice;
+        options.inputRoute = prefs.inputRoute;
+        options.delayMs = prefs.delayMs;
+        options.outputFolder = juce::File(prefs.outputFolder);
+        options.keepWav = prefs.keepWav;
+        options.toFlac = prefs.toFlac;
+        options.gmReset = prefs.gmReset;
+        options.demo = prefs.demo;
+        options.midiFiles = files;
+
+        const auto problem = context.start ? context.start(options) : juce::String();
 
         if (problem.isNotEmpty())
         {
@@ -2832,7 +2889,7 @@ private:
         for (auto* component : std::initializer_list<juce::Component*> {
                  &heading, &hint, &midiOutLabel, &deviceLabel, &inputLabel, &calibrateLabel, &filesLabel, &folderLabel,
                  &midiOutBox, &deviceBox, &inputBox, &calibrateButton, &delayCaption, &delayEditor, &chooseFilesButton,
-                 &chooseFolderButton, &filesInfo, &folderPath, &keepWavToggle, &flacToggle, &gmResetToggle, &errorLabel,
+                 &chooseFolderButton, &filesInfo, &folderPath, &keepWavToggle, &flacToggle, &gmResetToggle, &demoToggle, &errorLabel,
                  &startButton })
             component->setVisible(!progress);
 
@@ -3000,7 +3057,7 @@ private:
     juce::ComboBox midiOutBox, deviceBox, inputBox;
     juce::TextButton calibrateButton, chooseFilesButton, chooseFolderButton, startButton, stopButton, backButton;
     juce::TextEditor delayEditor, log;
-    juce::ToggleButton keepWavToggle, flacToggle, gmResetToggle;
+    juce::ToggleButton keepWavToggle, flacToggle, gmResetToggle, demoToggle;
     std::unique_ptr<juce::ProgressBar> progressBar;
 };
 
@@ -3078,6 +3135,7 @@ void MainComponent::loadRenderPrefs()
     renderPrefs.keepWav = properties->getBoolValue("render.keepWav", false);
     renderPrefs.toFlac = properties->getBoolValue("render.flac", true);
     renderPrefs.gmReset = properties->getBoolValue("render.gmReset", false);
+    renderPrefs.demo = properties->getBoolValue("render.demo", false);
 }
 
 void MainComponent::saveRenderPrefs()
@@ -3095,6 +3153,7 @@ void MainComponent::saveRenderPrefs()
     properties->setValue("render.keepWav", renderPrefs.keepWav);
     properties->setValue("render.flac", renderPrefs.toFlac);
     properties->setValue("render.gmReset", renderPrefs.gmReset);
+    properties->setValue("render.demo", renderPrefs.demo);
     properties->saveIfNeeded();
 }
 
@@ -3548,6 +3607,7 @@ public:
 
     std::function<void(int row)> onContextMenu;
     std::function<void(int row)> onDeleteKey;
+    std::function<void()> onBackgroundMenu;     // rechtsklik onder de lijst
     std::function<bool(int row)> isPlayingSetlist;
 
     int getNumRows() override
@@ -3658,6 +3718,12 @@ public:
     {
         if (event.mods.isPopupMenu() && onContextMenu)
             onContextMenu(row);
+    }
+
+    void backgroundClicked(const juce::MouseEvent& event) override
+    {
+        if (event.mods.isPopupMenu() && onBackgroundMenu)
+            onBackgroundMenu();
     }
 
     void deleteKeyPressed(int lastRowSelected) override
@@ -3772,7 +3838,7 @@ public:
 
         // Rechts: vaste kolommen voor lyrics, akkoorden en transpose, zodat
         // gelijke labels altijd onder elkaar staan (ook als de ander ontbreekt).
-        constexpr int transposeSlot = 30, chordsSlot = 52, lyricsSlot = 52, audioSlot = 46, midiSlot = 38, gap = 4;
+        constexpr int transposeSlot = 26, volumeSlot = 42, chordsSlot = 44, lyricsSlot = 44, audioSlot = 38, midiSlot = 30, gap = 3;
 
         int rightEdge = width - 10;
 
@@ -3782,15 +3848,17 @@ public:
             {
                 const auto tag = juce::Rectangle<float>(
                     static_cast<float>(rightEdge - slotWidth),
-                    (static_cast<float>(height) - 16.0f) * 0.5f,
-                    static_cast<float>(slotWidth), 16.0f);
+                    (static_cast<float>(height) - 15.0f) * 0.5f,
+                    static_cast<float>(slotWidth), 15.0f);
 
                 g.setColour(rowIsSelected ? juce::Colours::white.withAlpha(0.25f) : colour.withAlpha(0.28f));
-                g.fillRoundedRectangle(tag, 8.0f);
+                g.fillRoundedRectangle(tag, 7.5f);
 
                 g.setColour(textColour);
-                g.setFont(makeNotoFont(12.0f));
-                g.drawText(text, tag.toNearestInt(), juce::Justification::centred);
+                g.setFont(makeNotoFont(10.5f));
+
+                // Past de tekst net niet, dan een tikje smaller in plaats van afgekapt.
+                g.drawFittedText(text, tag.toNearestInt().reduced(1, 0), juce::Justification::centred, 1, 0.8f);
             }
 
             rightEdge -= slotWidth + gap;
@@ -3798,6 +3866,8 @@ public:
 
         drawTag((entry.transpose > 0 ? "+" : "") + juce::String(entry.transpose), transposeSlot, merikBlue,
                 entry.transpose != 0);
+        drawTag((entry.volumeDb > 0 ? "+" : "") + juce::String(entry.volumeDb) + " dB", volumeSlot,
+                juce::Colour::fromRGB(0, 190, 170), entry.volumeDb != 0);
         drawTag("CHORDS", chordsSlot, juce::Colour::fromRGB(46, 204, 113), entry.hasChords == 1);
         drawTag("LYRICS", lyricsSlot, juce::Colour::fromRGB(245, 166, 35), entry.hasLyrics == 1);
         drawTag("AUDIO", audioSlot, juce::Colour::fromRGB(0, 164, 235), entry.hasAudio == 1);
@@ -4634,12 +4704,25 @@ void MainComponent::showFamilyNames(const std::array<std::string, 8>& names)
     webServer.setFamilyNames(names);
 }
 
-void MainComponent::setTranspose(int semitones)
+void MainComponent::setTranspose(int semitones, bool remember)
 {
     if (songHasStems)
         semitones = 0;   // audio kan niet transponeren
 
     transpose = juce::jlimit(-12, 12, semitones);
+
+    // Bij het nummer in de setlist onthouden (zoals het volume).
+    if (remember && currentSongFromSetlist)
+    {
+        const int row = currentRowInPlayingSetlist();
+
+        if (playingSetlist >= 0 && playingSetlist < static_cast<int>(setlists.size()) && row >= 0)
+        {
+            setlists[static_cast<std::size_t>(playingSetlist)].songs[static_cast<std::size_t>(row)].transpose = transpose;
+            songInfoDirty = true;
+            songBox.repaint();
+        }
+    }
 
     transposeValue.setText(
         transpose > 0 ? "+" + juce::String(transpose) : juce::String(transpose),
@@ -4647,6 +4730,30 @@ void MainComponent::setTranspose(int semitones)
 
     synthEngine.setTranspose(transpose);
     webServer.setTranspose(transpose);
+}
+
+void MainComponent::setSongVolume(int db, bool remember)
+{
+    songVolumeDb = juce::jlimit(-24, 12, db);
+
+    volumeValue.setText(songVolumeDb == 0 ? juce::String("0 dB")
+                                          : (songVolumeDb > 0 ? "+" : "") + juce::String(songVolumeDb) + " dB",
+                        juce::dontSendNotification);
+
+    synthEngine.setSongVolumeDb(static_cast<float>(songVolumeDb));
+
+    // Bij het nummer in de setlist onthouden, zodat het de volgende keer weer zo klinkt.
+    if (remember && currentSongFromSetlist)
+    {
+        const int row = currentRowInPlayingSetlist();
+
+        if (playingSetlist >= 0 && playingSetlist < static_cast<int>(setlists.size()) && row >= 0)
+        {
+            setlists[static_cast<std::size_t>(playingSetlist)].songs[static_cast<std::size_t>(row)].volumeDb = songVolumeDb;
+            songInfoDirty = true;
+            songBox.repaint();
+        }
+    }
 }
 
 void MainComponent::updateChannelModel()
@@ -5346,22 +5453,6 @@ MainComponent::MainComponent()
     // Transport
     // -------------------------------------------------------------------------
 
-    loadButton.setButtonText("Load");
-
-    loadButton.setColour(
-        juce::TextButton::buttonColourId,
-        panelLightColour);
-
-    loadButton.setColour(
-        juce::TextButton::textColourOffId,
-        textColour);
-
-    loadButton.onClick = [this]
-    {
-        loadMidi();
-    };
-
-    addAndMakeVisible(loadButton);
 
     playButton.setButtonText("Play");
 
@@ -5431,10 +5522,30 @@ MainComponent::MainComponent()
 
     transposeValue.setText("0", juce::dontSendNotification);
     transposeValue.setColour(juce::Label::textColourId, textColour);
-    transposeValue.setFont(merikLookAndFeel.getMediumFont(17.0f));
+    transposeValue.setFont(merikLookAndFeel.getMediumFont(16.0f));
     transposeValue.setJustificationType(juce::Justification::centred);
     transposeValue.setTooltip("Transpose (semitones)");
     addAndMakeVisible(transposeValue);
+
+    // Volume van dit nummer: ook een capsule met - / waarde / +, per nummer onthouden.
+    volumeDownButton.setButtonText(juce::String::fromUTF8("\xe2\x88\x92"));
+    volumeUpButton.setButtonText("+");
+
+    for (auto* button : { &volumeDownButton, &volumeUpButton })
+    {
+        button->getProperties().set("flat", true);
+        button->setColour(juce::TextButton::textColourOffId, textColour);
+        addAndMakeVisible(*button);
+    }
+
+    volumeDownButton.onClick = [this] { setSongVolume(songVolumeDb - 1); };
+    volumeUpButton.onClick   = [this] { setSongVolume(songVolumeDb + 1); };
+
+    volumeValue.setText("0 dB", juce::dontSendNotification);
+    volumeValue.setColour(juce::Label::textColourId, textColour);
+    volumeValue.setFont(merikLookAndFeel.getMediumFont(13.0f));
+    volumeValue.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(volumeValue);
 
     panicButton.setButtonText("Panic");
 
@@ -5636,6 +5747,20 @@ MainComponent::MainComponent()
     refreshSongModel();
 
     setlistModel->onContextMenu = [this](int row) { showSetlistMenu(row); };
+
+    // Rechtsklik op de lege ruimte onder de setlists: een nieuwe setlist maken.
+    setlistModel->onBackgroundMenu = [this]
+    {
+        juce::PopupMenu menu;
+        menu.setLookAndFeel(&merikLookAndFeel);
+        menu.addItem(1, "New setlist");
+
+        menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result)
+        {
+            if (result == 1)
+                addSetlist();
+        });
+    };
     setlistModel->onDeleteKey   = [this](int row) { removeSetlistAt(row); };
 
     songModel->onContextMenu = [this](int row) { showSongMenu(row); };
@@ -5790,8 +5915,9 @@ MainComponent::MainComponent()
 
     newSetlistButton.setTooltip("New setlist");
     addButton.setTooltip("Add songs");
+    playFileButton.setTooltip("Open a MIDI file and play it once (it is not added to a setlist)");
 
-    for (auto* button : { &newSetlistButton, &addButton })
+    for (auto* button : { &newSetlistButton, &addButton, static_cast<juce::TextButton*>(&playFileButton) })
     {
         button->setColour(
             juce::TextButton::buttonColourId,
@@ -5805,6 +5931,7 @@ MainComponent::MainComponent()
     }
 
     newSetlistButton.onClick = [this] { addSetlist(); };
+    playFileButton.onClick = [this] { loadMidi(); };
 
     addButton.onClick = [this]
     {
@@ -6197,6 +6324,7 @@ void MainComponent::loadPersistentState()
                 entry.file = juce::File(path);
                 entry.displayName = item->getStringAttribute("name");
                 entry.transpose = item->getIntAttribute("transpose", 0);
+                entry.volumeDb = item->getIntAttribute("volume", 0);
 
                 addSong(std::move(entry),
                         item->getDoubleAttribute("length", -1.0),
@@ -6323,6 +6451,9 @@ void MainComponent::savePersistentState()
             if (song.transpose != 0)
                 item->setAttribute("transpose", song.transpose);
 
+            if (song.volumeDb != 0)
+                item->setAttribute("volume", song.volumeDb);
+
             item->setAttribute("fileTime", juce::String(song.fileTime));
             item->setAttribute("length", song.lengthSeconds);
             item->setAttribute("lyrics", song.hasLyrics);
@@ -6390,11 +6521,13 @@ void MainComponent::paint(juce::Graphics& g)
     g.fillAll(backgroundColour);
 
     // Transpose-capsule
-    if (!transposeBounds.isEmpty())
+    for (const auto& capsule : { transposeBounds, volumeBounds })
     {
+        if (capsule.isEmpty())
+            continue;
+
         g.setColour(panelLightColour);
-        g.fillRoundedRectangle(transposeBounds.toFloat(),
-                               static_cast<float>(transposeBounds.getHeight()) * 0.5f);
+        g.fillRoundedRectangle(capsule.toFloat(), static_cast<float>(capsule.getHeight()) * 0.5f);
     }
 
     // Family-blokken als afgeronde kaarten
@@ -6512,14 +6645,8 @@ void MainComponent::resized()
     constexpr int buttonHeight = 30;
 
     // ------------------------------------------------------------
-    // Links: Load / Play / Stop / Next / Transpose
+    // Links: Play / Stop / Next / Transpose / Volume
     // ------------------------------------------------------------
-
-    loadButton.setBounds(
-        transport.removeFromLeft(70)
-            .withHeight(buttonHeight));
-
-    transport.removeFromLeft(6);
 
     playButton.setBounds(
         transport.removeFromLeft(70)
@@ -6540,14 +6667,27 @@ void MainComponent::resized()
     transport.removeFromLeft(12);
 
     transposeBounds =
-        transport.removeFromLeft(112).withHeight(buttonHeight);
+        transport.removeFromLeft(86).withHeight(buttonHeight);
 
     {
         auto area = transposeBounds;
 
-        transposeDownButton.setBounds(area.removeFromLeft(34));
-        transposeUpButton.setBounds(area.removeFromRight(34));
+        transposeDownButton.setBounds(area.removeFromLeft(26));
+        transposeUpButton.setBounds(area.removeFromRight(26));
         transposeValue.setBounds(area);
+    }
+
+    transport.removeFromLeft(8);
+
+    volumeBounds =
+        transport.removeFromLeft(102).withHeight(buttonHeight);
+
+    {
+        auto area = volumeBounds;
+
+        volumeDownButton.setBounds(area.removeFromLeft(26));
+        volumeUpButton.setBounds(area.removeFromRight(26));
+        volumeValue.setBounds(area);
     }
 
     // ------------------------------------------------------------
@@ -6722,6 +6862,7 @@ void MainComponent::resized()
     auto songHeader = songArea.removeFromTop(22);
     songsTitle.setBounds(songHeader);
     addButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
+    playFileButton.setBounds(songHeader.removeFromRight(30).reduced(3, 2));
 
     songBox.setBounds(songArea);
 }    
@@ -7446,12 +7587,16 @@ void MainComponent::showSongMenu(int row)
     const auto& first = entries.front();
 
     int commonTranspose = first.transpose;
+    int commonVolume = first.volumeDb;
     bool anyRenamed = false;
 
     for (const auto& entry : entries)
     {
         if (entry.transpose != commonTranspose)
             commonTranspose = -1000;
+
+        if (entry.volumeDb != commonVolume)
+            commonVolume = -1000;
 
         anyRenamed = anyRenamed || entry.displayName.isNotEmpty();
     }
@@ -7466,6 +7611,19 @@ void MainComponent::showSongMenu(int row)
             : (semitones > 0 ? "+" : "") + juce::String(semitones);
 
         transposeMenu.addItem(100 + semitones + 6, label, true, semitones == commonTranspose);
+    }
+
+    // Volume per nummer: een verschil (dB) met het normale niveau. Audio-stems en de interne
+    // SoundFont kunnen ook harder; een extern MIDI-apparaat alleen zachter (en harder voor
+    // zover het volume in het bestand zelf nog onder het maximum zit).
+    juce::PopupMenu volumeMenu;
+
+    for (int db = 6; db >= -12; --db)
+    {
+        const auto label = db == 0 ? juce::String("0 dB  (original)")
+                                   : (db > 0 ? "+" : "") + juce::String(db) + " dB";
+
+        volumeMenu.addItem(600 + db + 12, label, true, db == commonVolume);
     }
 
     juce::PopupMenu copyMenu, moveMenu;
@@ -7487,6 +7645,7 @@ void MainComponent::showSongMenu(int row)
     });
 
     menu.addSubMenu("Transpose", transposeMenu, allowTranspose);
+    menu.addSubMenu("Volume", volumeMenu);
     menu.addItem(1, "Rename...", single);
     menu.addItem(2, "Restore file name", anyRenamed);
     menu.addSeparator();
@@ -7557,7 +7716,21 @@ void MainComponent::showSongMenu(int row)
 
                     // Staat dit nummer nu aan, dan klinkt de nieuwe transpose meteen.
                     if (currentSongFromSetlist && currentMidiFile == song.file)
-                        setTranspose(transposeValue);
+                        setTranspose(transposeValue, false);
+                }
+            }
+            else if (result >= 600 && result <= 618)
+            {
+                const int volume = result - 600 - 12;
+
+                for (const int selectedRow : rows)
+                {
+                    auto& song = songs[static_cast<std::size_t>(selectedRow)];
+                    song.volumeDb = volume;
+
+                    // Staat dit nummer nu aan, dan klinkt het nieuwe volume meteen.
+                    if (currentSongFromSetlist && currentMidiFile == song.file)
+                        setSongVolume(volume, false);
                 }
             }
             else if (result >= 200 && result < 300)

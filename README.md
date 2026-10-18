@@ -135,16 +135,17 @@ There is a ready-made test song in [docs/demo/Stems Demo.merik](docs/demo/Stems%
 
 ### Rendering MIDI through an external module
 
-Merik can play your MIDI files through a hardware sound module (for example a Boss DS-330 or a Roland Sound Canvas), record the sound back through your audio interface, one family at a time, and save a `.merik` per song with real audio stems. It measures the delay between sending MIDI and hearing the sound and stores it in the file, so MIDI and audio stay together. You choose the MIDI output and the audio input, set the level with an interactive test (target about -6 dB), pick one or more MIDI files and an output folder, and start; a progress bar shows the song, the pass and the time left, and you can stop at any time.
+Merik can play your MIDI files through a hardware sound module (for example a Boss DS-330 or a Roland Sound Canvas), record the sound back through your audio interface, one family at a time, and save a `.merik` per song with real audio stems. It measures the delay between sending MIDI and hearing the sound and stores it in the file, so MIDI and audio stay together. You choose the MIDI output and the audio input, set the level with an interactive test (target about -6 dB), pick one or more MIDI files and an output folder, and start; a progress bar shows the song, the pass and the time left, and you can stop at any time. A **demo render** (only the first 30 seconds of every track) is a quick way to try a sound source, and Merik asks before it overwrites an existing result.
 
 It works with a **software synth** too: a host program (MainStage, Logic, Bidule or a standalone plug-in) plays the sound and Merik records it through a virtual audio device such as BlackHole. Rendering gives you separate outputs per family, is safer on stage than live plug-ins, and the result plays on any computer.
 
 Settings → **Tools → Render MIDI files...**. The whole workflow is described in [docs/render-external-module.md](docs/render-external-module.md).
 
 ### Setlists that stay out of your way
-- Any number of setlists, reorderable by drag and drop.
+- Any number of setlists, reorderable by drag and drop. Right-click on the empty space below the setlists for a new setlist.
 - Drag songs to reorder them, to move them to another setlist, or hold <kbd>Command</kbd> (<kbd>Ctrl</kbd> on Windows and Linux) to copy them. Select several songs at once.
 - The same song can appear more than once.
+- **Volume per song** (a difference in dB, next to the transpose control or in the right-click menu): audio stems and the built-in SoundFont can go louder or softer; for an external MIDI device Merik adjusts the channel volumes (softer works fully, louder only where the file's own volume is below the maximum). It is remembered per song.
 - Right-click menus to rename (your own title, the file name is untouched), transpose, duplicate, copy, move, delete, or show a file in the Finder.
 - Song length, setlist total time, and tags that show which songs have **lyrics**, **chords**, **MIDI** and **audio**. Missing files are flagged in red.
 - Everything is remembered between sessions.
@@ -157,6 +158,7 @@ Settings → **Tools → Render MIDI files...**. The whole workflow is described
 ### Remote display and control in your browser
 - Open Merik's address on any phone, tablet or laptop on the same network and get a full-screen **lyrics and chord display** with a progress bar for the current chord, a countdown before the first line, and an adjustable text size.
 - By default the page is **view only**, so the audience and the band can't change anything by accident.
+- If Merik is not running, the page shows a neat "Merik is not running" message and reconnects by itself when it is started again.
 - Add your secret key to the address and the same page also shows **Play / Pause, Stop, Next** and the **family mixer**.
 
 <p align="center">

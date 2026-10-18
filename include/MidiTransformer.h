@@ -31,6 +31,9 @@ public:
     void setFamilyVolumeFactor(int family, float factor);
     void setNormalizeEnabled(bool enabled);
 
+    // Extra factor op het CC7-volume (volume per nummer voor een extern MIDI-apparaat).
+    void setSongVolumeFactor(float factor) { songVolumeFactor = factor; }
+
     [[nodiscard]] float getFamilyVolumeFactor(int family) const;
 
     // Familie (0..6) bij een GM-programma, of -1.
@@ -45,6 +48,7 @@ private:
     std::array<MidiChannelState, 16> channelStates {};
     std::array<float, familyCount> familyVolumeFactors {};
     bool normalizeEnabled = false;
+    float songVolumeFactor = 1.0f;
 
     static int scaleMidiValue(int value, float factor);
 };

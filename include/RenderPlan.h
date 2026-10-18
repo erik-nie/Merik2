@@ -26,6 +26,10 @@ struct RenderPlan
     double lengthSeconds = 0.0;                // tijd van het laatste kanaalbericht
 
     [[nodiscard]] bool hasNotes(int family) const { return noteCount[static_cast<std::size_t>(family)] > 0; }
+
+    // Alleen de eerste `seconds` seconden houden (voor een demo-render); families zonder
+    // noten in dat stuk vervallen. Noten die nog klinken worden aan het eind uitgezet.
+    void limitTo(double seconds);
 };
 
 [[nodiscard]] RenderPlan buildRenderPlan(const Song& song);

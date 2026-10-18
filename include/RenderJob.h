@@ -21,6 +21,7 @@ struct RenderOptions
     bool keepWav = false;            // de WAV's bewaren in een map naast de .merik
     bool toFlac = true;              // in de .merik als FLAC
     bool gmReset = false;            // GM-reset voor elke pass (uit: sommige software-synths verliezen er de drums door)
+    bool demo = false;               // alleen de eerste 30 seconden van elke track
     std::vector<juce::File> midiFiles;
 };
 
@@ -35,6 +36,7 @@ struct RenderPrefs
     bool keepWav = false;
     bool toFlac = true;
     bool gmReset = false;
+    bool demo = false;
 };
 
 struct RenderEstimate
@@ -66,7 +68,12 @@ public:
     static constexpr double prerollSeconds = 0.6;
     static constexpr double tailSeconds = 3.0;
 
-    [[nodiscard]] static RenderEstimate estimate(const std::vector<juce::File>& files);
+    static constexpr double demoSeconds = 30.0;
+
+    [[nodiscard]] static RenderEstimate estimate(const std::vector<juce::File>& files, bool demo = false);
+
+    // Naam van het resultaat voor een MIDI-bestand: "Song.merik" of "Song (demo 30s).merik".
+    [[nodiscard]] static juce::String outputBaseName(const juce::File& midiFile, bool demo);
     [[nodiscard]] static const char* familyName(int family);
 
     RenderJob(RenderEngine& engine, RenderOptions options);

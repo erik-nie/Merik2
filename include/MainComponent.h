@@ -11,6 +11,7 @@
 #include "LevelMeter.h"
 #include "SourcePill.h"
 #include "UpdatePill.h"
+#include "IconButton.h"
 #include "RenderEngine.h"
 #include "RenderJob.h"
 #include "WebServer.h"
@@ -78,6 +79,7 @@ private:
         juce::File file;
         juce::String displayName;   // leeg = bestandsnaam tonen
         int transpose = 0;          // standaard transpose bij laden
+        int volumeDb = 0;           // volume van dit nummer (delta in dB)
 
         // Achtergrondinformatie over het bestand (onthouden in de instellingen).
         double lengthSeconds = -1.0;    // < 0: nog niet bekend
@@ -118,6 +120,7 @@ private:
 
     std::array<juce::Rectangle<int>, 8> familyBlockBounds;
     juce::Rectangle<int> transposeBounds;
+    juce::Rectangle<int> volumeBounds;
 
     WebServer webServer;
 
@@ -156,7 +159,6 @@ private:
 
     juce::Slider positionSlider;
 
-    juce::TextButton loadButton;
     juce::TextButton playButton;
     juce::TextButton stopButton;
     juce::TextButton nextButton;
@@ -164,6 +166,9 @@ private:
     juce::TextButton transposeDownButton;
     juce::Label transposeValue;
     juce::TextButton transposeUpButton;
+    juce::TextButton volumeDownButton;
+    juce::Label volumeValue;
+    juce::TextButton volumeUpButton;
 
     juce::TextButton panicButton;
     juce::TextButton lyricsButton;
@@ -184,6 +189,7 @@ private:
     juce::TextButton updateCheckToggle;   // "Check for updates at startup"
 
     juce::TextButton addButton;
+    IconButton playFileButton { IconButton::Icon::openFile };   // een bestand openen en eenmalig afspelen
 
     juce::TableListBox channelTable;
 
@@ -286,8 +292,10 @@ private:
     void ledsAllOff();
     void applyMidiOutput();
     int transpose = 0;
+    int songVolumeDb = 0;        // volume van het huidige nummer (delta, dB)
+    void setSongVolume(int db, bool remember = true);
     bool songHasStems = false;   // audio-stems kunnen niet transponeren
-    void setTranspose(int semitones);
+    void setTranspose(int semitones, bool remember = true);
 
     void loadMidi();
     void selectSoundFont();

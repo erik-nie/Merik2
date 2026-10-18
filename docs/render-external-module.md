@@ -25,8 +25,9 @@ Open **Settings → Tools → Render MIDI files...**. A window with the settings
 7. Options:
    - *Keep the WAV files in a folder next to the .merik*: a folder `songname_wav` with the WAV files, `song.mid` and `delay.json` stays next to the `.merik`. You can use these files in a DAW, or pack them again with *Create a .merik file from a folder*.
    - *Convert to FLAC inside the .merik*: about half the size, lossless.
+   - *Demo: only the first 30 seconds of every track*: renders just the start of each song, to check quickly how a module or a sound set sounds. The result is called `Song (demo 30s).merik` (and `Song (demo 30s)_wav`), so it never replaces a full render. The estimate in the window follows this option.
    - *Send a General MIDI reset before every pass* (off by default): resets the sound source to a clean General MIDI state. Useful for a hardware module that may still be in another mode. Leave it off for a software synth: with some of them (for example KQ Sampei) the drums stay silent after a reset.
-8. **Start rendering.** The window now shows the progress: *Song 2 of 5*, *Pass 3 of 6* with the name of the family, a progress bar, an estimate of the time left and a log. A `.merik` is always created per song. **Stop** ends the process after cleaning up (the song that was being recorded is discarded; finished songs stay). Closing the window while rendering asks whether to stop.
+8. **Start rendering.** If a result with the same name already exists in the output folder, Merik asks first whether it may be overwritten. The window now shows the progress: *Song 2 of 5*, *Pass 3 of 6* with the name of the family, a progress bar, an estimate of the time left and a log. A `.merik` is always created per song. **Stop** ends the process after cleaning up (the song that was being recorded is discarded; finished songs stay). Closing the window while rendering asks whether to stop.
 
 ## What happens
 
