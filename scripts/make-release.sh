@@ -93,7 +93,7 @@ if [[ -n "${SIGN_IDENTITY:-}" ]]; then
     for f in "$APP"/Contents/Frameworks/*.dylib; do
         codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$f"
     done
-    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+    codesign --force --options runtime --timestamp --entitlements assets/Merik.entitlements --sign "$SIGN_IDENTITY" "$APP"
 else
     echo "Geen SIGN_IDENTITY: ad-hoc ondertekend (gebruikers moeten de app eenmalig 'Open' kiezen)."
     for f in "$APP"/Contents/Frameworks/*.dylib; do

@@ -11,6 +11,8 @@
 #include "LevelMeter.h"
 #include "SourcePill.h"
 #include "UpdatePill.h"
+#include "RenderEngine.h"
+#include "RenderJob.h"
 #include "WebServer.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -297,6 +299,21 @@ private:
     juce::Component::SafePointer<juce::Component> settingsWindow;
     juce::Component::SafePointer<juce::Component> makerWindow;
     void showMerikMaker();
+
+    // Opnemen van MIDI via een externe module (Settings > Tools).
+    std::unique_ptr<RenderEngine> renderEngine;
+    std::unique_ptr<RenderJob> renderJob;
+    RenderStatus lastRenderStatus;
+    RenderPrefs renderPrefs;
+    juce::Component::SafePointer<juce::Component> calibrationWindow;
+    juce::Component::SafePointer<juce::Component> renderWindow;
+    void showRenderWindow();
+    void loadRenderPrefs();
+    void saveRenderPrefs();
+    juce::String startRender(const RenderOptions& options);
+    void stopRender();
+    void showRenderCalibration();
+    void pollRender();
     void play();
     void stop();
 

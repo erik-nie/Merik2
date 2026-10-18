@@ -191,7 +191,7 @@ void MidiOutSink::beginBlock(std::int64_t sampleAtBlockStart, int numSamples, do
 
 void MidiOutSink::enqueue(const std::uint8_t* data, int size, double timeMs)
 {
-    if (!opened.load() || size < 1 || size > 3)
+    if (!opened.load() || size < 1 || size > 8)
         return;
 
     int start1 = 0, size1 = 0, start2 = 0, size2 = 0;

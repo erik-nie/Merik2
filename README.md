@@ -133,6 +133,14 @@ My Song.merik
 
 There is a ready-made test song in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). All details (priority table, JSON formats for chords, lyrics and tempo, and **making a `.merik` by hand** on macOS and Windows) are in [docs/merik-format.md](docs/merik-format.md).
 
+### Rendering MIDI through an external module
+
+Merik can play your MIDI files through a hardware sound module (for example a Boss DS-330 or a Roland Sound Canvas), record the sound back through your audio interface, one family at a time, and save a `.merik` per song with real audio stems. It measures the delay between sending MIDI and hearing the sound and stores it in the file, so MIDI and audio stay together. You choose the MIDI output and the audio input, set the level with an interactive test (target about -6 dB), pick one or more MIDI files and an output folder, and start; a progress bar shows the song, the pass and the time left, and you can stop at any time.
+
+It works with a **software synth** too: a host program (MainStage, Logic, Bidule or a standalone plug-in) plays the sound and Merik records it through a virtual audio device such as BlackHole. Rendering gives you separate outputs per family, is safer on stage than live plug-ins, and the result plays on any computer.
+
+Settings → **Tools → Render MIDI files...**. The whole workflow is described in [docs/render-external-module.md](docs/render-external-module.md).
+
 ### Setlists that stay out of your way
 - Any number of setlists, reorderable by drag and drop.
 - Drag songs to reorder them, to move them to another setlist, or hold <kbd>Command</kbd> (<kbd>Ctrl</kbd> on Windows and Linux) to copy them. Select several songs at once.
@@ -168,6 +176,7 @@ There is a ready-made test song in [docs/demo/Stems Demo.merik](docs/demo/Stems%
 ### Settings
 - **General:** remote-control key, the playback options, and the update check. Merik can tell you at startup when a newer version is available on GitHub, and you can switch that off or check by hand.
 - **Soundfont:** the SoundFont, and the gain and reverb of the built-in sound.
+- **Tools:** create a `.merik` from a folder, and render MIDI files through a hardware sound module into audio stems (see [Rendering through an external module](#rendering-midi-through-an-external-module)).
 - **Audio:** output device, sample rate and buffer size, the main output (a stereo pair or one channel), the click output (any other channel or pair), and an output per audio-stem family.
 - **Midi:** input, output, controller LEDs and all CC assignments.
 

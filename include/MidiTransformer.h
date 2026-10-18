@@ -32,6 +32,9 @@ public:
     void setNormalizeEnabled(bool enabled);
 
     [[nodiscard]] float getFamilyVolumeFactor(int family) const;
+
+    // Familie (0..6) bij een GM-programma, of -1.
+    static int getFamilyFromProgram(int program);
     [[nodiscard]] int getAdjustedChannelVolume(int channel) const;
     [[nodiscard]] int getAdjustedChannelExpression(int channel) const;
 
@@ -43,6 +46,5 @@ private:
     std::array<float, familyCount> familyVolumeFactors {};
     bool normalizeEnabled = false;
 
-    static int getFamilyFromProgram(int program);
     static int scaleMidiValue(int value, float factor);
 };

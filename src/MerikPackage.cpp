@@ -250,6 +250,22 @@ namespace
             }
         }
 
+        // delay.json: { "audioDelayMs": 37.3 } - de stems zijn zoveel ms te laat opgenomen
+        // (bijv. via een externe module); ze worden zoveel eerder afgespeeld.
+        if (const auto delayName = findRootEntry(zip, "delay.json"); delayName.isNotEmpty())
+        {
+            juce::MemoryBlock delayBlock;
+
+            if (readEntry(zip, delayName, delayBlock))
+            {
+                const auto delay = juce::JSON::parse(delayBlock.toString());
+                const double milliseconds = delay.getProperty("audioDelayMs", 0.0);
+
+                if (std::isfinite(milliseconds) && std::abs(milliseconds) < 5000.0)
+                    manifest.audioOffsetSeconds -= milliseconds * 0.001;
+            }
+        }
+
         // Gevonden stems.
         for (int i = 0; i < zip.getNumEntries(); ++i)
         {

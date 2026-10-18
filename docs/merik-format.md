@@ -9,6 +9,7 @@ My Song.merik
 ├── 2-bass.flac
 ├── 7-live vocals.wav   a second stem in the same family is mixed in
 ├── click.wav         your own click track (optional)
+├── delay.json        recording delay in ms (optional, see below)
 ├── chords.json       chords (optional, replaces the chords from the MIDI file)
 └── lyrics.json       lyrics (optional, replaces the lyrics from the MIDI file)
 ```
@@ -23,6 +24,7 @@ Stems may also be placed in a `stems/` folder inside the zip. Names are not case
 | Click | `click.wav` / `click.flac` / `click.mp3` | the internal click, generated from tempo and time signature |
 | Chords | `chords.json` | chords found in the MIDI file |
 | Lyrics | `lyrics.json` | lyrics found in the MIDI file |
+| Audio delay | `delay.json`: the stems are played that much earlier | none |
 | Tempo / time signature | the MIDI file, or `tempo.json` / `manifest.json` (see below) | unknown: no internal click and no beat display (a `8-click` stem still plays) |
 
 So a hybrid song is normal: for example all MIDI plus one extra stem `7-live vocals.wav`. **Audio wins per family**: a family with an audio stem does not play its MIDI notes.
@@ -84,6 +86,20 @@ One entry per line. `words` is optional; with words the lyrics light up word by 
 ## tempo.json (optional)
 
 For a package without a MIDI file: `{ "bpm": 96, "timeSignature": [4, 4] }`. Merik then plays its internal click and shows the beat. Without a MIDI file and without this there is no internal click.
+
+## delay.json (optional)
+
+For stems that were recorded through external hardware (for example a MIDI file played through a sound module and recorded back). The sound then arrives a little **late** compared with the MIDI. `delay.json` says how late, so Merik plays the stems earlier by that amount and MIDI and audio run together:
+
+```json
+{ "audioDelayMs": 37.3 }
+```
+
+- `audioDelayMs`: the delay in milliseconds (the time from sending the MIDI to hearing the sound in the recording). Positive = the audio is late, Merik plays it that many ms earlier. It applies to all stems of the package. Values of 5 seconds or more are ignored.
+- The audio files themselves are not changed: they start at the same moment as the MIDI file and contain the sound at its recorded (late) position.
+- Merik writes this file itself when you render a MIDI file with an external module (see [render-external-module.md](render-external-module.md)). A normal `.merik` does not need it.
+- *Create a .merik file from a folder* recognises `delay.json` and includes it.
+- `manifest.json` can also shift the audio (`timing.audioOffsetSeconds`); both are added together.
 
 ## manifest.json (optional)
 

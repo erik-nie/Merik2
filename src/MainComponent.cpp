@@ -651,6 +651,8 @@ struct SettingsContext
 
     std::array<int, 7> stemRoutes {};
     std::function<void(int family, int route)> stemRouteChanged;
+
+    std::function<void()> openRender;
 };
 
 class SettingsContent final : public juce::Component,
@@ -668,6 +670,7 @@ public:
         buildGeneral();
         buildAudio();
         buildMidi();
+        buildTools();
 
         tabs.setTabBarDepth(38);
         tabs.setOutline(0);
@@ -676,6 +679,7 @@ public:
         tabs.addTab("Soundfont", backgroundColour, &soundFontPage, false);
         tabs.addTab("Audio", backgroundColour, &audioPage, false);
         tabs.addTab("Midi", backgroundColour, &midiPage, false);
+        tabs.addTab("Tools", backgroundColour, &toolsPage, false);
         addAndMakeVisible(tabs);
 
         refresh();
@@ -788,14 +792,6 @@ private:
         };
         generalPage.addAndMakeVisible(checkNowButton);
 
-        createMerikButton.setButtonText("Create a .merik file from a folder...");
-        createMerikButton.onClick = [this]
-        {
-            if (context.createMerik)
-                context.createMerik();
-        };
-        generalPage.addAndMakeVisible(createMerikButton);
-
         generalPage.layout = [this](juce::Rectangle<int> bounds)
         {
             const int controlX = bounds.proportionOfWidth(0.30f);
@@ -817,8 +813,6 @@ private:
 
             y += 8;
             checkNowButton.setBounds(controlX, y, 190, 30);
-            y += 44;
-            createMerikButton.setBounds(controlX, y, 300, 30);
         };
     }
 
@@ -1299,6 +1293,64 @@ private:
         clickOutBox.setSelectedId(clickId, juce::dontSendNotification);
     }
 
+    // ------------------------------------------------------------------ Tools
+
+    void buildTools()
+    {
+        styleHeading(makeHeading, "Create a .merik file");
+        toolsPage.content.addAndMakeVisible(makeHeading);
+
+        createMerikButton.setButtonText("Create a .merik file from a folder...");
+        createMerikButton.onClick = [this]
+        {
+            if (context.createMerik)
+                context.createMerik();
+        };
+        toolsPage.content.addAndMakeVisible(createMerikButton);
+
+        styleHint(makeHint, "Choose a folder with stems (1-drums.wav, ...), optionally with a MIDI file. "
+                            "Merik shows what it found and saves a .merik without compression.");
+        toolsPage.content.addAndMakeVisible(makeHint);
+
+        styleHeading(renderHeading, "Render MIDI files");
+        toolsPage.content.addAndMakeVisible(renderHeading);
+
+        renderButton.setButtonText("Render MIDI files...");
+        renderButton.onClick = [this]
+        {
+            if (context.openRender)
+                context.openRender();
+        };
+        toolsPage.content.addAndMakeVisible(renderButton);
+
+        styleHint(renderHint, "Plays MIDI files through a hardware sound module or a software synth, records every "
+                              "family as audio and saves a .merik per song, with the measured delay.");
+        toolsPage.content.addAndMakeVisible(renderHint);
+
+        toolsPage.layoutContent = [this](int width)
+        {
+            const int controlX = juce::roundToInt(static_cast<float>(width) * 0.30f);
+            const int controlWidth = juce::roundToInt(static_cast<float>(width) * 0.66f);
+            int y = 18;
+
+            makeHeading.setBounds(controlX, y, controlWidth, 24);
+            y += 30;
+            createMerikButton.setBounds(controlX, y, 320, 30);
+            y += 38;
+            makeHint.setBounds(controlX, y, controlWidth, 40);
+            y += 64;
+
+            renderHeading.setBounds(controlX, y, controlWidth, 24);
+            y += 30;
+            renderButton.setBounds(controlX, y, 320, 30);
+            y += 38;
+            renderHint.setBounds(controlX, y, controlWidth, 40);
+            y += 64;
+
+            return y;
+        };
+    }
+
     // ------------------------------------------------------------------- Midi
 
     void buildMidi()
@@ -1539,6 +1591,9 @@ private:
     // Audio
     ScrollPage soundFontPage;
     ScrollPage audioPage;
+    ScrollPage toolsPage;
+    juce::Label makeHeading, makeHint, renderHeading, renderHint;
+    juce::TextButton renderButton;
     juce::Label soundFontLabel, soundHeading, reverbHeading;
     juce::Label deviceHeading, mainHeading, clickHeading, clickHint;
     juce::Label typeLabel, deviceLabel, rateLabel, bufferLabel, mainOutLabel, clickOutLabel;
@@ -1944,6 +1999,1044 @@ public:
     void closeButtonPressed() override { delete this; }
 };
 
+// ============================================================================
+// Opnemen via een externe module: niveau en vertraging instellen
+// ============================================================================
+
+// Niveaubalk in dBFS (-48..0) met het gewenste gebied (-9..-3) en een piekhouder.
+class CalibrationMeter final : public juce::Component
+{
+public:
+    void setLevels(const std::array<float, 2>& current, const std::array<float, 2>& hold, int channelCount)
+    {
+        levels = current;
+        holds = hold;
+        channels = channelCount;
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        const float left = 30.0f;
+        const float width = static_cast<float>(getWidth()) - left - 4.0f;
+        const auto toX = [&](float db) { return left + width * std::clamp((db + 48.0f) / 48.0f, 0.0f, 1.0f); };
+        const auto toDb = [](float linear) { return linear > 0.00001f ? 20.0f * std::log10(linear) : -100.0f; };
+
+        const float barHeight = 22.0f;
+        const float top = 6.0f;
+
+        // Gewenst gebied (-9 .. -3 dBFS) over de hoogte van beide balken.
+        const float zoneBottom = top + static_cast<float>(channels) * (barHeight + 4.0f);
+        g.setColour(juce::Colour::fromRGB(46, 204, 113).withAlpha(0.16f));
+        g.fillRect(toX(-9.0f), top - 4.0f, toX(-3.0f) - toX(-9.0f), zoneBottom - top + 4.0f);
+
+        for (int c = 0; c < channels; ++c)
+        {
+            const float y = top + static_cast<float>(c) * (barHeight + 4.0f);
+            const juce::Rectangle<float> bar(left, y, width, barHeight);
+
+            g.setColour(juce::Colour::fromRGB(30, 32, 37));
+            g.fillRoundedRectangle(bar, 4.0f);
+
+            const float db = toDb(levels[static_cast<std::size_t>(c)]);
+            const float x = toX(db);
+
+            if (x > left + 1.0f)
+            {
+                const auto colour = db > -0.5f ? juce::Colour::fromRGB(255, 85, 85)
+                                  : db > -3.0f ? juce::Colour::fromRGB(245, 166, 35)
+                                  : db > -9.0f ? juce::Colour::fromRGB(46, 204, 113)
+                                               : juce::Colour::fromRGB(24, 118, 255);
+                g.setColour(colour);
+                g.fillRoundedRectangle(juce::Rectangle<float>(left, y, x - left, barHeight), 4.0f);
+            }
+
+            // Piekhouder
+            const float holdX = toX(toDb(holds[static_cast<std::size_t>(c)]));
+            g.setColour(juce::Colours::white);
+            g.fillRect(holdX - 1.0f, y, 2.0f, barHeight);
+
+            g.setColour(secondaryTextColour);
+            g.setFont(juce::FontOptions(12.0f));
+            g.drawText(channels == 1 ? "M" : (c == 0 ? "L" : "R"), 0, static_cast<int>(y), 24,
+                       static_cast<int>(barHeight), juce::Justification::centredRight);
+        }
+
+        // Schaal
+        g.setColour(secondaryTextColour);
+        g.setFont(juce::FontOptions(11.0f));
+
+        for (int db = -48; db <= 0; db += 6)
+            g.drawText(juce::String(db), static_cast<int>(toX(static_cast<float>(db))) - 14,
+                       static_cast<int>(zoneBottom) + 2, 28, 14, juce::Justification::centred);
+    }
+
+private:
+    std::array<float, 2> levels {}, holds {};
+    int channels = 2;
+};
+
+class RenderCalibrationContent final : public juce::Component,
+                                       private juce::Timer
+{
+public:
+    RenderCalibrationContent(RenderEngine& renderEngine, bool sendGmReset,
+                             std::function<void(double)> delayFound, std::function<void()> closed)
+        : engine(renderEngine), gmReset(sendGmReset), onDelay(std::move(delayFound)), onClosed(std::move(closed))
+    {
+        setLookAndFeel(&merikLookAndFeel);
+
+        heading.setText("Levels and delay", juce::dontSendNotification);
+        heading.setFont(merikLookAndFeel.getBoldFont(20.0f));
+        heading.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(heading);
+
+        hint.setText("1. Press Start and listen: a piano and drums play at the highest velocity.\n"
+                     "2. Turn the level of your module (or the input gain on your mixer) up or down until the peaks "
+                     "sit in the green zone, around -6 dB. Not higher: the loudest notes of a song must not clip.\n"
+                     "3. Press Measure delay: Merik plays short hits and measures how long the sound takes to come "
+                     "back. Measure again after changing the audio buffer size.",
+                     juce::dontSendNotification);
+        hint.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        hint.setColour(juce::Label::textColourId, secondaryTextColour);
+        hint.setMinimumHorizontalScale(1.0f);
+        hint.setJustificationType(juce::Justification::topLeft);
+        addAndMakeVisible(hint);
+
+        addAndMakeVisible(meter);
+
+        peakLabel.setFont(merikLookAndFeel.getBoldFont(18.0f));
+        peakLabel.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(peakLabel);
+
+        adviceLabel.setFont(merikLookAndFeel.getMediumFont(15.0f));
+        adviceLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        addAndMakeVisible(adviceLabel);
+
+        startButton.setButtonText("Start test sound");
+        startButton.setColour(juce::TextButton::buttonColourId, merikBlue);
+        startButton.onClick = [this] { toggleTest(); };
+        addAndMakeVisible(startButton);
+
+        measureButton.setButtonText("Measure delay");
+        measureButton.onClick = [this] { measureDelay(); };
+        addAndMakeVisible(measureButton);
+
+        delayLabel.setFont(merikLookAndFeel.getMediumFont(15.0f));
+        delayLabel.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(delayLabel);
+
+        closeButton.setButtonText("Close");
+        closeButton.onClick = [safe = juce::Component::SafePointer<RenderCalibrationContent>(this)]
+        {
+            // Het venster sluit na deze klik (het verwijdert de knop waar we nu in zitten).
+            juce::MessageManager::callAsync([safe]
+            {
+                if (safe != nullptr)
+                    if (auto* window = safe->findParentComponentOfClass<juce::DialogWindow>())
+                        delete window;
+            });
+        };
+        addAndMakeVisible(closeButton);
+
+        rate = engine.sampleRate();
+        channels = engine.channels();
+        engine.session().prepare(rate, channels, static_cast<std::int64_t>(14.0 * rate));
+
+        setSize(620, 520);
+        startTimerHz(30);
+    }
+
+    ~RenderCalibrationContent() override
+    {
+        stopTimer();
+        engine.session().reset();
+        engine.midi().allNotesOff(-1);
+        setLookAndFeel(nullptr);
+
+        if (onClosed)
+            onClosed();
+    }
+
+    void paint(juce::Graphics& g) override { g.fillAll(backgroundColour); }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(22, 18);
+        heading.setBounds(area.removeFromTop(30));
+        area.removeFromTop(6);
+        hint.setBounds(area.removeFromTop(120));
+        area.removeFromTop(10);
+        meter.setBounds(area.removeFromTop(channels == 1 ? 60 : 88));
+        area.removeFromTop(6);
+        peakLabel.setBounds(area.removeFromTop(28));
+        adviceLabel.setBounds(area.removeFromTop(26));
+        area.removeFromTop(14);
+
+        auto row = area.removeFromTop(34);
+        startButton.setBounds(row.removeFromLeft(170));
+        row.removeFromLeft(12);
+        measureButton.setBounds(row.removeFromLeft(150));
+
+        area.removeFromTop(12);
+        delayLabel.setBounds(area.removeFromTop(48));
+
+        closeButton.setBounds(area.removeFromBottom(34).removeFromRight(110));
+    }
+
+private:
+    using Message = CaptureSession::Message;
+
+    static void add(std::vector<Message>& schedule, double seconds, double rate,
+                    std::initializer_list<std::uint8_t> bytes)
+    {
+        Message message;
+        message.sample = static_cast<std::int64_t>(std::llround(seconds * rate));
+        message.size = static_cast<int>(bytes.size());
+        std::copy(bytes.begin(), bytes.end(), message.data.begin());
+        schedule.push_back(message);
+    }
+
+    // Vier tellen: piano (kanaal 1) en drums (kanaal 10), alles op velocity 127.
+    void armTestLoop(bool first)
+    {
+        std::vector<Message> schedule;
+
+        if (first)
+        {
+            if (gmReset)
+                add(schedule, 0.05, rate, { 0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7 });
+
+            add(schedule, 0.25, rate, { 0xC0, 0 });         // piano op kanaal 1
+            add(schedule, 0.26, rate, { 0xB0, 7, 127 });
+            add(schedule, 0.27, rate, { 0xB9, 7, 127 });    // drums op kanaal 10
+        }
+
+        struct Beat { std::uint8_t drum1, drum2, a, b, c; };
+        const Beat beats[4] = { { 36, 49, 48, 55, 64 }, { 38, 38, 53, 57, 65 }, { 36, 42, 52, 59, 67 }, { 38, 46, 55, 62, 71 } };
+        const double offset = first ? 0.6 : 0.1;
+
+        for (int i = 0; i < 4; ++i)
+        {
+            const double t = offset + static_cast<double>(i);
+            const auto& beat = beats[i];
+
+            add(schedule, t, rate, { 0x99, beat.drum1, 127 });
+            add(schedule, t, rate, { 0x99, beat.drum2, 127 });
+            add(schedule, t, rate, { 0x90, beat.a, 127 });
+            add(schedule, t, rate, { 0x90, beat.b, 127 });
+            add(schedule, t, rate, { 0x90, beat.c, 127 });
+            add(schedule, t + 0.8, rate, { 0x80, beat.a, 0 });
+            add(schedule, t + 0.8, rate, { 0x80, beat.b, 0 });
+            add(schedule, t + 0.8, rate, { 0x80, beat.c, 0 });
+        }
+
+        std::stable_sort(schedule.begin(), schedule.end(), [](const Message& a, const Message& b) { return a.sample < b.sample; });
+        engine.session().arm(std::move(schedule), static_cast<std::int64_t>((offset + 4.2) * rate));
+    }
+
+    void toggleTest()
+    {
+        if (testing)
+        {
+            testing = false;
+            engine.session().reset();
+            engine.midi().allNotesOff(-1);
+            startButton.setButtonText("Start test sound");
+            return;
+        }
+
+        if (measuring)
+            return;
+
+        testing = true;
+        firstLoop = true;
+        startButton.setButtonText("Stop test sound");
+        armTestLoop(true);
+        firstLoop = false;
+    }
+
+    void measureDelay()
+    {
+        if (measuring)
+            return;
+
+        testing = false;
+        startButton.setButtonText("Start test sound");
+        engine.session().reset();
+        engine.midi().allNotesOff(-1);
+
+        // Tien scherpe slagen (Hi Wood Block, drumkanaal), 0,8 s uit elkaar.
+        std::vector<Message> schedule;
+        hitSamples.clear();
+
+        if (gmReset)
+            add(schedule, 0.05, rate, { 0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7 });
+
+        add(schedule, 0.7, rate, { 0xB9, 7, 127 });
+
+        for (int i = 0; i < 10; ++i)
+        {
+            const double t = 1.4 + 0.8 * static_cast<double>(i);
+            add(schedule, t, rate, { 0x99, 76, 127 });
+            hitSamples.push_back(static_cast<std::int64_t>(std::llround(t * rate)));
+        }
+
+        std::stable_sort(schedule.begin(), schedule.end(), [](const Message& a, const Message& b) { return a.sample < b.sample; });
+
+        measuring = true;
+        measureButton.setEnabled(false);
+        startButton.setEnabled(false);
+        delayLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        delayLabel.setText("Measuring...", juce::dontSendNotification);
+        engine.session().arm(std::move(schedule), static_cast<std::int64_t>(10.2 * rate));
+    }
+
+    void finishMeasurement()
+    {
+        measuring = false;
+        measureButton.setEnabled(true);
+        startButton.setEnabled(true);
+
+        const auto result = analyseDelay(engine.session().data(), hitSamples, rate);
+
+        if (!result.ok)
+        {
+            delayLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 120, 120));
+            delayLabel.setText(juce::String(result.problem), juce::dontSendNotification);
+            return;
+        }
+
+        delayLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(46, 204, 113));
+        delayLabel.setText("Delay: " + juce::String(result.delayMs, 1) + " ms   (" + juce::String(result.hits)
+                               + " hits, spread " + juce::String(result.spreadMs, 1) + " ms). Saved; it goes into every .merik you render.",
+                           juce::dontSendNotification);
+
+        if (onDelay)
+            onDelay(result.delayMs);
+    }
+
+    void timerCallback() override
+    {
+        const auto peaks = engine.session().takePeaks();
+
+        for (std::size_t c = 0; c < 2; ++c)
+        {
+            shown[c] = peaks[c] > shown[c] ? peaks[c] : shown[c] * 0.88f;
+
+            if (peaks[c] >= hold[c] || holdAge[c] > 90)
+            {
+                hold[c] = peaks[c];
+                holdAge[c] = 0;
+            }
+            else
+            {
+                ++holdAge[c];
+            }
+        }
+
+        meter.setLevels(shown, hold, channels);
+
+        const float loudest = std::max(hold[0], channels > 1 ? hold[1] : 0.0f);
+        const float db = loudest > 0.00001f ? 20.0f * std::log10(loudest) : -100.0f;
+
+        peakLabel.setText(db > -99.0f ? "Peak " + juce::String(db, 1) + " dBFS" : "No signal", juce::dontSendNotification);
+
+        juce::String advice;
+        auto colour = secondaryTextColour;
+
+        if (db < -60.0f)
+        {
+            advice = testing ? "No signal. Check the MIDI cable, the module's output, the input channels, and (macOS) the microphone permission."
+                             : "Press Start to play the test sound.";
+        }
+        else if (db < -12.0f)
+        {
+            advice = "Too low: turn the level up.";
+            colour = juce::Colour::fromRGB(24, 118, 255);
+        }
+        else if (db < -9.0f)
+        {
+            advice = "A little low: a bit more.";
+            colour = juce::Colour::fromRGB(24, 118, 255);
+        }
+        else if (db <= -3.0f)
+        {
+            advice = "Good. This is the right level.";
+            colour = juce::Colour::fromRGB(46, 204, 113);
+        }
+        else if (db < -0.5f)
+        {
+            advice = "A little high: turn the level down a bit.";
+            colour = juce::Colour::fromRGB(245, 166, 35);
+        }
+        else
+        {
+            advice = "Too high: it clips. Turn the level down.";
+            colour = juce::Colour::fromRGB(255, 85, 85);
+        }
+
+        adviceLabel.setColour(juce::Label::textColourId, colour);
+        adviceLabel.setText(advice, juce::dontSendNotification);
+
+        // De testgeluid blijft herhalen; een meting wordt afgerond als ze klaar is.
+        auto& session = engine.session();
+
+        if (testing && session.isFinished())
+            armTestLoop(false);
+        else if (measuring && session.isFinished())
+            finishMeasurement();
+    }
+
+    RenderEngine& engine;
+    bool gmReset;
+    std::function<void(double)> onDelay;
+    std::function<void()> onClosed;
+
+    double rate = 48000.0;
+    int channels = 2;
+    bool testing = false, measuring = false, firstLoop = true;
+    std::vector<std::int64_t> hitSamples;
+    std::array<float, 2> shown {}, hold {};
+    std::array<int, 2> holdAge {};
+
+    juce::Label heading, hint, peakLabel, adviceLabel, delayLabel;
+    juce::TextButton startButton, measureButton, closeButton;
+    CalibrationMeter meter;
+};
+
+class RenderCalibrationWindow final : public juce::DialogWindow
+{
+public:
+    RenderCalibrationWindow(juce::Component* content, juce::Component* owner)
+        : juce::DialogWindow("Levels and delay", backgroundColour, true)
+    {
+        setUsingNativeTitleBar(true);
+        setResizable(false, false);
+        setContentOwned(content, true);
+        centreAroundComponent(owner, getWidth(), getHeight());
+        setVisible(true);
+    }
+
+    void closeButtonPressed() override { delete this; }
+};
+
+// ============================================================================
+// Venster "Render MIDI files": instellingen, en daarna de voortgang
+// ============================================================================
+
+struct RenderContext
+{
+    juce::AudioDeviceManager* deviceManager = nullptr;
+    RenderPrefs prefs;
+    std::function<void(const RenderPrefs&)> prefsChanged;
+    std::function<RenderPrefs()> getPrefs;
+    std::function<juce::String(const RenderOptions&)> start;      // geeft een foutmelding of leeg
+    std::function<void()> stop;
+    std::function<RenderStatus()> status;
+    std::function<bool()> busy;
+    std::function<void()> openCalibration;
+};
+
+class RenderContent final : public juce::Component,
+                            private juce::Timer
+{
+public:
+    explicit RenderContent(RenderContext contextToUse)
+        : context(std::move(contextToUse)), prefs(context.prefs)
+    {
+        setLookAndFeel(&merikLookAndFeel);
+
+        const auto label = [this](juce::Label& l, const juce::String& text)
+        {
+            l.setText(text, juce::dontSendNotification);
+            l.setJustificationType(juce::Justification::centredRight);
+            addAndMakeVisible(l);
+        };
+
+        const auto info = [this](juce::Label& l)
+        {
+            l.setFont(merikLookAndFeel.getMediumFont(14.0f));
+            l.setColour(juce::Label::textColourId, secondaryTextColour);
+            l.setMinimumHorizontalScale(1.0f);
+            addAndMakeVisible(l);
+        };
+
+        heading.setText("Render MIDI files with an external module", juce::dontSendNotification);
+        heading.setFont(merikLookAndFeel.getBoldFont(19.0f));
+        heading.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(heading);
+
+        hint.setText("Plays each MIDI file through your sound module or a software synth, one family at a time, "
+                     "records the audio and saves a .merik per song. The measured delay is stored in the file.",
+                     juce::dontSendNotification);
+        hint.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        hint.setColour(juce::Label::textColourId, secondaryTextColour);
+        hint.setMinimumHorizontalScale(1.0f);
+        hint.setJustificationType(juce::Justification::topLeft);
+        addAndMakeVisible(hint);
+
+        label(midiOutLabel, "MIDI output");
+        label(deviceLabel, "Audio input device");
+        label(inputLabel, "Input channels");
+        label(calibrateLabel, "Levels and delay");
+        label(filesLabel, "MIDI files");
+        label(folderLabel, "Output folder");
+
+        addAndMakeVisible(midiOutBox);
+        addAndMakeVisible(deviceBox);
+        addAndMakeVisible(inputBox);
+
+        midiOutBox.onChange = [this]
+        {
+            const int index = midiOutBox.getSelectedId() - 2;
+            prefs.midiOutIdentifier = index >= 0 && index < midiIds.size() ? midiIds[index] : juce::String();
+            savePrefs();
+        };
+
+        deviceBox.onChange = [this]
+        {
+            const int index = deviceBox.getSelectedId() - 2;
+            prefs.inputDevice = index >= 0 && index < deviceNames.size() ? deviceNames[index] : juce::String();
+            prefs.inputRoute = 0;     // de kanalen horen bij het apparaat
+            inputSignature.clear();
+            savePrefs();
+        };
+
+        inputBox.onChange = [this]
+        {
+            const int id = inputBox.getSelectedId();
+            prefs.inputRoute = id >= RenderEngine::monoBase ? id : 0;
+            savePrefs();
+        };
+
+        calibrateButton.setButtonText("Test levels and measure delay...");
+        calibrateButton.onClick = [this]
+        {
+            if (context.openCalibration)
+                context.openCalibration();
+        };
+        addAndMakeVisible(calibrateButton);
+
+        delayCaption.setText("Delay (ms)", juce::dontSendNotification);
+        delayCaption.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(delayCaption);
+
+        delayEditor.setInputRestrictions(8, "0123456789.-");
+        delayEditor.setText(juce::String(prefs.delayMs, 1), juce::dontSendNotification);
+        delayEditor.setColour(juce::TextEditor::backgroundColourId, panelLightColour);
+        delayEditor.setColour(juce::TextEditor::textColourId, textColour);
+        delayEditor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        delayEditor.setColour(juce::TextEditor::focusedOutlineColourId, merikBlue);
+        delayEditor.setFont(merikLookAndFeel.getMediumFont(17.0f));
+        delayEditor.setIndents(10, 0);
+        delayEditor.setJustification(juce::Justification::centredLeft);
+        delayEditor.onTextChange = [this]
+        {
+            prefs.delayMs = delayEditor.getText().getDoubleValue();
+            savePrefs();
+        };
+        addAndMakeVisible(delayEditor);
+
+        chooseFilesButton.setButtonText("Choose MIDI files...");
+        chooseFilesButton.onClick = [this] { chooseFiles(); };
+        addAndMakeVisible(chooseFilesButton);
+
+        chooseFolderButton.setButtonText("Choose output folder...");
+        chooseFolderButton.onClick = [this] { chooseFolder(); };
+        addAndMakeVisible(chooseFolderButton);
+
+        info(filesInfo);
+        info(folderPath);
+        filesInfo.setText("No files chosen", juce::dontSendNotification);
+        folderPath.setText(prefs.outputFolder.isEmpty() ? "No folder chosen" : prefs.outputFolder, juce::dontSendNotification);
+
+        keepWavToggle.setButtonText("Keep the WAV files in a folder next to the .merik");
+        keepWavToggle.setToggleState(prefs.keepWav, juce::dontSendNotification);
+        keepWavToggle.onClick = [this] { prefs.keepWav = keepWavToggle.getToggleState(); savePrefs(); };
+        addAndMakeVisible(keepWavToggle);
+
+        flacToggle.setButtonText("Convert to FLAC inside the .merik (about half the size)");
+        flacToggle.setToggleState(prefs.toFlac, juce::dontSendNotification);
+        flacToggle.onClick = [this] { prefs.toFlac = flacToggle.getToggleState(); savePrefs(); };
+        addAndMakeVisible(flacToggle);
+
+        gmResetToggle.setButtonText("Send a General MIDI reset before every pass");
+        gmResetToggle.setToggleState(prefs.gmReset, juce::dontSendNotification);
+        gmResetToggle.onClick = [this] { prefs.gmReset = gmResetToggle.getToggleState(); savePrefs(); };
+        addAndMakeVisible(gmResetToggle);
+
+        errorLabel.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        errorLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 120, 120));
+        errorLabel.setMinimumHorizontalScale(1.0f);
+        addAndMakeVisible(errorLabel);
+
+        startButton.setButtonText("Start rendering");
+        startButton.setColour(juce::TextButton::buttonColourId, merikBlue);
+        startButton.onClick = [this] { startRender(); };
+        addAndMakeVisible(startButton);
+
+        // ---- voortgang
+        titleLabel.setFont(merikLookAndFeel.getBoldFont(22.0f));
+        titleLabel.setColour(juce::Label::textColourId, textColour);
+        addChildComponent(titleLabel);
+
+        for (auto* l : { &songLabel, &passLabel, &etaLabel })
+        {
+            l->setFont(merikLookAndFeel.getMediumFont(16.0f));
+            l->setColour(juce::Label::textColourId, secondaryTextColour);
+            addChildComponent(*l);
+        }
+
+        passLabel.setColour(juce::Label::textColourId, textColour);
+
+        progressBar = std::make_unique<juce::ProgressBar>(progressValue);
+        progressBar->setPercentageDisplay(true);
+        addChildComponent(*progressBar);
+
+        log.setMultiLine(true, true);
+        log.setReadOnly(true);
+        log.setScrollbarsShown(true);
+        log.setCaretVisible(false);
+        log.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        log.setColour(juce::TextEditor::backgroundColourId, panelDarkColour);
+        log.setColour(juce::TextEditor::textColourId, textColour);
+        log.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        log.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        log.setIndents(8, 6);
+        addChildComponent(log);
+
+        stopButton.setButtonText("Stop");
+        stopButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(150, 40, 40));
+        stopButton.onClick = [this]
+        {
+            if (context.stop)
+                context.stop();
+
+            stopButton.setEnabled(false);
+        };
+        addChildComponent(stopButton);
+
+        backButton.setButtonText("Back");
+        backButton.onClick = [this] { showingProgress = false; updateView(); };
+        addChildComponent(backButton);
+
+        fillDevices();
+        showingProgress = context.busy && context.busy();
+        updateView();
+
+        setSize(660, 540);
+        startTimerHz(4);
+    }
+
+    ~RenderContent() override
+    {
+        stopTimer();
+        setLookAndFeel(nullptr);
+    }
+
+    [[nodiscard]] bool isBusy() const { return context.busy && context.busy(); }
+
+    // Voor het sluitknopje van het venster: stoppen na bevestiging.
+    void askToStop(std::function<void()> thenClose)
+    {
+        juce::AlertWindow::showAsync(
+            juce::MessageBoxOptions()
+                .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                .withTitle("Stop rendering?")
+                .withMessage("The song that is being recorded will be discarded. Finished songs stay.")
+                .withButton("Stop and close")
+                .withButton("Keep rendering")
+                .withAssociatedComponent(this),
+            [this, thenClose = std::move(thenClose), safe = juce::Component::SafePointer<RenderContent>(this)](int result)
+            {
+                if (safe == nullptr || result != 1)
+                    return;
+
+                if (context.stop)
+                    context.stop();
+
+                thenClose();
+            });
+    }
+
+    void paint(juce::Graphics& g) override { g.fillAll(backgroundColour); }
+
+    void resized() override
+    {
+        const int width = getWidth();
+        const int controlX = 170;
+        const int controlWidth = width - controlX - 24;
+        const int labelWidth = controlX - 10;
+        constexpr int row = 30;
+
+        heading.setBounds(24, 16, width - 48, 28);
+        hint.setBounds(24, 46, width - 48, 38);
+
+        int y = 98;
+
+        const auto place = [&](juce::Label& l, juce::Component& c, int w = -1)
+        {
+            l.setBounds(0, y, labelWidth, row);
+            c.setBounds(controlX, y, w > 0 ? w : controlWidth, row);
+            y += 38;
+        };
+
+        place(midiOutLabel, midiOutBox);
+        place(deviceLabel, deviceBox);
+        place(inputLabel, inputBox);
+
+        calibrateLabel.setBounds(0, y, labelWidth, row);
+        calibrateButton.setBounds(controlX, y, 270, row);
+        delayCaption.setBounds(controlX + 270, y, 90, row);
+        delayEditor.setBounds(controlX + 366, y, 80, row);
+        y += 38;
+
+        filesLabel.setBounds(0, y, labelWidth, row);
+        chooseFilesButton.setBounds(controlX, y, 190, row);
+        filesInfo.setBounds(controlX + 200, y, controlWidth - 200, row);
+        y += 38;
+
+        folderLabel.setBounds(0, y, labelWidth, row);
+        chooseFolderButton.setBounds(controlX, y, 190, row);
+        folderPath.setBounds(controlX + 200, y, controlWidth - 200, row);
+        y += 42;
+
+        for (auto* toggle : { &keepWavToggle, &flacToggle, &gmResetToggle })
+        {
+            toggle->setBounds(controlX, y, controlWidth, 26);
+            y += 28;
+        }
+
+        y += 8;
+        errorLabel.setBounds(24, y, width - 48, 22);
+        startButton.setBounds(width - 24 - 170, getHeight() - 24 - 36, 170, 36);
+
+        // Voortgang
+        titleLabel.setBounds(28, 24, width - 56, 34);
+        songLabel.setBounds(28, 66, width - 56, 24);
+        passLabel.setBounds(28, 92, width - 56, 24);
+        progressBar->setBounds(28, 130, width - 56, 28);
+        etaLabel.setBounds(28, 166, width - 56, 24);
+        log.setBounds(28, 204, width - 56, getHeight() - 204 - 24 - 36 - 16);
+        stopButton.setBounds(width - 28 - 130, getHeight() - 24 - 36, 130, 36);
+        backButton.setBounds(width - 28 - 130, getHeight() - 24 - 36, 130, 36);
+    }
+
+private:
+    static juce::String formatDuration(double seconds)
+    {
+        const int minutes = juce::roundToInt(seconds / 60.0);
+
+        return minutes >= 60 ? juce::String(minutes / 60) + " h " + juce::String(minutes % 60).paddedLeft('0', 2) + " min"
+                             : juce::String(juce::jmax(1, minutes)) + " min";
+    }
+
+    void savePrefs()
+    {
+        if (context.prefsChanged)
+            context.prefsChanged(prefs);
+    }
+
+    void chooseFiles()
+    {
+        chooser = std::make_shared<juce::FileChooser>("Choose the MIDI files to render", juce::File(prefs.outputFolder),
+                                                      "*.mid;*.midi;*.kar;*.MID;*.MIDI;*.KAR");
+
+        chooser->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                | juce::FileBrowserComponent::canSelectMultipleItems,
+            [safe = juce::Component::SafePointer<RenderContent>(this)](const juce::FileChooser& fc)
+            {
+                if (safe == nullptr || fc.getResults().isEmpty())
+                    return;
+
+                safe->files.clear();
+
+                for (const auto& file : fc.getResults())
+                    safe->files.push_back(file);
+
+                const auto estimate = RenderJob::estimate(safe->files);
+
+                safe->filesInfo.setText(juce::String(estimate.songs) + (estimate.songs == 1 ? " song, " : " songs, ")
+                                            + juce::String(estimate.passes) + " passes, about " + formatDuration(estimate.seconds),
+                                        juce::dontSendNotification);
+                safe->errorLabel.setText(estimate.notes.joinIntoString("  "), juce::dontSendNotification);
+            });
+    }
+
+    void chooseFolder()
+    {
+        chooser = std::make_shared<juce::FileChooser>("Choose the folder for the .merik files", juce::File(prefs.outputFolder));
+
+        chooser->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+            [safe = juce::Component::SafePointer<RenderContent>(this)](const juce::FileChooser& fc)
+            {
+                if (safe == nullptr || !fc.getResult().isDirectory())
+                    return;
+
+                safe->prefs.outputFolder = fc.getResult().getFullPathName();
+                safe->folderPath.setText(safe->prefs.outputFolder, juce::dontSendNotification);
+                safe->savePrefs();
+            });
+    }
+
+    void startRender()
+    {
+        errorLabel.setText({}, juce::dontSendNotification);
+
+        juce::String problem;
+
+        if (files.empty())
+            problem = "Choose one or more MIDI files.";
+        else if (!juce::File(prefs.outputFolder).isDirectory())
+            problem = "Choose an output folder.";
+        else if (prefs.midiOutIdentifier.isEmpty())
+            problem = "Choose the MIDI output.";
+        else if (prefs.inputRoute == 0)
+            problem = "Choose the input channels.";
+
+        if (problem.isEmpty())
+        {
+            RenderOptions options;
+            options.midiOutIdentifier = prefs.midiOutIdentifier;
+            options.inputDevice = prefs.inputDevice;
+            options.inputRoute = prefs.inputRoute;
+            options.delayMs = prefs.delayMs;
+            options.outputFolder = juce::File(prefs.outputFolder);
+            options.keepWav = prefs.keepWav;
+            options.toFlac = prefs.toFlac;
+            options.gmReset = prefs.gmReset;
+            options.midiFiles = files;
+
+            if (context.start)
+                problem = context.start(options);
+        }
+
+        if (problem.isNotEmpty())
+        {
+            errorLabel.setText(problem, juce::dontSendNotification);
+            return;
+        }
+
+        showingProgress = true;
+        updateView();
+    }
+
+    // Instellingen of voortgang tonen.
+    void updateView()
+    {
+        const bool progress = showingProgress;
+
+        for (auto* component : std::initializer_list<juce::Component*> {
+                 &heading, &hint, &midiOutLabel, &deviceLabel, &inputLabel, &calibrateLabel, &filesLabel, &folderLabel,
+                 &midiOutBox, &deviceBox, &inputBox, &calibrateButton, &delayCaption, &delayEditor, &chooseFilesButton,
+                 &chooseFolderButton, &filesInfo, &folderPath, &keepWavToggle, &flacToggle, &gmResetToggle, &errorLabel,
+                 &startButton })
+            component->setVisible(!progress);
+
+        for (auto* component : std::initializer_list<juce::Component*> {
+                 &titleLabel, &songLabel, &passLabel, &etaLabel, progressBar.get(), &log })
+            component->setVisible(progress);
+
+        const bool busy = isBusy();
+        stopButton.setVisible(progress && busy);
+        stopButton.setEnabled(true);
+        backButton.setVisible(progress && !busy);
+    }
+
+    void fillDevices()
+    {
+        if (context.deviceManager == nullptr)
+            return;
+
+        // MIDI-uitgangen
+        const auto devices = juce::MidiOutput::getAvailableDevices();
+        juce::String midiSignature;
+
+        for (const auto& device : devices)
+            midiSignature += device.identifier + ",";
+
+        if (midiSignature != lastMidiSignature)
+        {
+            lastMidiSignature = midiSignature;
+            midiIds.clear();
+            midiOutBox.clear(juce::dontSendNotification);
+            midiOutBox.addItem("Choose a MIDI output...", 1);
+
+            int id = 2;
+
+            for (const auto& device : devices)
+            {
+                midiOutBox.addItem(device.name, id++);
+                midiIds.add(device.identifier);
+            }
+
+            const int index = midiIds.indexOf(prefs.midiOutIdentifier);
+            midiOutBox.setSelectedId(index >= 0 ? index + 2 : 1, juce::dontSendNotification);
+        }
+
+        // Ingangsapparaten: standaard hetzelfde apparaat als de uitgang van Merik.
+        const auto inputs = RenderEngine::inputDeviceNames(*context.deviceManager);
+        const auto deviceSignature = inputs.joinIntoString(",") + "|" + prefs.inputDevice;
+
+        if (deviceSignature != lastDeviceSignature)
+        {
+            lastDeviceSignature = deviceSignature;
+            deviceNames = inputs;
+            deviceBox.clear(juce::dontSendNotification);
+            deviceBox.addItem("Same device as the audio output", 1);
+
+            int id = 2;
+
+            for (const auto& name : inputs)
+                deviceBox.addItem(name, id++);
+
+            const int index = inputs.indexOf(prefs.inputDevice);
+            deviceBox.setSelectedId(prefs.inputDevice.isNotEmpty() && index >= 0 ? index + 2 : 1, juce::dontSendNotification);
+        }
+
+        // Kanalen van dat apparaat.
+        const auto names = RenderEngine::availableInputChannels(*context.deviceManager, prefs.inputDevice);
+        const auto channelSignature = names.joinIntoString(",") + "|" + juce::String(prefs.inputRoute) + "|" + prefs.inputDevice;
+
+        if (channelSignature != inputSignature)
+        {
+            inputSignature = channelSignature;
+            inputBox.clear(juce::dontSendNotification);
+
+            if (names.isEmpty())
+            {
+                inputBox.addItem("This device has no inputs", 1);
+                inputBox.setSelectedId(1, juce::dontSendNotification);
+            }
+            else
+            {
+                inputBox.addItem("Choose the input channels...", 1);
+
+                for (int i = 0; i + 1 < names.size(); i += 2)
+                    inputBox.addItem(names[i] + " + " + names[i + 1] + " (stereo)", RenderEngine::pairBase + i);
+
+                for (int i = 0; i < names.size(); ++i)
+                    inputBox.addItem(names[i] + " (mono)", RenderEngine::monoBase + i);
+
+                inputBox.setSelectedId(inputBox.indexOfItemId(prefs.inputRoute) >= 0 ? prefs.inputRoute : 1,
+                                       juce::dontSendNotification);
+            }
+        }
+    }
+
+    void timerCallback() override
+    {
+        const bool busy = isBusy();
+
+        if (!showingProgress)
+        {
+            fillDevices();
+
+            // De vertraging kan door het testvenster zijn gemeten.
+            if (context.getPrefs && !delayEditor.hasKeyboardFocus(true))
+            {
+                const auto latest = context.getPrefs();
+                const auto text = juce::String(latest.delayMs, 1);
+
+                if (delayEditor.getText() != text)
+                    delayEditor.setText(text, juce::dontSendNotification);
+
+                prefs.delayMs = latest.delayMs;
+            }
+
+            return;
+        }
+
+        const RenderStatus status = context.status ? context.status() : RenderStatus();
+
+        progressValue = status.totalSeconds > 0.0 ? juce::jlimit(0.0, 1.0, status.doneSeconds / status.totalSeconds) : 0.0;
+
+        titleLabel.setText(status.finished ? (status.stopped ? "Stopped" : "Done") : "Rendering...", juce::dontSendNotification);
+        songLabel.setText(status.songs > 0 ? "Song " + juce::String(status.song) + " of " + juce::String(status.songs)
+                                                 + ":  " + status.songName
+                                           : juce::String(),
+                          juce::dontSendNotification);
+        passLabel.setText(status.finished ? status.step
+                                          : (status.passes > 0 ? "Pass " + juce::String(status.pass) + " of " + juce::String(status.passes)
+                                                                     + ":  " + status.passName + "   (" + status.step + ")"
+                                                               : juce::String("Preparing...")),
+                          juce::dontSendNotification);
+
+        const double left = juce::jmax(0.0, status.totalSeconds - status.doneSeconds);
+        etaLabel.setText(status.finished ? juce::String() : "About " + formatDuration(left) + " left",
+                         juce::dontSendNotification);
+
+        const auto logText = status.log.joinIntoString("\n");
+
+        if (logText != logShown)
+        {
+            logShown = logText;
+            log.setText(logText, false);
+            log.moveCaretToEnd();
+        }
+
+        if (status.error.isNotEmpty() && errorLabel.getText().isEmpty())
+            errorLabel.setText(status.error, juce::dontSendNotification);
+
+        stopButton.setVisible(busy);
+        backButton.setVisible(!busy);
+    }
+
+    RenderContext context;
+    RenderPrefs prefs;
+    bool showingProgress = false;
+    double progressValue = 0.0;
+
+    std::vector<juce::File> files;
+    juce::StringArray midiIds, deviceNames;
+    juce::String lastMidiSignature, lastDeviceSignature, inputSignature, logShown;
+    std::shared_ptr<juce::FileChooser> chooser;
+
+    juce::Label heading, hint, midiOutLabel, deviceLabel, inputLabel, calibrateLabel, delayCaption, filesLabel, folderLabel;
+    juce::Label filesInfo, folderPath, errorLabel, titleLabel, songLabel, passLabel, etaLabel;
+    juce::ComboBox midiOutBox, deviceBox, inputBox;
+    juce::TextButton calibrateButton, chooseFilesButton, chooseFolderButton, startButton, stopButton, backButton;
+    juce::TextEditor delayEditor, log;
+    juce::ToggleButton keepWavToggle, flacToggle, gmResetToggle;
+    std::unique_ptr<juce::ProgressBar> progressBar;
+};
+
+class RenderWindow final : public juce::DialogWindow
+{
+public:
+    RenderWindow(RenderContent* content, juce::Component* owner)
+        : juce::DialogWindow("Render MIDI files", backgroundColour, true), renderContent(content)
+    {
+        setUsingNativeTitleBar(true);
+        setResizable(false, false);
+        setContentOwned(content, true);
+        centreAroundComponent(owner, getWidth(), getHeight());
+        setVisible(true);
+    }
+
+    void closeButtonPressed() override
+    {
+        // Tijdens het opnemen eerst vragen: sluiten stopt het opnemen.
+        if (renderContent != nullptr && renderContent->isBusy())
+        {
+            renderContent->askToStop([safe = juce::Component::SafePointer<juce::Component>(this)]
+            {
+                if (safe != nullptr)
+                    delete safe.getComponent();
+            });
+            return;
+        }
+
+        delete this;
+    }
+
+private:
+    juce::Component::SafePointer<RenderContent> renderContent;
+};
+
 class AudioSettingsWindow final : public juce::DialogWindow
 {
 public:
@@ -1968,6 +3061,162 @@ public:
         delete this;
     }
 };
+}
+
+void MainComponent::loadRenderPrefs()
+{
+    auto* properties = appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    renderPrefs.midiOutIdentifier = properties->getValue("render.midiOut");
+    renderPrefs.inputDevice = properties->getValue("render.inputDevice");
+    renderPrefs.inputRoute = properties->getIntValue("render.input", 0);
+    renderPrefs.delayMs = properties->getDoubleValue("render.delayMs", 0.0);
+    renderPrefs.outputFolder = properties->getValue("render.folder");
+    renderPrefs.keepWav = properties->getBoolValue("render.keepWav", false);
+    renderPrefs.toFlac = properties->getBoolValue("render.flac", true);
+    renderPrefs.gmReset = properties->getBoolValue("render.gmReset", false);
+}
+
+void MainComponent::saveRenderPrefs()
+{
+    auto* properties = appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    properties->setValue("render.midiOut", renderPrefs.midiOutIdentifier);
+    properties->setValue("render.inputDevice", renderPrefs.inputDevice);
+    properties->setValue("render.input", renderPrefs.inputRoute);
+    properties->setValue("render.delayMs", renderPrefs.delayMs);
+    properties->setValue("render.folder", renderPrefs.outputFolder);
+    properties->setValue("render.keepWav", renderPrefs.keepWav);
+    properties->setValue("render.flac", renderPrefs.toFlac);
+    properties->setValue("render.gmReset", renderPrefs.gmReset);
+    properties->saveIfNeeded();
+}
+
+juce::String MainComponent::startRender(const RenderOptions& options)
+{
+    if (renderJob != nullptr)
+        return "A render is already running.";
+
+    if (calibrationWindow != nullptr)
+        return "Close the levels and delay window first.";
+
+    // Terwijl er opgenomen wordt speelt Merik zelf niets.
+    synthEngine.stop();
+    isPlaying = false;
+    playButton.setButtonText("Play");
+
+    if (renderEngine == nullptr)
+        renderEngine = std::make_unique<RenderEngine>(deviceManager);
+
+    juce::String error;
+
+    if (!renderEngine->start(options.midiOutIdentifier, options.inputDevice, options.inputRoute, error))
+        return error;
+
+    lastRenderStatus = {};
+    renderJob = std::make_unique<RenderJob>(*renderEngine, options);
+    return {};
+}
+
+void MainComponent::stopRender()
+{
+    if (renderJob != nullptr)
+        renderJob->requestStop();
+}
+
+// Rondt een opname af (aangeroepen door de timer): het audioapparaat gaat terug naar normaal.
+void MainComponent::pollRender()
+{
+    if (renderJob == nullptr)
+        return;
+
+    const auto status = renderJob->status();
+
+    if (!status.finished)
+        return;
+
+    lastRenderStatus = status;
+    renderJob.reset();
+
+    if (renderEngine != nullptr)
+        renderEngine->stop();
+}
+
+void MainComponent::showRenderWindow()
+{
+    if (renderWindow != nullptr)
+    {
+        renderWindow->toFront(true);
+        return;
+    }
+
+    RenderContext context;
+    context.deviceManager = &deviceManager;
+    context.prefs = renderPrefs;
+    context.prefsChanged = [this](const RenderPrefs& prefs) { renderPrefs = prefs; saveRenderPrefs(); };
+    context.getPrefs = [this] { return renderPrefs; };
+    context.start = [this](const RenderOptions& options) { return startRender(options); };
+    context.stop = [this] { stopRender(); };
+    context.status = [this] { return renderJob != nullptr ? renderJob->status() : lastRenderStatus; };
+    context.busy = [this] { return renderJob != nullptr; };
+    context.openCalibration = [this] { showRenderCalibration(); };
+
+    renderWindow = new RenderWindow(new RenderContent(std::move(context)), this);
+}
+
+void MainComponent::showRenderCalibration()
+{
+    if (calibrationWindow != nullptr)
+    {
+        calibrationWindow->toFront(true);
+        return;
+    }
+
+    if (renderJob != nullptr)
+    {
+        confirmDialog("Levels and delay", "Wait until the render has finished, or stop it first.", "OK", nullptr);
+        return;
+    }
+
+    if (renderEngine == nullptr)
+        renderEngine = std::make_unique<RenderEngine>(deviceManager);
+
+    juce::String error;
+
+    if (renderPrefs.midiOutIdentifier.isEmpty())
+        error = "Choose the MIDI output first (Settings > Tools).";
+    else if (renderPrefs.inputRoute == 0)
+        error = "Choose the audio input channels first (Settings > Tools).";
+    else
+        renderEngine->start(renderPrefs.midiOutIdentifier, renderPrefs.inputDevice, renderPrefs.inputRoute, error);
+
+    if (error.isNotEmpty())
+    {
+        confirmDialog("Levels and delay", error, "OK", nullptr);
+        return;
+    }
+
+    auto* content = new RenderCalibrationContent(
+        *renderEngine,
+        renderPrefs.gmReset,
+        [this](double milliseconds)
+        {
+            renderPrefs.delayMs = milliseconds;
+            saveRenderPrefs();
+        },
+        [this]
+        {
+            if (renderEngine != nullptr)
+                renderEngine->stop();
+        });
+
+    calibrationWindow = new RenderCalibrationWindow(content, this);
 }
 
 void MainComponent::showMerikMaker()
@@ -2090,7 +3339,9 @@ void MainComponent::showAudioSettings()
                 properties->setValue("stem.route." + juce::String(family), route);
                 properties->saveIfNeeded();
             }
-        }
+        },
+
+        [this] { showRenderWindow(); }
     };
 
     auto* content = new SettingsContent(std::move(context));
@@ -3455,6 +4706,7 @@ void MainComponent::syncFamilySettingsToWebServer()
 
 void MainComponent::timerCallback()
 {
+    pollRender();
     updateTransportDisplay();
     channelTable.repaint();
 
@@ -3726,6 +4978,7 @@ MainComponent::MainComponent()
 
         mainRoute = properties->getIntValue("main.route", ClickRoute::pairBase);
         clickRoute = properties->getIntValue("click.route", ClickRoute::automatic);
+        loadRenderPrefs();
 
         for (std::size_t i = 0; i < stemRoutes.size(); ++i)
             stemRoutes[i] = properties->getIntValue("stem.route." + juce::String(static_cast<int>(i)), 0);
@@ -4713,6 +5966,10 @@ MainComponent::MainComponent()
     {
         enableAllOutputChannels(deviceManager);
 
+        // Tijdens het opnemen staan de ingangen aan: dat onthouden we niet.
+        if (renderEngine != nullptr && renderEngine->isRunning())
+            return;
+
         if (auto state = deviceManager.createStateXml())
             if (auto* properties = appProperties.getUserSettings())
             {
@@ -4801,6 +6058,9 @@ MainComponent::MainComponent()
     loadingOverlay->onCancel = [this] { cancelPackageLoad(); };
     addChildComponent(*loadingOverlay);
 
+
+
+
     // Knoppen nemen geen toetsenbordfocus: de spatiebalk is altijd play/pauze
     // en kan geen losse knop (zoals Next) activeren.
     for (auto* child : getChildren())
@@ -4822,6 +6082,14 @@ MainComponent::~MainComponent()
 {
     stopTimer();
     cancelPackageLoad();
+
+    if (renderJob != nullptr)
+        renderJob->requestStop();
+
+    renderJob.reset();
+
+    if (renderEngine != nullptr)
+        renderEngine->stop();
 
     // Eerst de achtergronddraad stoppen: die gebruikt de MIDI-lezer.
     songScanner.reset();

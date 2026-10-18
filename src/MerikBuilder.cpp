@@ -79,7 +79,7 @@ namespace MerikBuilder
                 continue;
             }
 
-            if (lower == "chords.json" || lower == "lyrics.json" || lower == "tempo.json" || lower == "manifest.json")
+            if (lower == "chords.json" || lower == "lyrics.json" || lower == "tempo.json" || lower == "delay.json" || lower == "manifest.json")
             {
                 Item item;
                 item.file = file;
@@ -87,6 +87,7 @@ namespace MerikBuilder
                 item.description = lower + (lower == "chords.json" ? "   chords (replace those from the MIDI file)"
                                           : lower == "lyrics.json" ? "   lyrics (replace those from the MIDI file)"
                                           : lower == "tempo.json"  ? "   tempo and time signature"
+                                          : lower == "delay.json"  ? "   recording delay (the stems are played earlier by this)"
                                                                    : "   optional settings");
                 plan.items.push_back(item);
 

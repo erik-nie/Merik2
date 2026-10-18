@@ -45,7 +45,7 @@ private:
     struct Message
     {
         double timeMs = 0.0;          // kloktijd (ms); 0 = meteen
-        std::array<std::uint8_t, 3> data {};
+        std::array<std::uint8_t, 8> data {};     // ook korte SysEx (bijv. GM-reset)
         int size = 0;
     };
 
