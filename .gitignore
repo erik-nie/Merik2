@@ -21,3 +21,6 @@ Makefile
 *.so
 *.dll
 *.exe
+# macOS
+.DS_Store
+**/.DS_Store
