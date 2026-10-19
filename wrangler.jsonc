@@ -1,0 +1,8 @@
+{
+  // Cloudflare: publiceert de statische website in site/ (zie docs in README).
+  "name": "merik2",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site"
+  }
+}
