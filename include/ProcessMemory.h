@@ -5,6 +5,12 @@
 #if JUCE_MAC
  #include <mach/mach.h>
 #elif JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX   // anders breken std::min/max en numeric_limits::max() in alles wat hierna komt
+ #endif
+ #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+ #endif
  #include <windows.h>
  #include <psapi.h>
 #endif

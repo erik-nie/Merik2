@@ -27,13 +27,13 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 ## Download
 
-**[Download Merik 0.6.0](https://github.com/erik-nie/Merik2/releases/tag/v0.6.0)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+**[Download Merik 0.7.0](https://github.com/erik-nie/Merik2/releases/tag/v0.7.0)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS, Apple silicon** (M1 and newer) | `Merik-0.6.0-arm64.dmg` | macOS 14 or later |
-| **macOS, Intel** | `Merik-0.6.0-intel.dmg` | Intel Mac, macOS 15 or later |
-| **Windows** | `Merik-0.6.0-windows-x64.zip` | Windows 10 or 11, 64-bit |
+| **macOS, Apple silicon** (M1 and newer) | `Merik-0.7.0-arm64.dmg` | macOS 14 or later |
+| **macOS, Intel** | `Merik-0.7.0-intel.dmg` | Intel Mac, macOS 15 or later |
+| **Windows** | `Merik-0.7.0-windows-x64.zip` | Windows 10 or 11, 64-bit |
 
 **Install on macOS** (both versions)
 
@@ -312,8 +312,8 @@ The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's
 Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMGs (Apple silicon and Intel) and the Windows zip and creates a draft release with the three files:
 
 ```sh
-git tag -a v0.6.0 -m "Merik 0.6.0"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "Merik 0.7.0"
+git push origin v0.7.0
 ```
 
 The release notes come from `docs/release-notes/<version>.md`. You can also start the workflow by hand (Actions, Release, Run workflow) to build the files without making a release.
@@ -321,7 +321,7 @@ The release notes come from `docs/release-notes/<version>.md`. You can also star
 On a Mac you can build the DMG yourself with `scripts/make-release.sh` (it builds for the processor of that Mac). It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
 
 ```sh
-scripts/make-release.sh 0.6.0
+scripts/make-release.sh 0.7.0
 ```
 
 For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.

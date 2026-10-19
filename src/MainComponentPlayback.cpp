@@ -185,6 +185,9 @@ void MainComponent::completeLoad(const PendingLoad& pending, const juce::File& m
         // nummer in de setlist is ingesteld.
         setTranspose(entry != nullptr ? entry->transpose : 0);
 
+        // Het volume per nummer werkt hetzelfde: terug naar 0 dB, of naar wat bij dit nummer is ingesteld.
+        setSongVolume(entry != nullptr ? entry->volumeDb : 0, false);
+
         currentDisplayName = entry != nullptr ? entry->displayName : juce::String();
 
         // Alleen een nummer uit de songlijst mag een volgend nummer starten.
