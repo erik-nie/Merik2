@@ -57,6 +57,8 @@ h2{font-size:clamp(28px,4vw,42px);line-height:1.15;margin:8px 0 14px;letter-spac
 .card{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:24px}
 section.alt .card{background:var(--bg)}
 .card h3{margin:0 0 8px;font-size:19px}
+.grid.adv{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.grid.adv .card h3{font-size:18px}
 .card p{margin:0;color:var(--muted);font-size:16px}
 .split{display:grid;gap:40px;grid-template-columns:1fr 1.15fr;align-items:center}
 .split>img{width:100%;height:auto}
@@ -100,6 +102,7 @@ footer .sp{margin-left:auto}
     <a class="hide" href="#why">Why Merik2</a>
     <a class="hide" href="#band">For the band</a>
     <a class="hide" href="#how">How it works</a>
+    <a class="hide" href="#advanced">Advanced</a>
     <a class="hide" href="#docs">Docs</a>
     <a class="btn primary" href="#download">Download</a>
   </div>
@@ -211,6 +214,28 @@ footer .sp{margin-left:auto}
   </div>
   <div style="margin-top:56px;max-width:720px"><h2 style="font-size:30px">A family mixer, not sixteen faders</h2>
       <p class="sub" style="margin-bottom:0">Merik2 groups the MIDI channels by instrument into eight families: drums, bass, guitars, keys, strings, winds, others and the click. Balance the band with eight controls, switch a family off for a live player, and send the click to its own output.</p></div>
+</div></section>
+
+<section id="advanced"><div class="wrap">
+  <div class="kicker">Advanced features</div>
+  <h2>Power tools for serious gigs</h2>
+  <p class="sub">Everything you need when the backing tracks are more than a MIDI file.</p>
+  <div class="grid adv">
+    <div class="card"><h3>Batch rendering</h3><p>Render many MIDI files to audio in one go, with Merik's own SoundFont, a plug-in in a host, or a hardware module. Also from the command line.</p></div>
+    <div class="card"><h3>Click track generation</h3><p>A sample-accurate click from the tempo and time signature of every song, on its own output for the drummer, or your own click file.</p></div>
+    <div class="card"><h3>Lyrics and chords from any file</h3><p>Reads lyrics and chords from the places MIDI files hide them: karaoke and Midisoft files, Yamaha XF, markers and text events. Slash chords included.</p></div>
+    <div class="card"><h3>Sections and beat counter</h3><p>Intro, Verse and Chorus names from the MIDI markers, a beat counter, and a wait pill before the next line.</p></div>
+    <div class="card"><h3>Mix MIDI and audio per family</h3><p>Replace only the families you want with recorded audio, such as real drums or a live vocal track, and keep the rest in MIDI.</p></div>
+    <div class="card"><h3>One-file audio stems</h3><p>A <code>.merik</code> is a single zip with stems, lyrics, chords and tempo. Easy to copy, and streamed from disk so songs start at once.</p></div>
+    <div class="card"><h3>Make a .merik from your stems</h3><p>Point Merik at a folder of backing track stems. It checks them, converts WAV to lossless FLAC, and builds the file.</p></div>
+    <div class="card"><h3>Per-song transpose and volume</h3><p>Transpose (MIDI songs) and volume in dB, remembered per song. Chords follow the transpose, drums stay put.</p></div>
+    <div class="card"><h3>Normalize to the drums</h3><p>Level MIDI files that were mixed differently against the drum channel, so every song starts from a similar balance.</p></div>
+    <div class="card"><h3>Outputs per family</h3><p>Send the band, every stem family, and the click to different outputs of your interface or digital mixer.</p></div>
+    <div class="card"><h3>Delay compensation</h3><p>Measures the delay of a recorded sound source and stores it, so audio and MIDI stay together.</p></div>
+    <div class="card"><h3>Hardware control</h3><p>MIDI out to modules, and MIDI in from controllers such as the nanoKONTROL2, with LED feedback and a panic button.</p></div>
+    <div class="card"><h3>Live setlist control</h3><p>Search all setlists, play now or next, and jump anywhere from the browser, without losing your place. Time left in the set at a glance.</p></div>
+    <div class="card"><h3>Backup of setlists</h3><p>All setlists and songs, with titles, transpose and volume, in a single file you can restore anywhere.</p></div>
+  </div>
 </div></section>
 
 <section id="download"><div class="wrap">
