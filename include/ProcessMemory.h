@@ -13,6 +13,9 @@
 
 // Geheugen dat dit programma nu gebruikt (zoals Activity Monitor / Taakbeheer het
 // tonen), in bytes; 0 als het niet bekend is.
+// Bouwdatum en -tijd van dit programma (gedefinieerd in main.cpp).
+juce::String merikBuildDateTime();
+
 inline std::uint64_t getProcessMemoryBytes()
 {
    #if JUCE_MAC

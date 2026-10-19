@@ -5,6 +5,14 @@
 #include "RenderJob.h"
 
 
+juce::String merikBuildDateTime()
+{
+    const juce::String date(__DATE__); // "Oct  6 2026"
+    const juce::String time(__TIME__); // "19:10:32"
+
+    return date.substring(4, 6).trimStart() + " " + date.substring(0, 3) + " " + date.substring(7) + " " + time;
+}
+
 class MerikApplication : public juce::JUCEApplication
 {
 public:
@@ -25,7 +33,7 @@ public:
         return true;
     }
 
-    juce::String getBuildDateTime()
+    static juce::String getBuildDateTime()
     {
         const juce::String date(__DATE__); // "Oct  6 2026"
         const juce::String time(__TIME__); // "19:10:32"
@@ -122,15 +130,7 @@ public:
             return;
         }
 
-        const auto ip = getLocalAddress();
-        const juce::String web = ip.isNotEmpty()
-            ? "    web:merik.local" + juce::String(WebServer::portSuffix()) + " (" + ip + ")"
-            : juce::String();
-
-        mainWindow = std::make_unique<MainWindow>(
-            getApplicationName() + "    v:" + getApplicationVersion() + "    build:" + getBuildDateTime() + web,
-            *this
-        );
+        mainWindow = std::make_unique<MainWindow>(getApplicationName(), *this);
 
         // Even wachten tot het audioapparaat klaar is (de stems worden naar
         // de samplefrequentie van het apparaat omgezet).
@@ -192,8 +192,7 @@ private:
         // Titelbalk: naam, versie, adres en het geheugen dat Merik nu gebruikt.
         void updateTitle()
         {
-            const auto memory = formatMemory(getProcessMemoryBytes());
-            const auto title = memory.isNotEmpty() ? baseTitle + "    mem:" + memory : baseTitle;
+            const auto title = baseTitle + "    web:merik.local" + juce::String(WebServer::portSuffix());
 
             if (title != getName())
                 setName(title);

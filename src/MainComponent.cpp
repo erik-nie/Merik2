@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "ProcessMemory.h"
 #include <cstdio>
 #include "MerikBuilder.h"
 #include "SongSearch.h"
@@ -808,6 +809,13 @@ private:
         };
         generalPage.addAndMakeVisible(checkNowButton);
 
+        infoLabel.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        infoLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        infoLabel.setJustificationType(juce::Justification::topLeft);
+        infoLabel.setMinimumHorizontalScale(1.0f);
+        generalPage.addAndMakeVisible(infoLabel);
+        updateInfo();
+
         generalPage.layout = [this](juce::Rectangle<int> bounds)
         {
             const int controlX = bounds.proportionOfWidth(0.30f);
@@ -832,7 +840,33 @@ private:
 
             y += 8;
             checkNowButton.setBounds(controlX, y, 190, 30);
+            y += 46;
+            infoLabel.setBounds(controlX, y, controlWidth, 80);
         };
+    }
+
+    // Versie, bouwtijd, adres en geheugen (stonden eerst in de titelbalk).
+    void updateInfo()
+    {
+        juce::String ip;
+
+        for (const auto& address : juce::IPAddress::getAllAddresses(false))
+            if (!address.isIPv6 && address != juce::IPAddress::local())
+            {
+                ip = address.toString();
+                break;
+            }
+
+        auto* application = juce::JUCEApplication::getInstance();
+        const auto memory = formatMemory(getProcessMemoryBytes());
+
+        const auto text = "Version " + (application != nullptr ? application->getApplicationVersion() : juce::String())
+                        + "    built " + merikBuildDateTime() + "\n"
+                        + "IP address " + (ip.isEmpty() ? juce::String("-") : ip) + "    web port " + juce::String(WebServer::activePort().load())
+                        + "\nMemory " + (memory.isEmpty() ? juce::String("-") : memory);
+
+        if (infoLabel.getText() != text)
+            infoLabel.setText(text, juce::dontSendNotification);
     }
 
     void updateWebHint()
@@ -1559,6 +1593,7 @@ private:
     void timerCallback() override
     {
         fillDeviceControls();
+        updateInfo();
 
         if (context.midiInActivity)
         {
@@ -1602,7 +1637,7 @@ private:
 
     // General
     SettingsPage generalPage;
-    juce::Label webKeyLabel, webHint;
+    juce::Label webKeyLabel, webHint, infoLabel;
     juce::TextEditor webKeyEditor;
     std::array<juce::ToggleButton, 4> optionCopies;
     std::array<juce::TextButton*, 4> sources;
@@ -7418,7 +7453,7 @@ void MainComponent::resized()
     // -------------------------------------------------------------------------
 
     auto player =
-        bounds.removeFromTop(179).reduced(10,5);
+        bounds.removeFromTop(164).reduced(10,5);
 
     auto titleArea =
         player.removeFromTop(48);
