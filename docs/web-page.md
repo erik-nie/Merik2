@@ -9,7 +9,8 @@ Merik has a small web server built in. Open it in any browser on the same networ
 | `http://merik.local` | The easy one. Merik announces itself on the network under this name (mDNS, also known as Bonjour). |
 | `http://<IP address>` | The same page by IP address. **Settings, General** shows the full addresses. |
 
-- Merik uses the normal web port **80**, so no port number is needed. If something else on the computer already uses port 80, Merik uses **8888** instead and Settings shows it: `http://merik.local:8888`.
+- Merik listens on **one** port: the normal web port **80**, so no port number is needed (`http://192.168.1.20`). Only if something else on the computer already uses port 80, Merik uses **8888** instead, and then only `:8888` works. Settings, General always shows the address that is in use.
+- **If `merik.local` does not work** (the Wi-Fi network blocks mDNS, as some guest networks and hotspots do, or the device does not support it), use the IP address from Settings, General. The IP address works on every network where the devices can reach each other.
 - `merik.local` works on iPhones, iPads, Macs and current Windows 10 and 11 versions. Some Android phones and tablets cannot resolve `.local` names in the browser; use the IP address there. (Tested here with a Mac; other devices not yet.)
 - The computer and the tablet must be on the same network. A mobile hotspot, a router or the Wi-Fi of the venue all work, as long as devices may talk to each other (some guest Wi-Fi networks block that).
 - On Windows, allow Merik on **private networks** when Windows asks.

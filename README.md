@@ -227,7 +227,7 @@ In **Settings → General** you can set a key. Then:
 - `http://merik.local/` shows lyrics and chords (view only).
 - `http://merik.local/?key=<your key>` also shows the transport buttons, search, the setlist and the mixer.
 
-Merik announces itself on the network as `merik.local` (mDNS/Bonjour) and uses the normal web port 80, so there is nothing to type but that name. If another program already uses port 80, Merik uses **8888** (`http://merik.local:8888/`) and Settings shows it. If your device cannot find `merik.local` (some Android phones), use the IP address from **Settings → General**, for example `http://192.168.1.20/`.
+Merik announces itself on the network as `merik.local` (mDNS/Bonjour) and uses the normal web port 80, so there is nothing to type but that name. Merik listens on one port only: 80, or 8888 when another program already uses 80 (then only `:8888` works; Settings shows the address in use). If your device cannot find `merik.local` (some Android phones, or a Wi-Fi network that blocks mDNS), use the IP address from **Settings → General**, for example `http://192.168.1.20/`.
 
 Leave the key empty to make the web page strictly view-only. The key travels over your local network without encryption, so use this on a network you trust, not on the open internet. More in [The web page for the band](docs/web-page.md).
 
