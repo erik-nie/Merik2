@@ -135,7 +135,7 @@ Only needed for things the file names cannot say:
 
 ## Making a .merik
 
-**Inside Merik (recommended):** *Settings → General → Create a .merik file from a folder...*. Merik recognises the files in a folder by their names (using the rules above), warns about problems (different stem lengths, missing MIDI/tempo, unknown files), converts WAV to FLAC if you want (lossless; 32-bit float becomes 24-bit) and saves the `.merik` without compression. You can add the result to the current setlist right away. This is much more stable than doing it by hand: the common mistakes (a compressed zip, an extra folder, a wrongly named stem) cannot happen.
+**Inside Merik (recommended):** *Settings → Tools → Create a .merik file from a folder...*. Merik recognises the files in a folder by their names (using the rules above), warns about problems (different stem lengths, missing MIDI/tempo, unknown files), converts WAV to FLAC if you want (lossless; 32-bit float becomes 24-bit) and saves the `.merik` without compression. You can add the result to the current setlist right away. This is much more stable than doing it by hand: the common mistakes (a compressed zip, an extra folder, a wrongly named stem) cannot happen.
 
 A test song is included: [docs/demo/Stems Demo.merik](demo/Stems%20Demo.merik) (drums, bass, keys, strings and others as audio, a MIDI file whose guitar part plays through the SoundFont, plus `chords.json` and `lyrics.json`).
 

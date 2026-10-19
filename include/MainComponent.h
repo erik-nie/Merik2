@@ -15,6 +15,7 @@
 #include "SongSearch.h"
 #include "RenderEngine.h"
 #include "RenderJob.h"
+#include "MdnsResponder.h"
 #include "WebServer.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -133,6 +134,7 @@ private:
     CapsuleBackdrop transposeBackdrop, volumeBackdrop;
 
     WebServer webServer;
+    MdnsResponder mdns;   // merik.local
 
     using Clock = std::chrono::steady_clock;
 
@@ -333,12 +335,24 @@ private:
     enum class SearchAction { load, playNow, playAfter };
     void playFromSearch(int setlist, int row, SearchAction action);
     void startInsert(const SongEntry& entry, bool playNow);
+    void jumpToSetlistSong(int setlist, int row, bool playNow);
+    void startQueued(bool playNow);
+
+    // Resterende tijd van de setlist (huidig nummer plus de nummers erna); < 0 = onbekend.
+    [[nodiscard]] double setlistRemainingSeconds(bool* approximate = nullptr) const;
+    void updateSetlistLabel();
 
     // Een ingevoegd nummer ("play after current song") dat na het huidige nummer start.
     struct QueuedInsert
     {
         bool valid = false;
         SongEntry entry;
+
+        // "Jump next" in de setlist-weergave van de webpagina: het nummer hoort bij de setlist en
+        // de setlist gaat daar verder (geen invoeging die daarna terugkeert).
+        bool asFlow = false;
+        int flowSetlist = -1;
+        int flowRow = -1;
     };
 
     QueuedInsert queuedInsert;

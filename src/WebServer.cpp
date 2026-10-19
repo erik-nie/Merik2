@@ -159,6 +159,14 @@ bool WebServer::start(int port)
     if (running)
         return true;
 
+    if (tryStart(port))
+        return true;
+
+    return port == defaultPort && tryStart(fallbackPort);
+}
+
+bool WebServer::tryStart(int port)
+{
     port_ = port;
     serverSocket_ = openListeningSocket();
     if (serverSocket_ < 0)
@@ -186,6 +194,7 @@ bool WebServer::start(int port)
         return false;
     }
 
+    activePort() = port_;
     running = true;
     thread_ = std::thread(&WebServer::serverThread, this);
     return true;
@@ -341,11 +350,10 @@ void WebServer::setLibrary(std::vector<SetlistSnapshot> lists)
     library_ = std::move(lists);
 }
 
-void WebServer::setSearchContext(int currentSetlist, const std::string& resumeLabel)
+void WebServer::setPlaybackContext(const PlaybackContext& context)
 {
     std::scoped_lock lock(mutex_);
-    searchSetlist_ = currentSetlist;
-    resumeLabel_ = resumeLabel;
+    context_ = context;
 }
 
 void WebServer::setFamilyNames(const std::array<std::string, familyCount>& names)
@@ -480,7 +488,7 @@ void WebServer::handleClient(std::intptr_t socket)
         // met de laatste setlist.
         bool loadCommand = false;
 
-        for (const char* prefix : { "load:", "playnow:", "queue:" })
+        for (const char* prefix : { "load:", "playnow:", "queue:", "jump:", "jumpnext:" })
         {
             const std::string name(prefix);
 
@@ -492,6 +500,10 @@ void WebServer::handleClient(std::intptr_t socket)
             }
         }
 
+        // Alleen voor ontwikkeling (screenshots): "seek:<seconden>" als MERIK_DEV gezet is.
+        if (std::getenv("MERIK_DEV") != nullptr && (command.rfind("seek:", 0) == 0 || command.rfind("snapshot:", 0) == 0 || command.rfind("settings:", 0) == 0))
+            loadCommand = true;
+
         if (callback && (command == "play" || command == "stop" || command == "next" || command == "resume" || loadCommand))
         {
             callback(command);
@@ -502,6 +514,57 @@ void WebServer::handleClient(std::intptr_t socket)
             sendResponse(socket, R"({"ok":false})", "application/json; charset=utf-8");
         }
 
+        return;
+    }
+
+    if (request.rfind("GET /api/setlist", 0) == 0)
+    {
+        if (!isAuthorized(request))
+        {
+            sendResponse(socket, R"({"ok":false,"error":"unauthorized"})", "application/json; charset=utf-8");
+            return;
+        }
+
+        std::vector<SetlistSnapshot> library;
+        PlaybackContext context;
+
+        {
+            std::scoped_lock lock(mutex_);
+            library = library_;
+            context = context_;
+        }
+
+        // De setlist waarin gespeeld wordt; anders de getoonde.
+        const int index = context.flowSetlist >= 0 ? context.flowSetlist : context.selectedSetlist;
+
+        if (index < 0 || index >= static_cast<int>(library.size()))
+        {
+            sendResponse(socket, R"({"ok":false,"error":"no setlist"})", "application/json; charset=utf-8");
+            return;
+        }
+
+        const auto& list = library[static_cast<std::size_t>(index)];
+
+        std::string json = "{\"ok\":true,\"setlist\":" + std::to_string(index) + ",\"name\":\"" + escapeJson(list.name)
+                         + "\",\"current\":" + std::to_string(context.flowSetlist == index ? context.flowRow : -1);
+
+        if (context.remainingSeconds >= 0.0)
+            json += ",\"remaining\":" + std::to_string(context.remainingSeconds) + ",\"remainingApprox\":"
+                  + std::string(context.remainingApproximate ? "true" : "false");
+
+        json += ",\"rows\":[";
+
+        for (std::size_t i = 0; i < list.titles.size(); ++i)
+        {
+            if (i > 0)
+                json += ",";
+
+            const double seconds = i < list.seconds.size() ? list.seconds[i] : -1.0;
+            json += "{\"title\":\"" + escapeJson(list.titles[i]) + "\",\"seconds\":" + std::to_string(seconds) + "}";
+        }
+
+        json += "]}";
+        sendResponse(socket, json, "application/json; charset=utf-8");
         return;
     }
 
@@ -555,7 +618,7 @@ void WebServer::handleClient(std::intptr_t socket)
         {
             std::scoped_lock lock(mutex_);
             library = library_;
-            current = searchSetlist_;
+            current = context_.selectedSetlist;
         }
 
         const bool all = parameter("scope") != "current";
@@ -696,10 +759,14 @@ std::string WebServer::createStateJson(bool control) const
     bool playing = false;
     std::string nextTitle;
     std::string resumeLabel;
+    double remainingSeconds = -1.0;
+    bool remainingApproximate = false;
 
     {
         std::scoped_lock lock(mutex_);
-        resumeLabel = resumeLabel_;
+        resumeLabel = context_.resumeLabel;
+        remainingSeconds = context_.remainingSeconds;
+        remainingApproximate = context_.remainingApproximate;
         song = song_;
         positionSamples = positionSamples_;
         contentRevision = contentRevision_;
@@ -719,6 +786,10 @@ std::string WebServer::createStateJson(bool control) const
     json += "\"playing\":" + std::string(playing ? "true" : "false") + ",";
     json += "\"transpose\":" + std::to_string(transpose) + ",";
     json += "\"next\":\"" + escapeJson(nextTitle) + "\",";
+
+    if (remainingSeconds >= 0.0)
+        json += "\"remaining\":" + std::to_string(remainingSeconds) + ",\"remainingApprox\":"
+              + std::string(remainingApproximate ? "true" : "false") + ",";
 
     json += "\"control\":" + std::string(control ? "true" : "false");
 
@@ -1014,8 +1085,7 @@ footer {
     z-index: 100;
     padding: 18px 18px;
     border-radius: 999px;
-    background: rgb(255, 217, 0);
-    xxborder: 2px solid #ffd800;
+    background: #ffd23f;   /* dezelfde gele kleur als de songonderdelen */
     color: #111;
     font-weight: 700;
     font-size: 50px;
@@ -1030,24 +1100,26 @@ footer {
         width 180ms ease,
         opacity 180ms ease;
 }    
-/* Maatsoort met ledjes: een eigen blokje rechtsonder, onder de tekstgrootte-schuif. Eén vlak met
-   een doorzichtig verloop aan de linkerkant: de akkoorden die er langs lopen verdwijnen eronder.
-   De maat wordt kleiner naarmate er meer tellen zijn. */
+/* Rechtsboven: de maatteller met ledjes, daaronder de songonderdelen uit het MIDI-bestand */
+#topRight {
+    position:fixed; top:18px; right:28px; z-index:90; display:flex; flex-direction:column; align-items:flex-end; gap:12px;
+    pointer-events:none;
+}
 #beatBox {
     --led:18px; --ledgap:10px; --sig:24px;
-    position:fixed; right:0; bottom:10px; z-index:25; display:flex; align-items:center; gap:14px;
-    padding:8px 14px 8px 120px; pointer-events:none;
-    background:linear-gradient(to right, rgba(0,0,0,0) 0, rgba(0,0,0,.92) 100px, rgba(0,0,0,.92) 100%);
+    display:flex; align-items:center; gap:14px; padding:6px 14px; border-radius:999px;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10);
 }
-#beatBox.medium { --led:15px; --ledgap:8px; --sig:20px; padding-left:100px; }
-#beatBox.small { --led:12px; --ledgap:6px; --sig:17px; padding-left:90px; gap:10px; }
+#beatBox.medium { --led:15px; --ledgap:8px; --sig:20px; }
+#beatBox.small { --led:12px; --ledgap:6px; --sig:17px; gap:10px; }
 #beatBox[hidden] { display:none; }
 /* Zoeken (alleen met de bedieningssleutel) */
 #searchOverlay { position:fixed; inset:0; z-index:900; display:flex; align-items:flex-start; justify-content:center;
-    background:rgba(8,9,12,.92); padding:18px 14px; overflow:auto; }
+    background:rgba(8,9,12,.92); padding:0 14px 18px; overflow:auto; }
 #searchOverlay[hidden] { display:none; }
 .searchPanel { width:min(760px,100%); display:flex; flex-direction:column; gap:12px; }
-.searchHead { display:flex; align-items:center; justify-content:space-between; color:#fff; font-size:22px; font-weight:700; }
+.searchHead { display:flex; align-items:center; justify-content:space-between; color:#fff; font-size:22px; font-weight:700;
+    position:sticky; top:0; z-index:5; background:#0a0b0e; padding:16px 0 10px; }
 .searchHead button { width:44px; height:44px; border:0; border-radius:50%; background:#2b2e35; color:#fff; font-size:20px; cursor:pointer; }
 #searchInput { width:100%; box-sizing:border-box; font-size:26px; padding:14px 18px; border-radius:14px;
     border:2px solid #30333a; background:#14161a; color:#fff; outline:none; }
@@ -1069,7 +1141,14 @@ footer {
 .resultActions button.next { background:#1876ff; border-color:#1876ff; font-weight:600; }
 .resultActions button:active { filter:brightness(1.25); }
 @media (max-width:560px) { .resultRow { flex-wrap:wrap; } .resultActions { width:100%; } .resultActions button { flex:1; } }
-body:not(.control) #btnSearch { display:none; }
+body:not(.control) #btnSearch, body:not(.control) #btnSetlist { display:none; }
+#setlistOverlay { position:fixed; inset:0; z-index:900; display:flex; align-items:flex-start; justify-content:center;
+    background:rgba(8,9,12,.94); padding:0 14px 18px; overflow:auto; }
+#setlistOverlay[hidden] { display:none; }
+#setlistInfo { color:#9ec5ff; font-size:18px; min-height:22px; }
+#setlistRows { display:flex; flex-direction:column; gap:8px; }
+.resultRow.current { border-color:#1876ff; background:#14264a; }
+.resultRow .badge { color:#ffd23f; font-weight:700; font-size:16px; padding:0 8px; letter-spacing:.06em; }
 /* Merik draait niet (meer): nette melding in plaats van een stille, bevroren pagina */
 #offline { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center;
     background:rgba(12,13,16,.94); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
@@ -1084,25 +1163,23 @@ body:not(.control) #btnSearch { display:none; }
 #offline .dots span:nth-child(2) { animation-delay:.2s; }
 #offline .dots span:nth-child(3) { animation-delay:.4s; }
 @keyframes offlinePulse { 0%,80%,100% { opacity:.25; } 40% { opacity:1; } }
-/* Songonderdelen rechtsboven: de huidige met een aflopend streepje, en de volgende */
-#sections {
-    position:fixed; top:18px; right:30px; z-index:12; display:flex; align-items:flex-end; gap:28px;
-    pointer-events:none;
-}
+/* Songonderdelen onder de maatteller: de huidige met een aflopend streepje, daaronder de volgende
+   (kleiner en doorzichtig). Bij een wissel schuift de volgende omhoog en vervaagt de huidige. */
+#sections { position:relative; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
 #sections[hidden] { display:none; }
-.section-slot { display:flex; flex-direction:column; align-items:stretch; gap:3px; min-width:90px; }
+.section-slot { display:flex; flex-direction:column; align-items:stretch; gap:4px; min-width:130px; transform-origin:right top; }
 .section-name { color:#ffd23f; font-size:32px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-    white-space:nowrap; text-align:right; line-height:1.05; transition:opacity 180ms ease; }
-.section-slot.next .section-name { font-size:24px; opacity:.55; }
+    white-space:nowrap; text-align:right; line-height:1.05; }
+.section-slot.next .section-name { font-size:22px; opacity:.45; }
 .section-progress { position:relative; width:100%; height:6px; overflow:hidden; background:rgba(255,210,63,.28); border-radius:999px; }
 .section-progress-fill { position:absolute; top:0; right:0; bottom:0; width:100%; background:#ffd23f; border-radius:999px;
     transition:width 100ms linear; }
-.section-slot.next .section-progress { background:rgba(255,210,63,.14); }
 @media (max-width:700px) {
     #lyricCountdown { bottom:72px; width:220px; font-size:36px; padding:12px 14px; }
-    #sections { top:12px; right:12px; gap:16px; }
-    .section-name { font-size:20px; }
-    .section-slot.next .section-name { font-size:16px; }
+    #topRight { top:12px; right:12px; gap:8px; }
+    .section-name { font-size:21px; }
+    .section-slot.next .section-name { font-size:15px; }
+    .section-slot { min-width:90px; }
 }
 #beatSig { font-size:var(--sig); font-weight:700; color:#fff; font-variant-numeric:tabular-nums; }
 #beatLeds { display:flex; gap:var(--ledgap); }
@@ -1114,12 +1191,14 @@ body:not(.control) #btnSearch { display:none; }
 }
 .led.first { --c:255,176,32; }
 @media (max-width:600px) {
-    #beatBox { --led:13px; --ledgap:6px; --sig:17px; padding:6px 8px 6px 70px; gap:8px; }
+    #beatBox { --led:13px; --ledgap:6px; --sig:17px; padding:5px 10px; gap:8px; }
     #beatBox.medium { --led:11px; --ledgap:5px; --sig:15px; }
     #beatBox.small { --led:9px; --ledgap:4px; --sig:13px; }
 }
 
 #time .key { margin-left:14px; color:#6aa5ff; }
+#setlistRemaining { margin-top:2px; color:#9ec5ff; font-size:20px; font-variant-numeric:tabular-nums; text-align:left; }
+#setlistRemaining:empty { display:none; }
 #nextSong { margin-top:2px; color:#9ea4b0; font-size:20px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #nextSong:empty { display:none; }
 
@@ -1152,6 +1231,7 @@ body:not(.control) #familyPanel { display:none; }
 @media (max-width:600px) {
     header { padding:15px 18px 40px; }
     #nextSong { font-size:14px; }
+    #setlistRemaining { font-size:14px; }
     #transport { left:4px; }
     #transport button { width:42px; height:42px; }
     #song { font-size:21px; }
@@ -1205,12 +1285,14 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 <!-- ########################## HTML   ################################# -->
 <!-- ################################################################### -->
 <body>
-<header><div id="song">Merik</div><div id="time">00:00 / 00:00</div><div id="nextSong"></div></header>
+<header><div id="song">Merik</div><div id="time">00:00 / 00:00</div><div id="nextSong"></div><div id="setlistRemaining"></div></header>
 <div id="songProgress"><div id="songProgressFill"></div></div>
 <div id="lyricCountdown"></div>
 <div id="offline" hidden><div class="card"><div class="title">Merik is not running</div><div class="text">Start Merik on the computer.<br>This page reconnects by itself.</div><div class="dots"><span></span><span></span><span></span></div></div></div>
-<div id="sections" hidden><div class="section-slot current"><span class="section-name" id="sectionCurrent"></span><div class="section-progress"><div id="sectionRemaining" class="section-progress-fill"></div></div></div><div class="section-slot next"><span class="section-name" id="sectionNext"></span><div class="section-progress"></div></div></div>
+<div id="topRight">
 <div id="beatBox" hidden><span id="beatSig">4/4</span><span id="beatLeds"></span></div>
+<div id="sections" hidden><div class="section-slot current"><span class="section-name" id="sectionCurrent"></span><div class="section-progress"><div id="sectionRemaining" class="section-progress-fill"></div></div></div><div class="section-slot next"><span class="section-name" id="sectionNext"></span></div></div>
+</div>
 <main>
     <div id="lyricsViewport">
         <div id="lyrics"></div>
@@ -1254,6 +1336,17 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
     <button id="btnSearch" type="button" aria-label="Zoek een nummer">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.2 15.2L20.5 20.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
     </button>
+    <button id="btnSetlist" type="button" aria-label="Setlist">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12v2H9zM9 11h12v2H9zM9 16h12v2H9z"/><circle cx="5" cy="7" r="1.7"/><circle cx="5" cy="12" r="1.7"/><circle cx="5" cy="17" r="1.7"/></svg>
+    </button>
+</div>
+
+<div id="setlistOverlay" hidden>
+    <div class="searchPanel" role="dialog" aria-label="Setlist">
+        <div class="searchHead"><span id="setlistTitle">Setlist</span><button id="setlistClose" type="button" aria-label="Sluiten">&#10005;</button></div>
+        <div id="setlistInfo"></div>
+        <div id="setlistRows"></div>
+    </div>
 </div>
 
 <div id="searchOverlay" hidden>
@@ -1377,6 +1470,16 @@ let lyricLineEls = [];
 let lyricLineOf = [];
 let markedLyricLine = -1;
 let lastPosition = 0;
+
+// Resterende tijd van de setlist: m:ss, of u:mm:ss vanaf een uur.
+function formatLeft(seconds) {
+    seconds = Math.max(0, Math.floor(Number(seconds || 0)));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return hours > 0 ? hours + ":" + String(minutes).padStart(2, "0") + ":" + String(secs).padStart(2, "0")
+                     : minutes + ":" + String(secs).padStart(2, "0");
+}
 
 function formatTime(seconds) {
     seconds = Math.max(0, Number(seconds || 0));
@@ -2186,9 +2289,11 @@ function renderChords()
 }
 
 
-// Songonderdelen uit het MIDI-bestand rechtsboven: de huidige met een aflopend streepje
-// (zoals bij de akkoorden) en de volgende.
-let lastSectionKey = "";
+// Songonderdelen uit het MIDI-bestand onder de maatteller: de huidige met een aflopend streepje
+// (zoals bij de akkoorden) en daaronder de volgende. Bij een wissel schuift de volgende omhoog en
+// vervaagt de huidige.
+let lastSectionIndex = -2;
+let lastSectionSong = null;
 
 function renderSections()
 {
@@ -2198,7 +2303,7 @@ function renderSections()
     if (!songData || sections.length === 0)
     {
         box.hidden = true;
-        lastSectionKey = "";
+        lastSectionIndex = -2;
         return;
     }
 
@@ -2217,23 +2322,58 @@ function renderSections()
 
     const currentSlot = box.querySelector(".section-slot.current");
     const nextSlot = box.querySelector(".section-slot.next");
+    const currentName = document.getElementById("sectionCurrent");
+    const nextName = document.getElementById("sectionNext");
     const next = current + 1 < sections.length ? sections[current + 1] : null;
+    const fill = document.getElementById("sectionRemaining");
 
-    const key = current + "|" + songData.songRev;
-
-    if (key !== lastSectionKey)
+    if (current !== lastSectionIndex || songData.songRev !== lastSectionSong)
     {
-        lastSectionKey = key;
-        document.getElementById("sectionCurrent").textContent = current >= 0 ? sections[current].name : "";
-        document.getElementById("sectionNext").textContent = next ? next.name : "";
+        const forward = songData.songRev === lastSectionSong && current === lastSectionIndex + 1
+                        && lastSectionIndex >= 0 && currentName.textContent !== "";
 
-        // Een korte invlieg bij een nieuw onderdeel.
-        box.animate([{ opacity: 0.2, transform: "translateX(18px)" }, { opacity: 1, transform: "none" }],
-                    { duration: 220, easing: "ease-out" });
+        lastSectionIndex = current;
+        lastSectionSong = songData.songRev;
+
+        if (forward)
+        {
+            // De oude huidige vervaagt (een kopie die er nog even blijft staan, iets omhoog).
+            const ghost = currentSlot.cloneNode(true);
+            ghost.querySelectorAll("[id]").forEach(function (element) { element.removeAttribute("id"); });
+            ghost.style.position = "absolute";
+            ghost.style.top = "0";
+            ghost.style.right = "0";
+            box.appendChild(ghost);
+
+            ghost.animate([{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(-16px)" }],
+                          { duration: 320, easing: "ease-in", fill: "forwards" }).onfinish = function () { ghost.remove(); };
+
+            currentName.textContent = sections[current].name;
+            nextName.textContent = next ? next.name : "";
+
+            // De volgende schuift omhoog naar de plek van de huidige (en wordt groter en helder).
+            currentSlot.animate([{ opacity: 0.45, transform: "translateY(40px) scale(0.7)" }, { opacity: 1, transform: "none" }],
+                                { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" });
+
+            // De nieuwe volgende verschijnt eronder.
+            nextSlot.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 400, delay: 150, easing: "ease-out", fill: "backwards" });
+        }
+        else
+        {
+            currentName.textContent = current >= 0 ? sections[current].name : "";
+            nextName.textContent = next ? next.name : "";
+            box.animate([{ opacity: 0.2 }, { opacity: 1 }], { duration: 220 });
+        }
+
+        // Het streepje begint weer vol.
+        fill.style.transition = "none";
+        fill.style.width = "100%";
+        void fill.offsetWidth;
+        fill.style.transition = "";
     }
 
     currentSlot.style.visibility = current >= 0 ? "visible" : "hidden";
-    nextSlot.style.visibility = next ? "visible" : "hidden";
+    nextSlot.style.display = next ? "" : "none";
 
     // Streepje onder het huidige onderdeel: loopt af tot het volgende begint (of het nummer eindigt).
     if (current >= 0)
@@ -2242,7 +2382,7 @@ function renderSections()
         const end = next ? Number(next.time) : Math.max(start + 1, Number(songData.duration) || start + 1);
         const remaining = Math.max(0, Math.min(1, (end - position) / Math.max(0.001, end - start)));
 
-        document.getElementById("sectionRemaining").style.width = (remaining * 100) + "%";
+        fill.style.width = (remaining * 100) + "%";
     }
 }
 
@@ -2275,6 +2415,18 @@ let countdownTargetTime = null;
 let lastCountdownSongTitle = "";
 let lastCountdownPosition = 0;
 let lastCountdownDuration = 0;
+
+// Echte tekst: bevat minstens een letter of cijfer. Streepjes, puntjes (vaak vier per maat om een
+// pauze aan te geven), "/" en "\\" (regelwissels) en andere tekens tellen niet mee voor het aftellen.
+let sungTextPattern = null;
+
+try { sungTextPattern = new RegExp("[\\p{L}\\p{N}]", "u"); }
+catch (error) { sungTextPattern = /[A-Za-z0-9\u00C0-\u024F]/; }
+
+function isSungLyric(lyric)
+{
+    return sungTextPattern.test(String(lyric.text || ""));
+}
 
 function renderCountdown()
 {
@@ -2339,7 +2491,7 @@ function renderCountdown()
 
     for (const lyric of lyrics)
     {
-        if (Number(lyric.time) > position)
+        if (Number(lyric.time) > position && isSungLyric(lyric))
         {
             nextLyric = lyric;
             break;
@@ -2598,6 +2750,11 @@ async function update() {
         document.getElementById("time").innerHTML =
             formatTime(songData.position) + " / " + formatTime(songData.duration) + keyText;
 
+        // Resterende tijd van de setlist, links uitgelijnd onder "Next".
+        document.getElementById("setlistRemaining").textContent = state.remaining !== undefined
+            ? (state.remainingApprox ? "~" : "") + formatLeft(state.remaining) + " left"
+            : "";
+
         document.getElementById("nextSong").textContent =
             state.next ? "Next: " + state.next : "";
 
@@ -2783,12 +2940,127 @@ document.getElementById("btnNext").addEventListener("click", () => sendControl("
     document.getElementById("searchClose").addEventListener("click", close);
     document.getElementById("btnSearch").addEventListener("click", open);
 
+    // Een klik op de lege ruimte (naast de regels, of ertussen) sluit ook.
+    overlay.addEventListener("click", function (event) {
+        if (event.target === overlay || event.target.classList.contains("searchPanel") || event.target === results)
+            close();
+    });
+
     resume.addEventListener("click", async function () {
         try {
             await fetch("/api/control?cmd=resume" + (keyQuery ? "&" + keyQuery : ""), { method: "POST", cache: "no-store" });
         } catch (error) { console.log(error); }
         close();
         update();
+    });
+})();
+
+// Setlist-weergave (alleen met de bedieningssleutel): de lijst waarin nu gespeeld wordt; per nummer
+// "Jump now" (direct) of "Jump next" (na het huidige nummer), waarna de setlist daar verder gaat.
+(function initSetlistView() {
+    const overlay = document.getElementById("setlistOverlay");
+    const rows = document.getElementById("setlistRows");
+    const info = document.getElementById("setlistInfo");
+    const title = document.getElementById("setlistTitle");
+
+    function close() { overlay.hidden = true; }
+
+    async function act(command, setlist, row) {
+        try {
+            await fetch("/api/control?cmd=" + command + ":" + setlist + ":" + row + (keyQuery ? "&" + keyQuery : ""),
+                        { method: "POST", cache: "no-store" });
+        } catch (error) { console.log(error); }
+        close();
+        update();
+    }
+
+    async function open() {
+        overlay.hidden = false;
+        rows.textContent = "";
+        info.textContent = "Loading...";
+
+        try {
+            const response = await fetch("/api/setlist" + (keyQuery ? "?" + keyQuery : ""), { cache: "no-store" });
+            const data = await response.json();
+
+            if (!data.ok) {
+                info.textContent = "No setlist";
+                return;
+            }
+
+            title.textContent = data.name;
+            info.textContent = data.remaining !== undefined
+                ? (data.remainingApprox ? "~" : "") + formatLeft(data.remaining) + " left"
+                : "";
+
+            let currentRow = null;
+
+            // Tijd tot het einde van de setlist per nummer, dit nummer meegerekend.
+            const left = new Array(data.rows.length).fill(0);
+            const unknown = new Array(data.rows.length).fill(false);
+
+            for (let i = data.rows.length - 1; i >= 0; --i) {
+                const seconds = data.rows[i].seconds;
+                left[i] = (i + 1 < data.rows.length ? left[i + 1] : 0) + (seconds >= 0 ? seconds : 0);
+                unknown[i] = (i + 1 < data.rows.length ? unknown[i + 1] : false) || seconds < 0;
+            }
+
+            data.rows.forEach(function (item, index) {
+                const row = document.createElement("div");
+                row.className = "resultRow" + (index === data.current ? " current" : "");
+
+                const text = document.createElement("div");
+                text.className = "resultText";
+                text.textContent = item.title;
+                const small = document.createElement("small");
+                small.textContent = "#" + (index + 1)
+                    + (item.seconds >= 0 ? "  \u00b7  " + formatLeft(item.seconds) : "")
+                    + "  \u00b7  " + (unknown[index] ? "~" : "") + formatLeft(left[index]);
+                text.appendChild(small);
+                row.appendChild(text);
+
+                if (index === data.current) {
+                    const badge = document.createElement("div");
+                    badge.className = "badge";
+                    badge.textContent = "PLAYING";
+                    row.appendChild(badge);
+                    currentRow = row;
+                } else {
+                    const actions = document.createElement("div");
+                    actions.className = "resultActions";
+
+                    const now = document.createElement("button");
+                    now.type = "button";
+                    now.className = "now";
+                    now.textContent = "Jump now";
+                    now.addEventListener("click", function () { act("jump", data.setlist, index); });
+                    actions.appendChild(now);
+
+                    const next = document.createElement("button");
+                    next.type = "button";
+                    next.className = "next";
+                    next.textContent = "Jump next";
+                    next.addEventListener("click", function () { act("jumpnext", data.setlist, index); });
+                    actions.appendChild(next);
+
+                    row.appendChild(actions);
+                }
+
+                rows.appendChild(row);
+            });
+
+            if (currentRow)
+                currentRow.scrollIntoView({ block: "center" });
+        } catch (error) { console.log(error); info.textContent = "Could not load the setlist"; }
+    }
+
+    document.getElementById("btnSetlist").addEventListener("click", open);
+    document.getElementById("setlistClose").addEventListener("click", close);
+
+    // Een klik op de lege ruimte (naast de regels, of ertussen) sluit ook.
+    overlay.addEventListener("click", function (event) {
+        if (event.target === overlay || event.target.classList.contains("searchPanel") || event.target === rows)
+            close();
     });
 })();
 

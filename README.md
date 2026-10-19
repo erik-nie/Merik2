@@ -14,6 +14,8 @@ Play your MIDI backing tracks through a SoundFont or your own sound modules, mix
 
 Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a live mixer, hardware control, and a lyrics-and-chords display that your band can open in a web browser. No cloud, no account, no latency from the internet. Everything runs on one machine on your own network.
 
+**New here?** The [help pages](docs/index.md) walk you through [playing MIDI files](docs/play-midi.md), [audio files](docs/play-audio.md) and [both together](docs/play-mixed.md), [the web page for the band](docs/web-page.md) and [rendering MIDI to audio](docs/render.md).
+
 ---
 
 ## Download
@@ -56,12 +58,19 @@ Merik is free and made in spare time. If it helps your band or your gigs, a coff
 
 ---
 
-## Why Merik
+## What makes Merik different
 
-- **Made for performing.** Big, readable controls, instant song changes, a hardware-friendly workflow and a panic button that really silences everything.
-- **Everyone sees the song.** Karaoke-style lyrics and a chord strip with slash chords and bass notes, in any browser on the same Wi-Fi.
-- **Your sound, your gear.** Use the built-in SoundFont player, or send the music to hardware MIDI modules and software players with tight, hardware-style timing.
-- **Fast to set up.** Drop in your MIDI files, drag them into setlists, press play.
+Plenty of players can play a MIDI file. Merik is built for the person who runs the whole band from one laptop:
+
+- **One laptop, one cable.** Connect a laptop to an audio interface or straight to a digital mixer over USB, and the whole backing band comes from Merik, with the click on its own output for the drummer.
+- **Everybody in the band sees the song.** Lyrics and chords appear in a browser on any iPad, Android tablet or phone, at `http://merik.local`, with the current section, a beat counter and a countdown before the next line. No app to install, nothing to configure on the tablets.
+- **Almost every lyric and chord format.** Standard lyric events, karaoke (KAR) and Midisoft files, Yamaha XF chord data, Midisoft chords, markers and text events, with slash chords and bass notes. The lyrics and chords transpose with the music.
+- **Sections from the MIDI file.** *Intro*, *Verse 2*, *Chorus*, *Solo*... shown as they come, including the `15@Refrain:` markers many karaoke files use.
+- **Setlists you can steer while you play.** From the tablet, search the whole library, **play a song now or next**, or **jump** to another place in the setlist, without losing your place. Merik tells you how much time is left in the set.
+- **MIDI, audio, or both.** Play MIDI through a SoundFont or a hardware module, play recorded stems, or mix them per instrument family: a live vocal track on a MIDI band, real drums with the rest in MIDI.
+- **Render your own sound.** Turn MIDI files into audio stems with Merik's SoundFont, a plug-in in your favourite host or a hardware module, so that the sound you like is on the gig without the plug-ins.
+- **Made for performing.** Big readable controls, instant song changes, a family mixer instead of sixteen channel faders, transpose and volume per song, hardware controllers with LEDs, and a panic button that really silences everything.
+- **Free and local.** No cloud, no account, no subscription. Open source (AGPL).
 
 ---
 
@@ -129,44 +138,53 @@ My Song.merik
 - Each family can be sent to its **own output**, and the click to another (Settings → Audio). Each family button shows an **AUDIO** or **MIDI** pill with a level meter. Transpose is not available for songs with stems.
 - Stems stored without compression are **streamed**: the song is ready in a fraction of a second and uses very little memory.
 
-**Making a .merik:** in **Settings → General → Create a .merik file from a folder...** choose the folder with your stems. Merik shows what it recognised, warns about problems (different lengths, no MIDI or tempo), can convert WAV to FLAC without loss, saves the `.merik` the right way and can add it to your setlist. This is the recommended way.
+**Making a .merik:** in **Settings → Tools → Create a .merik file from a folder...** choose the folder with your stems. Merik shows what it recognised, warns about problems (different lengths, no MIDI or tempo), can convert WAV to FLAC without loss, saves the `.merik` the right way and can add it to your setlist. This is the recommended way.
 
 There is a ready-made test song in [docs/demo/Stems Demo.merik](docs/demo/Stems%20Demo.merik). All details (priority table, JSON formats for chords, lyrics and tempo, and **making a `.merik` by hand** on macOS and Windows) are in [docs/merik-format.md](docs/merik-format.md).
 
-### Rendering MIDI through an external module
+### Rendering MIDI to audio
 
-Merik can play your MIDI files through a hardware sound module (for example a Boss DS-330 or a Roland Sound Canvas), record the sound back through your audio interface, one family at a time, and save a `.merik` per song with real audio stems. It measures the delay between sending MIDI and hearing the sound and stores it in the file, so MIDI and audio stay together. You choose the MIDI output and the audio input, set the level with an interactive test (target about -6 dB), pick one or more MIDI files and an output folder, and start; a progress bar shows the song, the pass and the time left, and you can stop at any time. A **demo render** (only the first 30 seconds of every track) is a quick way to try a sound source, and Merik asks before it overwrites an existing result.
+Merik turns MIDI files into `.merik` files with real audio stems, one family at a time, with four possible sound sources:
 
-It works with a **software synth** too: a host program (MainStage, Logic, Bidule or a standalone plug-in) plays the sound and Merik records it through a virtual audio device such as BlackHole. Rendering gives you separate outputs per family, is safer on stage than live plug-ins, and the result plays on any computer.
+1. **Merik's own SoundFont**: no hardware needed, and much faster than real time.
+2. **A standalone audio app** such as SoundCanvas.
+3. **A plug-in in a host** (Logic, MainStage, Bidule), recorded through a virtual audio device such as BlackHole.
+4. **A hardware synth or module** (SoundCanvas, Genos, Kentron, MU2000, TG100, ...), recorded through your audio interface.
 
-Settings → **Tools → Render MIDI files...**. The whole workflow is described in [docs/render-external-module.md](docs/render-external-module.md).
+For the recorded methods Merik measures the delay between sending MIDI and hearing the sound and stores it in the file, so MIDI and audio stay together; you set the level with an interactive test (target about -6 dB). A **demo render** (only the first 30 seconds of every track) is a quick way to try a sound source, and Merik asks before it overwrites an existing result. Rendering gives you separate outputs per family, is safer on stage than live plug-ins, and the result plays on any computer.
+
+Settings → **Tools → Render MIDI files...**. The overview is in [docs/render.md](docs/render.md), the recording details in [docs/render-external-module.md](docs/render-external-module.md).
 
 ### Setlists that stay out of your way
 - Any number of setlists, reorderable by drag and drop. Right-click on the empty space below the setlists for a new setlist.
 - Drag songs to reorder them, to move them to another setlist, or hold <kbd>Command</kbd> (<kbd>Ctrl</kbd> on Windows and Linux) to copy them. Select several songs at once.
 - The same song can appear more than once.
 - **Volume per song** (a difference in dB, next to the transpose control or in the right-click menu): audio stems and the built-in SoundFont can go louder or softer; for an external MIDI device Merik adjusts the channel volumes (softer works fully, louder only where the file's own volume is below the maximum). It is remembered per song.
-- **Search** (magnifier next to the song list, or Ctrl/Cmd+F): type 3 letters and pick from the candidates; search in the current setlist or in all setlists. Choose **Play after current song** (shown as the next song, and it starts by itself when the current one ends) or **Play now**. An inserted song does not change where you are in your setlist: when it ends, or when you press Next, the setlist goes on where it was. The **Continue** button also takes you back to that setlist and position.
+- **Time left:** the remaining time of the setlist (the rest of the current song plus the songs after it) is shown next to the position ("6/10  34:12 left") in the app and on the web page (there as "2:21:31 left", left aligned under the next song).
+- **Search** (magnifier next to the song list, or Ctrl/Cmd+F): type 3 letters and pick from the candidates; search in the current setlist or in all setlists. Each result has **Play now** and **Play next** buttons. Choose **Play next** (shown as the next song; when the current one ends it starts by itself if *auto play next* is on, otherwise it is loaded and waits for Play) or **Play now**. An inserted song does not change where you are in your setlist: when it ends, or when you press Next, the setlist goes on where it was. The **Continue** button also takes you back to that setlist and position.
 - Right-click menus to rename (your own title, the file name is untouched), transpose, duplicate, copy, move, delete, or show a file in the Finder.
-- Song length, setlist total time, and tags that show which songs have **lyrics**, **chords**, **MIDI** and **audio**. Missing files are flagged in red.
+- Song length, the **time left until the end of the setlist for every song** (this song included, so the first song shows the total), setlist total time, and tags that show which songs have **lyrics**, **chords**, **MIDI** and **audio**. Missing files are flagged in red.
 - Everything is remembered between sessions.
 
 ### Lyrics and chords
 - Reads lyrics from standard MIDI files, including karaoke (KAR) and Midisoft files, with word-by-word highlighting and correct handling of accented characters.
 - Finds chords in the places MIDI files actually hide them: **Yamaha XF** chord data, **Midisoft** chord lines, markers and text events. Slash chords and bass notes (such as F/A or C/E) are shown properly.
 - Chords transpose together with the music.
-- **Section names** found in the MIDI file (Intro, Verse, Refrain, Solo, ... including the `15@Refrain:` style markers of many karaoke files) appear in yellow at the top right of the browser page: the current section with a line that runs out (like the chords), and the next one. The beat counter with its LEDs sits in its own block at the bottom right, under the text size slider; the chords fade out beneath it.
+- **Section names** found in the MIDI file (Intro, Verse, Refrain, Solo, ... including the `15@Refrain:` style markers of many karaoke files) appear in yellow at the top right of the browser page, under the beat counter with its LEDs: the current section with a line that runs out (like the chords), and below it the next one, smaller and transparent. At a change the next section slides up and the current one fades out.
 
 ### Remote display and control in your browser
-- Open Merik's address on any phone, tablet or laptop on the same network and get a full-screen **lyrics and chord display** with a progress bar for the current chord, a countdown before the first line, and an adjustable text size.
+- Open **http://merik.local** on any phone, tablet or laptop on the same network and get a full-screen **lyrics and chord display** with a progress bar for the current chord, a countdown before the first line, and an adjustable text size.
 - By default the page is **view only**, so the audience and the band can't change anything by accident.
 - If Merik is not running, the page shows a neat "Merik is not running" message and reconnects by itself when it is started again.
-- With the key the page also has a **search** button (magnifier) with a keyboard: type 3 letters, choose between the current and all setlists, tap a song and choose *Play after current song* or *Play now*, or **Continue** with the last setlist.
+- With the key the page also has a **setlist** button (under the search button): the setlist that is playing, with the time left, and for every song **Jump now** (go there at once) or **Jump next** (go there after the current song). The setlist then simply continues from that song.
+- With the key the page also has a **search** button (magnifier) with a keyboard: type 3 letters, choose between the current and all setlists, tap *Play now* or *Play next* on a song, or **Continue** with the last setlist. The close button stays in view while you scroll, and a tap on the empty space beside the results closes the screen as well.
 - Add your secret key to the address and the same page also shows **Play / Pause, Stop, Next** and the **family mixer**.
 
 <p align="center">
-  <img src="docs/images/web-interface.png" width="620" alt="Merik lyrics and chords in the browser">
+  <img src="docs/images/web-verse.png" width="620" alt="Merik lyrics, chords, section and beat counter in the browser">
 </p>
+
+More pictures and the advanced pages (search, setlist, control) are in [The web page for the band](docs/web-page.md).
 
 ### Hardware: MIDI out, MIDI in and LEDs
 - **MIDI out** to hardware modules, interfaces and virtual ports, or to the built-in SoundFont player. Each message is scheduled on the audio clock and handed to the system with its own timestamp, so fast runs and chords stay tight.
@@ -181,7 +199,7 @@ Settings → **Tools → Render MIDI files...**. The whole workflow is described
 ### Settings
 - **General:** remote-control key, the playback options, whether the click track is on at startup, and the update check. Merik can tell you at startup when a newer version is available on GitHub, and you can switch that off or check by hand.
 - **Soundfont:** the SoundFont, and the gain and reverb of the built-in sound.
-- **Tools:** create a `.merik` from a folder, and render MIDI files through a hardware sound module into audio stems (see [Rendering through an external module](#rendering-midi-through-an-external-module)).
+- **Tools:** create a `.merik` from a folder, and render MIDI files into audio stems (see [Rendering MIDI to audio](#rendering-midi-to-audio)).
 - **Audio:** output device, sample rate and buffer size, the main output (a stereo pair or one channel), the click output (any other channel or pair), and an output per audio-stem family.
 - **Midi:** input, output, controller LEDs and all CC assignments.
 
@@ -193,23 +211,43 @@ Settings → **Tools → Render MIDI files...**. The whole workflow is described
 
 ## Getting started
 
-1. Start Merik and choose a General MIDI SoundFont (`.sf2`) under **Settings → Audio**.
+1. Start Merik and choose a General MIDI SoundFont (`.sf2`) under **Settings → Soundfont**.
 2. Add your MIDI files with the **+** in the Songs header, or drag them onto the window.
 3. Double-click a song to load it, then press **Play**.
-4. For the lyrics display, press **Lyrics** in Merik, or open Merik's address (port 8888) on another device. **Settings → General** shows the full address.
+4. For the lyrics display, press **Lyrics** in Merik, or open **http://merik.local** on a tablet or phone on the same network. **Settings → General** shows the full addresses.
 
 You will need to bring your own SoundFont. Merik works with any General MIDI SoundFont in the `.sf2` format. `MatrixSF_v2.1.5.sf2` is a great free GM SoundFont to start with, but many others exist.
 
-Want something to try first? The folder [`docs/demo`](docs/demo) has four small demo songs with invented lyrics and chords.
+Want something to try first? The folder [`docs/demo`](docs/demo) has four small demo songs with invented lyrics, chords and sections.
 
 ### Remote control
 
 In **Settings → General** you can set a key. Then:
 
-- `http://<address>:8888/` shows lyrics and chords (view only).
-- `http://<address>:8888/?key=<your key>` also shows the transport buttons and the mixer.
+- `http://merik.local/` shows lyrics and chords (view only).
+- `http://merik.local/?key=<your key>` also shows the transport buttons, search, the setlist and the mixer.
 
-Leave the key empty to make the web page strictly view-only. The key travels over your local network without encryption, so use this on a network you trust, not on the open internet.
+Merik announces itself on the network as `merik.local` (mDNS/Bonjour) and uses the normal web port 80, so there is nothing to type but that name. If another program already uses port 80, Merik uses **8888** (`http://merik.local:8888/`) and Settings shows it. If your device cannot find `merik.local` (some Android phones), use the IP address from **Settings → General**, for example `http://192.168.1.20/`.
+
+Leave the key empty to make the web page strictly view-only. The key travels over your local network without encryption, so use this on a network you trust, not on the open internet. More in [The web page for the band](docs/web-page.md).
+
+---
+
+## Documentation
+
+**Basic**
+- [Playing MIDI files in setlists](docs/play-midi.md)
+- [Playing audio files in setlists](docs/play-audio.md)
+- [Mixed playback: MIDI and audio together](docs/play-mixed.md)
+- [The web page for the band](docs/web-page.md)
+
+**Advanced**
+- [Remote control from the browser](docs/web-page.md#advanced-control-with-the-key): search, setlist and the mixer
+- [Rendering MIDI to audio](docs/render.md): the internal SoundFont, a standalone app, a plug-in in a host, or a hardware module
+- [Rendering through an external module, in detail](docs/render-external-module.md)
+- [The .merik format](docs/merik-format.md)
+
+The same list, with a short introduction, is in [docs/index.md](docs/index.md).
 
 ---
 
@@ -288,7 +326,8 @@ For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_P
 | `include/` | Headers |
 | `src/midifile/` | MIDI file library |
 | `assets/` | Fonts and the application icon |
-| `docs/` | Screenshots and demo songs |
+| `docs/` | Help pages, screenshots and demo songs |
+| `scripts/` | Release script and the script that makes the screenshots (`doc-screenshots.py`) |
 
 ---
 

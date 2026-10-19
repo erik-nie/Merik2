@@ -6,9 +6,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <memory>
 
 namespace
 {
+    constexpr double internalSpeed = 15.0;   // grove schatting: zoveel keer sneller dan real-time
+
     const char* const names[7] = { "drums", "bass", "guitars", "keys", "strings", "winds", "others" };
 
     juce::String stemFileName(int family)
@@ -74,7 +78,7 @@ juce::String RenderJob::outputBaseName(const juce::File& midiFile, bool demo)
     return midiFile.getFileNameWithoutExtension() + (demo ? " (demo 30s)" : "");
 }
 
-RenderEstimate RenderJob::estimate(const std::vector<juce::File>& files, bool demo)
+RenderEstimate RenderJob::estimate(const std::vector<juce::File>& files, bool demo, bool internal)
 {
     RenderEstimate result;
 
@@ -103,7 +107,8 @@ RenderEstimate RenderJob::estimate(const std::vector<juce::File>& files, bool de
 
             ++result.songs;
             result.passes += passes;
-            result.seconds += passes * (prerollSeconds + plan.lengthSeconds + tailSeconds + 1.0);
+            result.seconds += internal ? passes * (plan.lengthSeconds + 2.0) / internalSpeed
+                                       : passes * (prerollSeconds + plan.lengthSeconds + tailSeconds + 1.0);
         }
         catch (const std::exception&)
         {
@@ -114,7 +119,7 @@ RenderEstimate RenderJob::estimate(const std::vector<juce::File>& files, bool de
     return result;
 }
 
-RenderJob::RenderJob(RenderEngine& renderEngine, RenderOptions renderOptions)
+RenderJob::RenderJob(RenderEngine* renderEngine, RenderOptions renderOptions)
     : juce::Thread("Merik render"),
       engine(renderEngine),
       options(std::move(renderOptions))
@@ -148,6 +153,30 @@ void RenderJob::note(const juce::String& line)
 
 void RenderJob::run()
 {
+    if (options.internalSynth)
+    {
+        synth = std::make_unique<FluidSynthEngine>();
+        synth->setSampleRate(48000.0);
+
+        std::string error;
+
+        if (!synth->loadSoundFont(options.soundFontPath, error))
+        {
+            const auto message = "Cannot load the SoundFont: " + juce::String(error);
+            update([&](RenderStatus& status)
+            {
+                status.error = message;
+                status.running = false;
+                status.finished = true;
+                status.step = "Stopped";
+            });
+            return;
+        }
+
+        synth->setSynthSettings(options.synthSettings);
+        synth->setNormalizeEnabled(options.normalize);
+    }
+
     // Eerst alles inlezen: aantallen en totale tijd voor de voortgang.
     struct Item { juce::File file; Song song; RenderPlan plan; };
     std::vector<Item> items;
@@ -173,7 +202,8 @@ void RenderJob::run()
                 if (item.plan.hasNotes(family))
                 {
                     ++passes;
-                    total += prerollSeconds + item.plan.lengthSeconds + tailSeconds + 1.0;
+                    total += options.internalSynth ? item.plan.lengthSeconds + 2.0
+                                                   : prerollSeconds + item.plan.lengthSeconds + tailSeconds + 1.0;
                 }
 
             if (passes == 0)
@@ -247,12 +277,17 @@ void RenderJob::run()
             {
                 status.pass = passNumber;
                 status.passName = juce::String(family + 1) + " " + names[family];
-                status.step = "Recording";
+                status.step = options.internalSynth ? "Rendering" : "Recording";
             });
 
             juce::String problem;
 
-            if (!renderPass(item.plan, family, folder.getChildFile(stemFileName(family)), problem))
+            const bool passOk = options.internalSynth
+                ? renderInternalPass(std::make_shared<const Song>(item.song), item.plan.lengthSeconds, family,
+                                     folder.getChildFile(stemFileName(family)), problem)
+                : renderPass(item.plan, family, folder.getChildFile(stemFileName(family)), problem);
+
+            if (!passOk)
             {
                 ok = false;
 
@@ -272,7 +307,7 @@ void RenderJob::run()
         }
 
         // De vertraging voor het afspelen: de opname loopt zoveel ms achter op de MIDI.
-        if (options.delayMs != 0.0)
+        if (!options.internalSynth && options.delayMs != 0.0)
         {
             folder.getChildFile("delay.json").replaceWithText(
                 "{\n  \"audioDelayMs\": " + juce::String(options.delayMs, 2) + "\n}\n");
@@ -313,7 +348,7 @@ void RenderJob::run()
 
 bool RenderJob::renderPass(const RenderPlan& plan, int family, const juce::File& wavFile, juce::String& problem)
 {
-    const double rate = engine.sampleRate();
+    const double rate = engine->sampleRate();
     const auto toSamples = [rate](double seconds) { return static_cast<std::int64_t>(std::llround(seconds * rate)); };
 
     const auto delaySamples = toSamples(options.delayMs * 0.001);
@@ -322,8 +357,8 @@ bool RenderJob::renderPass(const RenderPlan& plan, int family, const juce::File&
     const auto contentLength = songSamples + toSamples(tailSeconds) + std::max<std::int64_t>(0, delaySamples);
     const auto total = start + contentLength;
 
-    auto& session = engine.session();
-    session.prepare(rate, engine.channels(), total + 8192);
+    auto& session = engine->session();
+    session.prepare(rate, engine->channels(), total + 8192);
 
     // Het rooster van berichten op de tijdlijn van de opname.
     std::vector<CaptureSession::Message> schedule;
@@ -406,7 +441,7 @@ bool RenderJob::renderPass(const RenderPlan& plan, int family, const juce::File&
         if (stopRequested.load())
         {
             session.reset();
-            engine.midi().allNotesOff(-1);
+            engine->midi().allNotesOff(-1);
             return false;
         }
 
@@ -419,7 +454,7 @@ bool RenderJob::renderPass(const RenderPlan& plan, int family, const juce::File&
     }
 
     completedSeconds += static_cast<double>(total) / rate + 1.0;
-    engine.midi().allNotesOff(-1);
+    engine->midi().allNotesOff(-1);
 
     // Opslaan: vanaf het tijdstip van de eerste (MIDI-)maat, zonder pre-roll.
     const auto& data = session.data();
@@ -441,5 +476,96 @@ bool RenderJob::renderPass(const RenderPlan& plan, int family, const juce::File&
 
     // Even rust: de module moet uitgeklonken zijn voor de volgende pass.
     juce::Thread::sleep(700);
+    return true;
+}
+
+// Een familie door Merik's eigen SoundFont, sneller dan real-time. Geen vertraging: de audio staat
+// precies op de MIDI.
+bool RenderJob::renderInternalPass(const std::shared_ptr<const Song>& song, double lengthSeconds, int family,
+                                   const juce::File& wavFile, juce::String& problem)
+{
+    constexpr double rate = 48000.0;
+    constexpr int block = 1024;
+
+    synth->loadSong(song);
+
+    for (int f = 0; f < 7; ++f)
+    {
+        synth->setFamilyVolume(f, 127);
+        synth->setFamilyEnabled(f, f == family);
+    }
+
+    synth->setFamilyEnabled(7, false);   // geen klik in de stems
+    synth->setTranspose(0);
+    synth->setSongVolumeDb(0.0f);
+    synth->start();
+
+    const auto limit = options.demo ? static_cast<std::int64_t>(demoSeconds * rate) : std::numeric_limits<std::int64_t>::max();
+    const auto expected = std::min<std::int64_t>(limit, synth->lengthSamples());
+
+    std::vector<std::vector<float>> data(2);
+    data[0].reserve(static_cast<std::size_t>(expected) + block);
+    data[1].reserve(static_cast<std::size_t>(expected) + block);
+
+    float left[block], right[block];
+    float* outputs[2] = { left, right };
+    std::int64_t done = 0;
+    int updateCounter = 0;
+
+    while (synth->isPlaying() && done < limit)
+    {
+        if (stopRequested.load())
+        {
+            synth->stop();
+            return false;
+        }
+
+        synth->render(outputs, 2, block);
+        data[0].insert(data[0].end(), left, left + block);
+        data[1].insert(data[1].end(), right, right + block);
+        done += block;
+
+        if (++updateCounter % 64 == 0)
+            update([&](RenderStatus& status)
+            {
+                status.doneSeconds = completedSeconds + static_cast<double>(done) / rate;
+            });
+    }
+
+    synth->stop();
+
+    // Demo: de laatste 0,1 s uitfaden, anders klikt het einde.
+    if (options.demo && done >= limit)
+    {
+        const auto fade = static_cast<std::int64_t>(0.1 * rate);
+        const auto size = static_cast<std::int64_t>(data[0].size());
+
+        for (std::int64_t i = 0; i < std::min(fade, size); ++i)
+        {
+            const float gain = static_cast<float>(i) / static_cast<float>(fade);
+
+            for (auto& channel : data)
+                channel[static_cast<std::size_t>(size - 1 - i)] *= gain;
+        }
+    }
+
+    completedSeconds += std::max(lengthSeconds, 0.0) + 2.0;
+
+    float peak = 0.0f;
+
+    for (const auto& channel : data)
+        for (const float sample : channel)
+            peak = std::max(peak, std::fabs(sample));
+
+    if (!writeWav(wavFile, data, 0, static_cast<std::int64_t>(data[0].size()), rate, problem))
+        return false;
+
+    const auto label = juce::String(family + 1) + " " + names[family];
+
+    if (peak < 0.002f)
+        note("Warning: " + label + " is silent. Check the SoundFont.");
+    else if (peak >= 0.999f)
+        note("Warning: " + label + " clipped. Lower the SoundFont gain in Settings and render again.");
+
     return true;
 }

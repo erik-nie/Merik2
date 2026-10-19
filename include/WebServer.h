@@ -17,7 +17,8 @@
 class WebServer final
 {
 public:
-    static constexpr int defaultPort = 8888;
+    static constexpr int defaultPort = 80;
+    static constexpr int fallbackPort = 8888;   // als poort 80 bezet of niet toegestaan is
     static constexpr int familyCount = 8;
 
     // Commando's vanuit de webpagina: "play" (play/pauze), "stop", "next".
@@ -34,7 +35,18 @@ public:
     WebServer(const WebServer&) = delete;
     WebServer& operator=(const WebServer&) = delete;
 
+    // Probeert de gevraagde poort; de standaardpoort valt terug op fallbackPort.
     bool start(int port = defaultPort);
+    [[nodiscard]] int port() const noexcept { return port_; }
+
+    // ":8888" of leeg bij poort 80, voor in een adres.
+    [[nodiscard]] static std::string portSuffix()
+    {
+        const int p = activePort().load();
+        return p == 80 ? std::string() : ":" + std::to_string(p);
+    }
+
+    static std::atomic<int>& activePort() { static std::atomic<int> value { defaultPort }; return value; }
     void stop();
 
     [[nodiscard]] bool isRunning() const;
@@ -63,7 +75,17 @@ public:
     // setlists, welke setlist nu getoond wordt ("huidige"), en de tekst van de knop
     // om verder te gaan met de laatste setlist (leeg = niet beschikbaar).
     void setLibrary(std::vector<SetlistSnapshot> lists);
-    void setSearchContext(int currentSetlist, const std::string& resumeLabel);
+    struct PlaybackContext
+    {
+        int selectedSetlist = 0;           // de setlist die in de app getoond wordt
+        int flowSetlist = -1;              // de setlist waarin nu gespeeld wordt (-1 = geen)
+        int flowRow = -1;                  // het nummer daarin
+        std::string resumeLabel;           // tekst van de Continue-knop (leeg = niet beschikbaar)
+        double remainingSeconds = -1.0;    // resterende tijd van de setlist (< 0 = onbekend)
+        bool remainingApproximate = false; // niet van alle nummers is de lengte bekend
+    };
+
+    void setPlaybackContext(const PlaybackContext& context);
 
     // Niveaus (0..1) en welke families uit audio-stems komen (bit n = familie n).
     // Eigen namen van families (uit de stems van een .merik); leeg = standaardnaam.
@@ -99,6 +121,7 @@ private:
 
     std::atomic<bool> running { false };
 
+    bool tryStart(int port);
     int port_ = defaultPort;
     std::intptr_t serverSocket_ = -1;   // -1 = geen socket (SOCKET op Windows)
 
@@ -127,8 +150,7 @@ private:
     mutable std::uint64_t songJsonCacheRevision_ = 0;
 
     std::vector<SetlistSnapshot> library_;
-    int searchSetlist_ = 0;
-    std::string resumeLabel_;
+    PlaybackContext context_;
 
     std::array<float, familyCount> familyLevels_ {};
     std::uint32_t stemMask_ = 0;

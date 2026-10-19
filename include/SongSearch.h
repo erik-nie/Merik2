@@ -10,6 +10,7 @@ struct SetlistSnapshot
 {
     std::string name;
     std::vector<std::string> titles;   // getoonde namen, in volgorde
+    std::vector<double> seconds;       // lengte per nummer (< 0 = nog onbekend)
 };
 
 struct SearchHit

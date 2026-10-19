@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FluidSynthEngine.h"
 #include "RenderEngine.h"
 
 #include <juce_core/juce_core.h>
@@ -23,6 +24,12 @@ struct RenderOptions
     bool gmReset = false;            // GM-reset voor elke pass (uit: sommige software-synths verliezen er de drums door)
     bool demo = false;               // alleen de eerste 30 seconden van elke track
     std::vector<juce::File> midiFiles;
+
+    // Intern: Merik's eigen SoundFont, sneller dan real-time en zonder hardware.
+    bool internalSynth = false;
+    std::string soundFontPath;
+    SynthSettings synthSettings;
+    bool normalize = false;
 };
 
 // Instellingen van het opnemen (worden onthouden).
@@ -37,6 +44,7 @@ struct RenderPrefs
     bool toFlac = true;
     bool gmReset = false;
     bool demo = false;
+    bool internalSynth = false;      // Merik's SoundFont in plaats van een externe module
 };
 
 struct RenderEstimate
@@ -70,13 +78,14 @@ public:
 
     static constexpr double demoSeconds = 30.0;
 
-    [[nodiscard]] static RenderEstimate estimate(const std::vector<juce::File>& files, bool demo = false);
+    [[nodiscard]] static RenderEstimate estimate(const std::vector<juce::File>& files, bool demo = false, bool internal = false);
 
     // Naam van het resultaat voor een MIDI-bestand: "Song.merik" of "Song (demo 30s).merik".
     [[nodiscard]] static juce::String outputBaseName(const juce::File& midiFile, bool demo);
     [[nodiscard]] static const char* familyName(int family);
 
-    RenderJob(RenderEngine& engine, RenderOptions options);
+    // engine mag nullptr zijn bij internal rendering.
+    RenderJob(RenderEngine* engine, RenderOptions options);
     ~RenderJob() override;
 
     void requestStop() { stopRequested = true; }
@@ -88,7 +97,11 @@ private:
     void note(const juce::String& line);
     void update(const std::function<void(RenderStatus&)>& change);
 
-    RenderEngine& engine;
+    bool renderInternalPass(const std::shared_ptr<const Song>& song, double lengthSeconds, int family,
+                            const juce::File& wavFile, juce::String& problem);
+
+    RenderEngine* engine;
+    std::unique_ptr<FluidSynthEngine> synth;
     const RenderOptions options;
     std::atomic<bool> stopRequested { false };
 

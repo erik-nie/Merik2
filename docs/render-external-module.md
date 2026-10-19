@@ -1,8 +1,10 @@
 # Rendering MIDI files through an external sound module
 
+> This page covers the methods that record live: a hardware module or a software synth. For an overview of all four ways of rendering (including Merik's own SoundFont, which needs none of this), see [Rendering MIDI to audio](render.md).
+
 Merik can play your MIDI files through a hardware sound module (for example a Boss DS-330 or a Roland Sound Canvas), record the sound, and make a `.merik` with real audio stems. The recording is done **one family at a time** (drums, bass, guitars, keys, strings, winds, others), so every family becomes its own stem, which you can mix, mute or send to a separate output in Merik. The click track is generated from the MIDI file.
 
-This is under **Settings → Tools → Render MIDI files with an external module**.
+This is under **Settings → Tools → Render MIDI files...**, with the *Sound source* set to *External module or software synth*.
 
 ## What you need
 

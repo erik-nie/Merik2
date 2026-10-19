@@ -389,6 +389,130 @@ int MainComponent::currentRowInPlayingSetlist() const
 
 // Waar het vervolg van de setlist begint: het nummer uit de setlist dat nu klinkt, of (bij een
 // ingevoegd nummer uit de zoekresultaten) de plek waar we waren.
+// Het nummer uit de wachtrij starten: een ingevoegd nummer (daarna terug naar waar we waren) of
+// een sprong in de setlist (die gaat op dat nummer verder).
+void MainComponent::startQueued(bool playNow)
+{
+    const auto queued = queuedInsert;
+    queuedInsert.valid = false;
+
+    if (queued.asFlow)
+        jumpToSetlistSong(queued.flowSetlist, queued.flowRow, playNow);
+    else
+        startInsert(queued.entry, playNow);
+}
+
+void MainComponent::jumpToSetlistSong(int setlist, int row, bool playNow)
+{
+    if (setlist < 0 || setlist >= static_cast<int>(setlists.size()))
+        return;
+
+    const auto& songs = setlists[static_cast<std::size_t>(setlist)].songs;
+
+    if (row < 0 || row >= static_cast<int>(songs.size()))
+        return;
+
+    const SongEntry entry = songs[static_cast<std::size_t>(row)];
+
+    queuedInsert.valid = false;
+    resumeValid = false;
+
+    loadMidiFile(entry.file, true, &entry, row, setlist);
+
+    if (selectedSetlist == setlist)
+        songBox.selectRow(row);
+
+    if (playNow)
+        play();
+}
+
+namespace
+{
+juce::String formatClock(double seconds)
+{
+    const int total = juce::jmax(0, static_cast<int>(std::floor(seconds)));
+    const int hours = total / 3600;
+    const int minutes = (total % 3600) / 60;
+    const int secs = total % 60;
+
+    return hours > 0 ? juce::String(hours) + ":" + juce::String(minutes).paddedLeft('0', 2) + ":" + juce::String(secs).paddedLeft('0', 2)
+                     : juce::String(minutes) + ":" + juce::String(secs).paddedLeft('0', 2);
+}
+}
+
+double MainComponent::setlistRemainingSeconds(bool* approximate) const
+{
+    const auto cursor = flowCursor();
+
+    if (!currentSong || cursor.setlist < 0 || (cursor.row < 0 && !cursor.fromResume))
+        return -1.0;
+
+    const double rate = audioSampleRate > 0.0 ? audioSampleRate : 48000.0;
+    const double length = static_cast<double>(synthEngine.lengthSamples()) / rate;
+    const double position = static_cast<double>(synthEngine.positionSamples()) / rate;
+
+    double remaining = juce::jmax(0.0, length - position);
+    bool incomplete = false;
+
+    // Een nummer in de wachtrij komt ook nog.
+    if (queuedInsert.valid)
+    {
+        if (queuedInsert.entry.lengthSeconds >= 0.0)
+            remaining += queuedInsert.entry.lengthSeconds;
+        else
+            incomplete = true;
+    }
+
+    const auto& songs = setlists[static_cast<std::size_t>(cursor.setlist)].songs;
+
+    // Bij een sprong in de wachtrij gaat de setlist op dat nummer verder.
+    int first = cursor.row + 1;
+
+    if (queuedInsert.valid && queuedInsert.asFlow && queuedInsert.flowSetlist == cursor.setlist)
+        first = queuedInsert.flowRow + 1;
+
+    for (std::size_t i = static_cast<std::size_t>(juce::jmax(0, first)); i < songs.size(); ++i)
+    {
+        if (songs[i].lengthSeconds >= 0.0)
+            remaining += songs[i].lengthSeconds;
+        else
+            incomplete = true;
+    }
+
+    if (approximate != nullptr)
+        *approximate = incomplete;
+
+    return remaining;
+}
+
+// "6/10   1:34:12 left": de plek in de setlist en de tijd die nog te gaan is.
+void MainComponent::updateSetlistLabel()
+{
+    juce::String position;
+
+    if (currentSongFromSetlist
+        && playingSetlist >= 0
+        && playingSetlist < static_cast<int>(setlists.size()))
+    {
+        const auto& songs = setlists[static_cast<std::size_t>(playingSetlist)].songs;
+        const int row = currentRowInPlayingSetlist();
+
+        if (row >= 0)
+            position = juce::String(row + 1) + "/" + juce::String(static_cast<int>(songs.size()));
+    }
+
+    bool approximate = false;
+    const double remaining = setlistRemainingSeconds(&approximate);
+
+    juce::String text = position;
+
+    if (remaining >= 0.0)
+        text += (text.isEmpty() ? "" : "   ") + juce::String(approximate ? "~" : "") + formatClock(remaining) + " left";
+
+    if (setlistIndexLabel.getText() != text)
+        setlistIndexLabel.setText(text, juce::dontSendNotification);
+}
+
 MainComponent::FlowCursor MainComponent::flowCursor() const
 {
     if (currentSongFromSetlist
@@ -428,12 +552,11 @@ const MainComponent::SongEntry* MainComponent::nextSetlistEntry() const
 
 void MainComponent::playNextInSetlist(bool startPlaying)
 {
-    // Een ingevoegd nummer begint altijd vanzelf.
+    // Een ingevoegd nummer ("Play next") volgt "auto play next": aan = het begint vanzelf,
+    // uit = het wordt klaargezet (geladen) en wacht op Play.
     if (queuedInsert.valid)
     {
-        const SongEntry entry = queuedInsert.entry;
-        queuedInsert.valid = false;
-        startInsert(entry, true);
+        startQueued(startPlaying);
         return;
     }
 
@@ -468,12 +591,10 @@ void MainComponent::skipToNextSong()
 {
     const bool wasPlaying = synthEngine.isPlaying();
 
-    // Een ingevoegd nummer ("play after current song") is het volgende nummer.
+    // Een nummer in de wachtrij is het volgende nummer.
     if (queuedInsert.valid)
     {
-        const SongEntry entry = queuedInsert.entry;
-        queuedInsert.valid = false;
-        startInsert(entry, wasPlaying);
+        startQueued(wasPlaying);
         return;
     }
 
@@ -555,21 +676,8 @@ void MainComponent::updateSongDisplay()
             : juce::String("Next: -"),
         juce::dontSendNotification);
 
-    // Positie in de setlist ("6/10").
-    juce::String position;
-
-    if (currentSongFromSetlist
-        && playingSetlist >= 0
-        && playingSetlist < static_cast<int>(setlists.size()))
-    {
-        const auto& songs = setlists[static_cast<std::size_t>(playingSetlist)].songs;
-        const int row = currentRowInPlayingSetlist();
-
-        if (row >= 0)
-            position = juce::String(row + 1) + "/" + juce::String(static_cast<int>(songs.size()));
-    }
-
-    setlistIndexLabel.setText(position, juce::dontSendNotification);
+    // Positie in de setlist en de resterende tijd.
+    updateSetlistLabel();
 
     updateTransportDisplay();
 }
@@ -648,6 +756,8 @@ void MainComponent::updateTransportDisplay()
             juce::TextButton::buttonColourId,
             juce::Colour::fromRGB(0, 164, 235));
     }
+
+    updateSetlistLabel();   // de resterende tijd loopt mee
 
     // Nummer uit een setlist afgelopen: bij "auto play next" start het
     // volgende nummer; anders wordt het volgende alleen klaargezet

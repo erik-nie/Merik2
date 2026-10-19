@@ -692,6 +692,8 @@ public:
         startTimer(300);
     }
 
+    void showTab(int index) { tabs.setCurrentTabIndex(index); }
+
     ~SettingsContent() override
     {
         stopTimer();
@@ -847,12 +849,13 @@ private:
         }
 
         const auto key = webKeyEditor.getText();
+        const juce::String suffix = WebServer::portSuffix();
 
         webHint.setText(
             key.isEmpty()
                 ? "Empty: the web page is view-only and can never control Merik."
-                : "Remote control: http://" + ip + ":" + juce::String(WebServer::defaultPort)
-                    + "/?key=" + key + "  (without the key: view only)",
+                : "Remote control: http://merik.local" + suffix + "/?key=" + key + "  (or http://" + ip + suffix
+                    + "/?key=" + key + ")  Without the key: view only.",
             juce::dontSendNotification);
     }
 
@@ -1340,8 +1343,8 @@ private:
         };
         toolsPage.content.addAndMakeVisible(renderButton);
 
-        styleHint(renderHint, "Plays MIDI files through a hardware sound module or a software synth, records every "
-                              "family as audio and saves a .merik per song, with the measured delay.");
+        styleHint(renderHint, "Turns MIDI files into audio, one family at a time, and saves a .merik per song: with Merik's own "
+                              "SoundFont, or by recording a hardware sound module or a software synth.");
         toolsPage.content.addAndMakeVisible(renderHint);
 
         toolsPage.layoutContent = [this](int width)
@@ -2480,19 +2483,31 @@ public:
             addAndMakeVisible(l);
         };
 
-        heading.setText("Render MIDI files with an external module", juce::dontSendNotification);
+        heading.setText("Render MIDI files to audio", juce::dontSendNotification);
         heading.setFont(merikLookAndFeel.getBoldFont(19.0f));
         heading.setColour(juce::Label::textColourId, textColour);
         addAndMakeVisible(heading);
 
-        hint.setText("Plays each MIDI file through your sound module or a software synth, one family at a time, "
-                     "records the audio and saves a .merik per song. The measured delay is stored in the file.",
+        hint.setText("Renders each MIDI file one family at a time (drums, bass, ...) and saves a .merik per song with real audio stems. "
+                     "Use Merik's own SoundFont, or record a sound module or software synth live.",
                      juce::dontSendNotification);
         hint.setFont(merikLookAndFeel.getMediumFont(13.0f));
         hint.setColour(juce::Label::textColourId, secondaryTextColour);
         hint.setMinimumHorizontalScale(1.0f);
         hint.setJustificationType(juce::Justification::topLeft);
         addAndMakeVisible(hint);
+
+        label(sourceLabel, "Sound source");
+        addAndMakeVisible(sourceBox);
+        sourceBox.addItem("External module or software synth (records live)", 1);
+        sourceBox.addItem("Merik's SoundFont (fast, no hardware needed)", 2);
+        sourceBox.setSelectedId(prefs.internalSynth ? 2 : 1, juce::dontSendNotification);
+        sourceBox.onChange = [this]
+        {
+            prefs.internalSynth = sourceBox.getSelectedId() == 2;
+            savePrefs();
+            applySource();
+        };
 
         label(midiOutLabel, "MIDI output");
         label(deviceLabel, "Audio input device");
@@ -2648,7 +2663,7 @@ public:
         showingProgress = context.busy && context.busy();
         updateView();
 
-        setSize(660, 540);
+        setSize(660, 590);
         startTimerHz(4);
     }
 
@@ -2705,15 +2720,20 @@ public:
             y += 38;
         };
 
-        place(midiOutLabel, midiOutBox);
-        place(deviceLabel, deviceBox);
-        place(inputLabel, inputBox);
+        place(sourceLabel, sourceBox);
 
-        calibrateLabel.setBounds(0, y, labelWidth, row);
-        calibrateButton.setBounds(controlX, y, 270, row);
-        delayCaption.setBounds(controlX + 270, y, 90, row);
-        delayEditor.setBounds(controlX + 366, y, 80, row);
-        y += 38;
+        if (!prefs.internalSynth)
+        {
+            place(midiOutLabel, midiOutBox);
+            place(deviceLabel, deviceBox);
+            place(inputLabel, inputBox);
+
+            calibrateLabel.setBounds(0, y, labelWidth, row);
+            calibrateButton.setBounds(controlX, y, 270, row);
+            delayCaption.setBounds(controlX + 270, y, 90, row);
+            delayEditor.setBounds(controlX + 366, y, 80, row);
+            y += 38;
+        }
 
         filesLabel.setBounds(0, y, labelWidth, row);
         chooseFilesButton.setBounds(controlX, y, 190, row);
@@ -2727,6 +2747,9 @@ public:
 
         for (auto* toggle : { &keepWavToggle, &flacToggle, &gmResetToggle, &demoToggle })
         {
+            if (toggle == &gmResetToggle && prefs.internalSynth)
+                continue;
+
             toggle->setBounds(controlX, y, controlWidth, 26);
             y += 28;
         }
@@ -2788,7 +2811,7 @@ private:
         if (files.empty())
             return;
 
-        const auto estimate = RenderJob::estimate(files, prefs.demo);
+        const auto estimate = RenderJob::estimate(files, prefs.demo, prefs.internalSynth);
 
         filesInfo.setText(juce::String(estimate.songs) + (estimate.songs == 1 ? " song, " : " songs, ")
                               + juce::String(estimate.passes) + " passes, about " + formatDuration(estimate.seconds),
@@ -2823,9 +2846,9 @@ private:
             problem = "Choose one or more MIDI files.";
         else if (!juce::File(prefs.outputFolder).isDirectory())
             problem = "Choose an output folder.";
-        else if (prefs.midiOutIdentifier.isEmpty())
+        else if (!prefs.internalSynth && prefs.midiOutIdentifier.isEmpty())
             problem = "Choose the MIDI output.";
-        else if (prefs.inputRoute == 0)
+        else if (!prefs.internalSynth && prefs.inputRoute == 0)
             problem = "Choose the input channels.";
 
         if (problem.isNotEmpty())
@@ -2885,6 +2908,7 @@ private:
         options.toFlac = prefs.toFlac;
         options.gmReset = prefs.gmReset;
         options.demo = prefs.demo;
+        options.internalSynth = prefs.internalSynth;
         options.midiFiles = files;
 
         const auto problem = context.start ? context.start(options) : juce::String();
@@ -2905,7 +2929,7 @@ private:
         const bool progress = showingProgress;
 
         for (auto* component : std::initializer_list<juce::Component*> {
-                 &heading, &hint, &midiOutLabel, &deviceLabel, &inputLabel, &calibrateLabel, &filesLabel, &folderLabel,
+                 &heading, &hint, &sourceLabel, &sourceBox, &midiOutLabel, &deviceLabel, &inputLabel, &calibrateLabel, &filesLabel, &folderLabel,
                  &midiOutBox, &deviceBox, &inputBox, &calibrateButton, &delayCaption, &delayEditor, &chooseFilesButton,
                  &chooseFolderButton, &filesInfo, &folderPath, &keepWavToggle, &flacToggle, &gmResetToggle, &demoToggle, &errorLabel,
                  &startButton })
@@ -2919,6 +2943,23 @@ private:
         stopButton.setVisible(progress && busy);
         stopButton.setEnabled(true);
         backButton.setVisible(progress && !busy);
+
+        if (!progress)
+            applySource();
+    }
+
+    // De rijen voor een externe module verdwijnen bij Merik's eigen SoundFont.
+    void applySource()
+    {
+        const bool external = !prefs.internalSynth;
+
+        for (auto* component : std::initializer_list<juce::Component*> {
+                 &midiOutLabel, &deviceLabel, &inputLabel, &calibrateLabel, &midiOutBox, &deviceBox, &inputBox,
+                 &calibrateButton, &delayCaption, &delayEditor, &gmResetToggle })
+            component->setVisible(external && !showingProgress);
+
+        updateEstimate();
+        resized();
     }
 
     void fillDevices()
@@ -3040,7 +3081,7 @@ private:
                                                                : juce::String("Preparing...")),
                           juce::dontSendNotification);
 
-        const double left = juce::jmax(0.0, status.totalSeconds - status.doneSeconds);
+        const double left = juce::jmax(0.0, status.totalSeconds - status.doneSeconds) / (prefs.internalSynth ? 15.0 : 1.0);
         etaLabel.setText(status.finished ? juce::String() : "About " + formatDuration(left) + " left",
                          juce::dontSendNotification);
 
@@ -3066,6 +3107,8 @@ private:
     double progressValue = 0.0;
 
     std::vector<juce::File> files;
+    juce::Label sourceLabel;
+    juce::ComboBox sourceBox;
     juce::StringArray midiIds, deviceNames;
     juce::String lastMidiSignature, lastDeviceSignature, inputSignature, logShown;
     std::shared_ptr<juce::FileChooser> chooser;
@@ -3185,14 +3228,13 @@ public:
         statusLabel.setColour(juce::Label::textColourId, secondaryTextColour);
         addAndMakeVisible(statusLabel);
 
-        playNowButton.setButtonText("Play now");
-        playNowButton.setColour(juce::TextButton::buttonColourId, merikBlue);
-        playNowButton.onClick = [this] { chooseSelected(Choice::now); };
-        addAndMakeVisible(playNowButton);
-
-        playAfterButton.setButtonText("Play next");
-        playAfterButton.onClick = [this] { chooseSelected(Choice::after); };
-        addAndMakeVisible(playAfterButton);
+        cancelButton.setButtonText("Cancel");
+        cancelButton.onClick = [this]
+        {
+            if (requestClose)
+                requestClose();
+        };
+        addAndMakeVisible(cancelButton);
 
         list.setModel(this);
         list.setRowHeight(46);
@@ -3242,9 +3284,7 @@ public:
 
         auto buttons = area.removeFromBottom(38);
         area.removeFromBottom(10);
-        playNowButton.setBounds(buttons.removeFromRight(130));
-        buttons.removeFromRight(10);
-        playAfterButton.setBounds(buttons.removeFromRight(210));
+        cancelButton.setBounds(buttons.removeFromRight(130));
 
         statusLabel.setBounds(area.removeFromTop(22));
         area.removeFromTop(4);
@@ -3324,12 +3364,14 @@ private:
     {
         updateResumeButton();
 
-        // Beide keuzes blijven beschikbaar; klinkt er niets, dan begint "erachter" meteen.
+        // De tekst op "Play next" vertelt wat er gebeurt als er niets klinkt.
         const bool playing = isSongPlaying && isSongPlaying();
 
-        playAfterButton.setButtonText(playing ? "Play next" : "Play next (starts now)");
-        playAfterButton.setEnabled(!results.empty());
-        playNowButton.setEnabled(!results.empty());
+        if (playing != lastPlaying)
+        {
+            lastPlaying = playing;
+            list.updateContent();   // de knoppen in de regels opnieuw laten opbouwen
+        }
     }
 
     void textEditorTextChanged(juce::TextEditor&) override { refresh(); }
@@ -3414,20 +3456,81 @@ private:
 
         g.setColour(selected ? juce::Colours::white : textColour);
         g.setFont(makeNotoFont(17.0f));
-        g.drawText(hit.title, 14, 3, width - 28, height / 2 + 2, juce::Justification::centredLeft, true);
+        const int textWidth = width - 28 - 240;   // ruimte voor de twee knoppen rechts
+
+        g.drawText(hit.title, 14, 3, textWidth, height / 2 + 2, juce::Justification::centredLeft, true);
 
         g.setColour(selected ? juce::Colours::white.withAlpha(0.8f) : secondaryTextColour);
         g.setFont(makeNotoFont(13.0f));
         g.drawText(juce::String(hit.setlistName) + "   \xc2\xb7   #" + juce::String(hit.row + 1), 14, height / 2 + 2,
-                   width - 28, height / 2 - 4, juce::Justification::centredLeft, true);
+                   textWidth, height / 2 - 4, juce::Justification::centredLeft, true);
     }
 
     void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override { chooseRow(row, Choice::automatic); }
 
+    // Elke regel: [ titel   [Play now] [Play next] ], zoals op de webpagina.
+    class RowButtons final : public juce::Component
+    {
+    public:
+        RowButtons(SongSearchContent& ownerToUse, int rowToUse, bool playing)
+            : owner(ownerToUse), row(rowToUse), builtWhilePlaying(playing)
+        {
+            setInterceptsMouseClicks(false, true);
+
+            nowButton.setButtonText("Play now");
+            nextButton.setButtonText(playing ? "Play next" : "Play next (now)");
+            nextButton.setColour(juce::TextButton::buttonColourId, merikBlue);
+
+            nowButton.onClick = [this] { owner.chooseRow(row, Choice::now); };
+            nextButton.onClick = [this] { owner.chooseRow(row, Choice::after); };
+
+            addAndMakeVisible(nowButton);
+            addAndMakeVisible(nextButton);
+        }
+
+        void setRow(int newRow) { row = newRow; }
+        [[nodiscard]] bool wasBuiltWhilePlaying() const { return builtWhilePlaying; }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(8, 7);
+            nextButton.setBounds(area.removeFromRight(130));
+            area.removeFromRight(8);
+            nowButton.setBounds(area.removeFromRight(90));
+        }
+
+    private:
+        SongSearchContent& owner;
+        int row;
+        bool builtWhilePlaying;
+        juce::TextButton nowButton, nextButton;
+    };
+
+    juce::Component* refreshComponentForRow(int row, bool, juce::Component* existing) override
+    {
+        if (row < 0 || row >= static_cast<int>(results.size()))
+        {
+            delete existing;
+            return nullptr;
+        }
+
+        const bool playing = isSongPlaying && isSongPlaying();
+
+        if (auto* buttons = dynamic_cast<RowButtons*>(existing); buttons != nullptr && buttons->wasBuiltWhilePlaying() == playing)
+        {
+            buttons->setRow(row);
+            return buttons;
+        }
+
+        delete existing;
+        return new RowButtons(*this, row, playing);
+    }
+
     std::vector<SearchHit> results;
     juce::Label heading, statusLabel;
     juce::TextEditor query;
-    juce::TextButton allButton, currentButton, resumeButton, playNowButton, playAfterButton;
+    juce::TextButton allButton, currentButton, resumeButton, cancelButton;
+    bool lastPlaying = false;
     juce::ListBox list;
 };
 
@@ -3498,6 +3601,7 @@ void MainComponent::loadRenderPrefs()
     renderPrefs.toFlac = properties->getBoolValue("render.flac", true);
     renderPrefs.gmReset = properties->getBoolValue("render.gmReset", false);
     renderPrefs.demo = properties->getBoolValue("render.demo", false);
+    renderPrefs.internalSynth = properties->getBoolValue("render.internal", false);
 }
 
 void MainComponent::saveRenderPrefs()
@@ -3516,6 +3620,7 @@ void MainComponent::saveRenderPrefs()
     properties->setValue("render.flac", renderPrefs.toFlac);
     properties->setValue("render.gmReset", renderPrefs.gmReset);
     properties->setValue("render.demo", renderPrefs.demo);
+    properties->setValue("render.internal", renderPrefs.internalSynth);
     properties->saveIfNeeded();
 }
 
@@ -3532,6 +3637,22 @@ juce::String MainComponent::startRender(const RenderOptions& options)
     isPlaying = false;
     playButton.setButtonText("Play");
 
+    lastRenderStatus = {};
+
+    if (options.internalSynth)
+    {
+        auto internal = options;
+        internal.soundFontPath = synthEngine.soundFontPath();
+        internal.synthSettings = synthEngine.getSynthSettings();
+        internal.normalize = normalizeToggle.getToggleState();
+
+        if (internal.soundFontPath.empty())
+            return "Choose a SoundFont first (Settings, Soundfont).";
+
+        renderJob = std::make_unique<RenderJob>(nullptr, internal);
+        return {};
+    }
+
     if (renderEngine == nullptr)
         renderEngine = std::make_unique<RenderEngine>(deviceManager);
 
@@ -3540,8 +3661,7 @@ juce::String MainComponent::startRender(const RenderOptions& options)
     if (!renderEngine->start(options.midiOutIdentifier, options.inputDevice, options.inputRoute, error))
         return error;
 
-    lastRenderStatus = {};
-    renderJob = std::make_unique<RenderJob>(*renderEngine, options);
+    renderJob = std::make_unique<RenderJob>(renderEngine.get(), options);
     return {};
 }
 
@@ -3651,8 +3771,13 @@ std::vector<SetlistSnapshot> MainComponent::librarySnapshot() const
         snapshot.name = setlist.name.toStdString();
         snapshot.titles.reserve(setlist.songs.size());
 
+        snapshot.seconds.reserve(setlist.songs.size());
+
         for (const auto& song : setlist.songs)
+        {
             snapshot.titles.push_back(song.shownName(false).toStdString());
+            snapshot.seconds.push_back(song.lengthSeconds);
+        }
 
         lists.push_back(std::move(snapshot));
     }
@@ -3744,6 +3869,7 @@ void MainComponent::playFromSearch(int setlist, int row, SearchAction action)
         rememberResumePoint();
         queuedInsert.valid = true;
         queuedInsert.entry = entry;
+        queuedInsert.asFlow = false;
         updateSongDisplay();   // "Next:" toont het ingevoegde nummer
         return;
     }
@@ -4368,6 +4494,25 @@ public:
         g.drawText(entry.lengthSeconds >= 0.0 ? formatLength(entry.lengthSeconds) : juce::String("--:--"),
                    64, 0, 50, height, juce::Justification::centredLeft);
 
+        // Tijd tot het einde van de setlist, dit nummer meegerekend: "#32  03:11  1:12:34".
+        {
+            double remaining = 0.0;
+            bool unknown = false;
+
+            for (auto i = static_cast<std::size_t>(rowNumber); i < songs->size(); ++i)
+            {
+                if ((*songs)[i].lengthSeconds >= 0.0)
+                    remaining += (*songs)[i].lengthSeconds;
+                else
+                    unknown = true;
+            }
+
+            g.setColour(rowIsSelected ? juce::Colours::white.withAlpha(0.7f) : secondaryTextColour.withAlpha(0.8f));
+            g.setFont(makeNotoFont(13.0f));
+            g.drawText(remaining > 0.0 ? juce::String(unknown ? "~" : "") + formatLength(remaining) : juce::String("--:--"),
+                       116, 0, 66, height, juce::Justification::centredLeft);
+        }
+
         // Rechts: vaste kolommen voor lyrics, akkoorden en transpose, zodat
         // gelijke labels altijd onder elkaar staan (ook als de ander ontbreekt).
         constexpr int transposeSlot = 26, volumeSlot = 42, chordsSlot = 44, lyricsSlot = 44, audioSlot = 38, midiSlot = 30, gap = 3;
@@ -4415,9 +4560,9 @@ public:
 
         g.drawText(
             entry.shownName(true),
-            120,
+            186,
             0,
-            rightEdge - 120,
+            rightEdge - 186,
             height,
             juce::Justification::centredLeft,
             true);
@@ -5391,7 +5536,17 @@ void MainComponent::timerCallback()
     }
 
     webServer.setMeters(levels, stemMask);
-    webServer.setSearchContext(selectedSetlist, resumeLabel().toStdString());
+
+    {
+        WebServer::PlaybackContext context;
+        context.selectedSetlist = selectedSetlist;
+        const auto cursor = flowCursor();
+        context.flowSetlist = cursor.setlist;
+        context.flowRow = cursor.row;
+        context.resumeLabel = resumeLabel().toStdString();
+        context.remainingSeconds = setlistRemainingSeconds(&context.remainingApproximate);
+        webServer.setPlaybackContext(context);
+    }
 
     for (std::size_t i = 0; i < familyControls.size(); ++i)
     {
@@ -5454,6 +5609,14 @@ MainComponent::MainComponent()
     options.filenameSuffix      = ".settings";
     options.osxLibrarySubFolder = "Application Support";
     options.folderName          = "Merik2";
+
+    // Voor ontwikkeling: een eigen instellingenmap (MERIK_SETTINGS_NAME), zodat een testkopie
+    // de instellingen van het echte Merik niet aanraakt.
+    if (const char* settingsName = std::getenv("MERIK_SETTINGS_NAME"))
+    {
+        options.applicationName = settingsName;
+        options.folderName = settingsName;
+    }
     options.storageFormat       = juce::PropertiesFile::storeAsXML;
 
     appProperties.setStorageParameters(options);
@@ -5485,6 +5648,47 @@ MainComponent::MainComponent()
                         safeThis->skipToNextSong();
                     else if (command == "resume")
                         safeThis->resumeSetlistPosition();
+                    else if (command.rfind("seek:", 0) == 0)
+                    {
+                        // Alleen voor ontwikkeling (MERIK_DEV): naar een tijdstip springen.
+                        const double rate = safeThis->deviceManager.getCurrentAudioDevice() != nullptr
+                            ? safeThis->deviceManager.getCurrentAudioDevice()->getCurrentSampleRate() : 48000.0;
+                        safeThis->synthEngine.seekSamples(static_cast<std::int64_t>(std::atof(command.c_str() + 5) * rate));
+                    }
+                    else if (command.rfind("snapshot:", 0) == 0)
+                    {
+                        // Alleen voor ontwikkeling (MERIK_DEV): het venster als PNG opslaan voor de handleiding.
+                        const juce::File target(juce::String(command.substr(9)));
+                        const auto image = safeThis->createComponentSnapshot(safeThis->getLocalBounds(), true, 1.0f);
+                        juce::PNGImageFormat png;
+                        target.deleteFile();
+
+                        if (auto stream = target.createOutputStream())
+                            png.writeImageToStream(image, *stream);
+                    }
+                    else if (command.rfind("settings:", 0) == 0)
+                    {
+                        // Alleen voor ontwikkeling (MERIK_DEV): "settings:<tab>:<bestand>" slaat een tabblad van Settings op.
+                        const auto rest = juce::String(command.substr(9));
+                        const int tab = rest.upToFirstOccurrenceOf(":", false, false).getIntValue();
+                        const juce::File target(rest.fromFirstOccurrenceOf(":", false, false));
+
+                        safeThis->showAudioSettings();
+
+                        if (auto* window = dynamic_cast<juce::DialogWindow*>(safeThis->settingsWindow.getComponent()))
+                            if (auto* content = dynamic_cast<SettingsContent*>(window->getContentComponent()))
+                            {
+                                content->showTab(tab);
+                                const auto image = content->createComponentSnapshot(content->getLocalBounds(), true, 1.0f);
+                                juce::PNGImageFormat png;
+                                target.deleteFile();
+
+                                if (auto stream = target.createOutputStream())
+                                    png.writeImageToStream(image, *stream);
+                            }
+
+                        delete safeThis->settingsWindow.getComponent();
+                    }
                     else if (command.rfind("load:", 0) == 0)
                     {
                         // "load:<setlist>:<rij>" uit de zoekresultaten van de webpagina.
@@ -5492,6 +5696,32 @@ MainComponent::MainComponent()
 
                         if (std::sscanf(command.c_str(), "load:%d:%d", &setlist, &row) == 2)
                             safeThis->playFromSearch(setlist, row, SearchAction::load);
+                    }
+                    else if (command.rfind("jumpnext:", 0) == 0 || command.rfind("jump:", 0) == 0)
+                    {
+                        // Setlist-weergave van de webpagina: de setlist gaat op dit nummer verder.
+                        const bool later = command.rfind("jumpnext:", 0) == 0;
+                        int setlist = -1, row = -1;
+
+                        if (std::sscanf(command.c_str() + (later ? 9 : 5), "%d:%d", &setlist, &row) == 2)
+                        {
+                            if (later && safeThis->synthEngine.isPlaying()
+                                && setlist >= 0 && setlist < static_cast<int>(safeThis->setlists.size())
+                                && row >= 0 && row < static_cast<int>(safeThis->setlists[static_cast<std::size_t>(setlist)].songs.size()))
+                            {
+                                auto& queued = safeThis->queuedInsert;
+                                queued.valid = true;
+                                queued.entry = safeThis->setlists[static_cast<std::size_t>(setlist)].songs[static_cast<std::size_t>(row)];
+                                queued.asFlow = true;
+                                queued.flowSetlist = setlist;
+                                queued.flowRow = row;
+                                safeThis->updateSongDisplay();
+                            }
+                            else
+                            {
+                                safeThis->jumpToSetlistSong(setlist, row, true);
+                            }
+                        }
                     }
                     else if (command.rfind("playnow:", 0) == 0 || command.rfind("queue:", 0) == 0)
                     {
@@ -5515,7 +5745,15 @@ MainComponent::MainComponent()
     {
         const char* portText = std::getenv("MERIK_WEB_PORT");
         const int port = portText != nullptr ? std::atoi(portText) : 0;
-        webServer.start(port > 0 ? port : WebServer::defaultPort);
+        if (webServer.start(port > 0 ? port : WebServer::defaultPort))
+        {
+            juce::String hostName = "merik";
+
+            if (auto* properties = appProperties.getUserSettings())
+                hostName = properties->getValue("webHostName", "merik");
+
+            mdns.start(hostName.toStdString());
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -6144,7 +6382,7 @@ MainComponent::MainComponent()
     lyricsButton.onClick = [this]
     {
         const auto modifiers = juce::ModifierKeys::currentModifiers;
-        auto address = "http://localhost:" + juce::String(WebServer::defaultPort) + "/";
+        auto address = "http://localhost" + juce::String(WebServer::portSuffix()) + "/";
 
         if ((modifiers.isCommandDown() || modifiers.isAltDown()) && webControlKey.isNotEmpty())
             address += "?key=" + juce::URL::addEscapeChars(webControlKey, true);
@@ -6725,7 +6963,7 @@ MainComponent::MainComponent()
     }
 
     setlistIndexLabel.setColour(juce::Label::textColourId, secondaryTextColour);
-    setlistIndexLabel.setFont(makeNotoFont(20.0f));
+    setlistIndexLabel.setFont(makeNotoFont(18.0f));
     setlistIndexLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(setlistIndexLabel);
 
@@ -7186,13 +7424,13 @@ void MainComponent::resized()
         player.removeFromTop(48);
     //titleArea.translate(0, -10);
     // Symmetrisch, zodat de titel gecentreerd blijft; rechts "6/10".
-    setlistIndexLabel.setBounds(titleArea.removeFromRight(90));
+    setlistIndexLabel.setBounds(titleArea.removeFromRight(190));
 
     // Links op dezelfde hoogte als de songteller: de pil voor een nieuwe versie.
     updatePill.setBounds(titleArea.getX(),
                          setlistIndexLabel.getBounds().getCentreY() - 12,
                          124, 24);
-    songTitle.setBounds(titleArea.withTrimmedLeft(90));
+    songTitle.setBounds(titleArea.withTrimmedLeft(190));
 
     // Rechts de maatsoort met ledjes; "Next:" blijft symmetrisch gecentreerd.
     const auto nextRow = player.removeFromTop(36);

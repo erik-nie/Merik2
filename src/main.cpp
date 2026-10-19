@@ -2,6 +2,7 @@
 #include "MainComponent.h"
 #include "WebServer.h"
 #include "ProcessMemory.h"
+#include "RenderJob.h"
 
 
 class MerikApplication : public juce::JUCEApplication
@@ -75,11 +76,55 @@ public:
         }
     }
 
+    // Zonder venster renderen: Merik --render-internal <soundfont.sf2> <uitvoermap> [--demo] <bestand.mid> ...
+    // Voor ontwikkeling en voor wie veel bestanden in één keer wil omzetten.
+    bool renderFromCommandLine(const juce::String& commandLine)
+    {
+        auto tokens = juce::StringArray::fromTokens(commandLine, true);
+        const int flag = tokens.indexOf("--render-internal");
+
+        if (flag < 0 || tokens.size() < flag + 4)
+            return false;
+
+        RenderOptions options;
+        options.internalSynth = true;
+        options.soundFontPath = tokens[flag + 1].unquoted().toStdString();
+        options.outputFolder = juce::File(tokens[flag + 2].unquoted());
+        options.outputFolder.createDirectory();
+
+        for (int i = flag + 3; i < tokens.size(); ++i)
+        {
+            if (tokens[i] == "--demo")
+                options.demo = true;
+            else
+                options.midiFiles.push_back(juce::File(tokens[i].unquoted()));
+        }
+
+        RenderJob job(nullptr, options);
+
+        while (!job.status().finished)
+            juce::Thread::sleep(100);
+
+        for (const auto& line : job.status().log)
+            std::cout << line << std::endl;
+
+        if (job.status().error.isNotEmpty())
+            std::cout << job.status().error << std::endl;
+
+        return true;
+    }
+
     void initialise(const juce::String& commandLine) override
     {
+        if (renderFromCommandLine(commandLine))
+        {
+            quit();
+            return;
+        }
+
         const auto ip = getLocalAddress();
         const juce::String web = ip.isNotEmpty()
-            ? "    web:" + ip + ":" + juce::String(WebServer::defaultPort)
+            ? "    web:merik.local" + juce::String(WebServer::portSuffix()) + " (" + ip + ")"
             : juce::String();
 
         mainWindow = std::make_unique<MainWindow>(

@@ -115,6 +115,7 @@ target_sources(
         src/MidiTransformer.cpp
         src/MidiOutSink.cpp
         src/WebServer.cpp
+        src/MdnsResponder.cpp
         src/MainComponent.cpp
         src/MainComponentAudio.cpp
         src/MainComponentPlayback.cpp
