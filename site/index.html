@@ -73,6 +73,13 @@ section.alt .card{background:var(--bg)}
 .docs{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
 .docs a{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:8px 16px;color:var(--text);font-size:15px}
 .docs a:hover{border-color:#3a4052;text-decoration:none}
+.dlcard{display:block;color:var(--text)}
+.dlcard:hover{text-decoration:none;border-color:var(--blue)}
+.dlcard .get{display:inline-block;margin-top:14px;background:var(--blue);color:#fff;border-radius:10px;padding:8px 16px;font-weight:650;font-size:15px}
+.whatsnew{margin-top:34px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:26px 28px}
+.whatsnew h3{margin:0 0 10px;font-size:20px}
+.whatsnew ul{margin:0 0 12px;padding-left:20px;color:var(--muted)} .whatsnew li{margin:7px 0}
+.whatsnew li b{color:var(--text)}
 .support{margin-top:44px;padding-top:30px;border-top:1px solid var(--line)}
 .support p{color:var(--muted);max-width:640px;margin:0 0 16px}
 footer{border-top:1px solid var(--line);padding:36px 0 50px;color:var(--muted);font-size:15px}
@@ -208,14 +215,26 @@ footer .sp{margin-left:auto}
 
 <section id="download"><div class="wrap">
   <div class="kicker">Download</div>
-  <h2>Get Merik2</h2>
-  <p class="sub">Free for macOS and Windows. The latest version is on GitHub.</p>
+  <h2>Get Merik2 <span id="ver" style="color:var(--yellow)">0.7.0</span></h2>
+  <p class="sub">Free for macOS and Windows.</p>
   <div class="dl">
-    <div class="card"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p></div>
-    <div class="card"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p></div>
-    <div class="card"><b>Windows</b><p>Windows 10 or 11, 64-bit.</p></div>
+    <a class="card dlcard" id="dl-arm" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.0/Merik-0.7.0-arm64.dmg"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-intel" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.0/Merik-0.7.0-intel.dmg"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-win" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.0/Merik-0.7.0-windows-x64.zip"><b>Windows</b><p>Windows 10 or 11, 64-bit.</p><span class="get">Download .zip</span></a>
   </div>
-  <p style="margin-top:28px"><a class="btn primary" href="https://github.com/erik-nie/Merik2/releases/latest">Download the latest release</a></p>
+
+  <div class="whatsnew" id="whatsnew">
+    <h3>What's new in <span id="ver2">0.7.0</span></h3>
+    <ul>
+      <li><b>merik.local:</b> open <b>http://merik.local</b> on any tablet or phone, no IP address needed (web port 80).</li>
+      <li><b>Render with Merik's SoundFont:</b> turn MIDI files into audio stems, much faster than real time, without hardware.</li>
+      <li><b>Backup and restore</b> of all setlists and songs in one file.</li>
+      <li><b>Setlist view on the web page:</b> jump to any song now or next, with the time left in the set.</li>
+      <li><b>Sections</b>, a beat counter and a wait pill on the web page, and per-song volume and transpose that reset properly.</li>
+    </ul>
+    <p class="small"><a id="notes" href="https://github.com/erik-nie/Merik2/releases/tag/v0.7.0">Read the full release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>
+  </div>
+
   <p class="small">The apps are not code-signed yet, so macOS and Windows warn on the first start. The README on GitHub shows how to open Merik2 anyway. You bring your own SoundFont (<code>.sf2</code>); Merik2 does not include one.</p>
   <div class="support">
     <p>Merik2 is free and made in spare time. If it helps your band or your gigs, a coffee keeps the development going.</p>
@@ -245,5 +264,23 @@ footer .sp{margin-left:auto}
   <span class="sp"><a href="https://github.com/erik-nie/Merik2">GitHub</a> · <a href="https://ko-fi.com/eriknie">Ko-fi</a></span>
 </div></footer>
 
+<script>
+// Houdt de downloadknoppen op de nieuwste release; zonder verbinding blijven de ingebouwde links van 0.7.0 staan.
+(function(){
+  fetch("https://api.github.com/repos/erik-nie/Merik2/releases/latest").then(function(r){return r.ok?r.json():null}).then(function(rel){
+    if(!rel||!rel.tag_name) return;
+    var version=rel.tag_name.replace(/^v/,"");
+    var map={"dl-arm":/arm64\.dmg$/,"dl-intel":/intel\.dmg$/,"dl-win":/windows-x64\.zip$/};
+    (rel.assets||[]).forEach(function(a){
+      for(var id in map) if(map[id].test(a.name)) document.getElementById(id).href=a.browser_download_url;
+    });
+    document.getElementById("ver").textContent=version;
+    document.getElementById("notes").href=rel.html_url;
+    if(version!=="0.7.0"){
+      document.getElementById("whatsnew").innerHTML='<h3>What\'s new in '+version+'</h3><p class="small"><a href="'+rel.html_url+'">Read the release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>';
+    }
+  }).catch(function(){});
+})();
+</script>
 </body>
 </html>
