@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Merik2 – the live MIDI player for the stage</title>
+<title>Merik2 – the live MIDI/audio-stems player</title>
 <meta name="description" content="Merik2 plays your MIDI and audio backing tracks, and shows lyrics, chords and sections to the whole band on any tablet or phone.">
 <link rel="icon" type="image/png" href="img/favicon.png">
-<meta property="og:title" content="Merik2 – the live MIDI player for the stage">
+<meta property="og:title" content="Merik2 – the live MIDI/audio-stems player built for the stage">
 <meta property="og:description" content="Setlists, a live mixer, and lyrics and chords for the whole band in a browser.">
 <meta property="og:image" content="img/web-verse.png">
 <style>
@@ -41,8 +41,13 @@ h1 em{font-style:normal;color:var(--yellow)}
 .lead{max-width:720px;margin:0 auto 30px;color:var(--muted);font-size:clamp(18px,2.4vw,22px)}
 .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .small{color:var(--muted);font-size:14px;margin-top:14px}
-.shot{margin:54px auto 0;max-width:980px}
-.shot img{width:100%;height:auto;border-radius:14px;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.shot{margin:54px auto 0;max-width:860px}
+.shot img{width:100%;height:auto;display:block}
+.ipad{position:relative;background:linear-gradient(145deg,#2a2c33,#16171c);border-radius:38px;padding:20px;
+  box-shadow:0 0 0 2px #3a3d46,0 0 0 3px #0a0a0c,0 30px 70px rgba(0,0,0,.6)}
+.ipad::before{content:"";position:absolute;left:50%;top:7px;width:7px;height:7px;margin-left:-3px;border-radius:50%;background:#0b0b0e;box-shadow:inset 0 0 0 1px #3a3d46}
+.ipad img{display:block;width:100%;height:auto;border-radius:16px;background:#000}
+.cap{color:var(--muted);font-size:14px;margin-top:12px;text-align:center}
 section{padding:84px 0}
 section.alt{background:var(--panel)}
 .kicker{color:var(--blue2);font-weight:700;font-size:14px;letter-spacing:.12em;text-transform:uppercase}
@@ -54,14 +59,11 @@ section.alt .card{background:var(--bg)}
 .card h3{margin:0 0 8px;font-size:19px}
 .card p{margin:0;color:var(--muted);font-size:16px}
 .split{display:grid;gap:40px;grid-template-columns:1fr 1.15fr;align-items:center}
-.split img{width:100%;border-radius:14px;border:1px solid var(--line);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.split>img{width:100%;height:auto}
 .split.rev{grid-template-columns:1.15fr 1fr}
 .split ul{padding-left:20px;color:var(--muted)} .split li{margin:8px 0}
 .split li b{color:var(--text)}
-.gallery{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:30px}
-.gallery figure{margin:0}
-.gallery img{width:100%;border-radius:12px;border:1px solid var(--line)}
-.gallery figcaption{color:var(--muted);font-size:14px;margin-top:8px}
+.band-block{margin-top:90px}
 .steps{counter-reset:s;display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 .steps .card{position:relative;padding-top:56px}
 .steps .card::before{counter-increment:s;content:counter(s);position:absolute;top:18px;left:24px;width:28px;height:28px;border-radius:50%;
@@ -97,14 +99,14 @@ footer .sp{margin-left:auto}
 
 <header class="hero" id="top"><div class="wrap">
   <img class="logo" src="img/icon.png" alt="Merik2 logo">
-  <h1>The live MIDI player<br>built for <em>the stage</em></h1>
+  <h1>The live MIDI/audio-stems player<br>built for <em>the stage</em></h1>
   <p class="lead">Play your MIDI and audio backing tracks from one laptop, and show the lyrics, chords and sections to everybody in the band, on any tablet or phone.</p>
   <div class="cta">
     <a class="btn primary" href="#download">Download for macOS or Windows</a>
     <a class="btn" href="https://github.com/erik-nie/Merik2">View on GitHub</a>
   </div>
   <p class="small">Free and open source (AGPL-3.0). No cloud, no account.</p>
-  <div class="shot"><img src="img/web-verse.png" alt="Lyrics, chords, section and beat counter in a browser on a tablet"></div>
+  <div class="shot"><img src="img/main-window.png" alt="The Merik2 app: family mixer, setlists and songs"></div>
 </div></header>
 
 <section id="why"><div class="wrap">
@@ -131,31 +133,61 @@ footer .sp{margin-left:auto}
         <li><b>Lyrics</b> highlighted word by word, with an adjustable text size.</li>
         <li><b>Chords</b> with slash chords and a line that runs out to the next chord.</li>
         <li><b>Sections</b> and a <b>beat counter</b> at the top right.</li>
-        <li>A <b>wait pill</b> counts down to the next line after a long instrumental part.</li>
       </ul>
     </div>
-    <img src="img/web-countdown.png" alt="The wait pill counting down in an instrumental part">
+    <div><div class="ipad"><img src="img/web-verse.png" alt="Lyrics, chords, section and beat counter on a tablet"></div></div>
+  </div>
+
+  <div class="split rev band-block">
+    <div><div class="ipad"><img src="img/web-countdown.png" alt="The wait pill counting down in an instrumental part"></div></div>
+    <div>
+      <div class="kicker">Never miss your entrance</div>
+      <h2>The wait pill</h2>
+      <p class="sub" style="margin-bottom:0">After a long instrumental part, a yellow pill counts down the seconds to the next line, so the singer knows exactly when to come in.</p>
+    </div>
+  </div>
+
+  <div class="split band-block">
+    <div>
+      <div class="kicker">Sections and chords</div>
+      <h2>Always know where you are</h2>
+      <p class="sub" style="margin-bottom:0">Intro, Verse, Chorus, Solo... read from the MIDI file and shown at the top right, with the current chord and the next ones along the bottom.</p>
+    </div>
+    <div><div class="ipad"><img src="img/web-chorus.png" alt="The chorus section with its chords"></div></div>
   </div>
 </div></section>
 
 <section><div class="wrap">
   <div class="split rev">
-    <img src="img/web-advanced.png" alt="The web page with five control buttons on the left">
+    <div><div class="ipad"><img src="img/web-advanced.png" alt="The web page with five control buttons on the left"></div></div>
     <div>
       <div class="kicker">Remote control</div>
       <h2>Run the show from the tablet</h2>
       <p class="sub" style="margin-bottom:16px">Add your key to the address and the same page becomes a remote: play, stop, next, search and setlist, plus the family mixer.</p>
       <ul>
-        <li><b>Search</b> all setlists with three letters. <b>Play now</b> or <b>Play next</b>.</li>
-        <li><b>Jump</b> to any song in the setlist, now or after the current one.</li>
+        <li><b>Play, stop and next</b> from where you stand.</li>
+        <li><b>Search</b> and <b>setlist</b> buttons for steering the set live.</li>
         <li>The setlist simply continues from where you are.</li>
       </ul>
     </div>
   </div>
-  <div class="gallery">
-    <figure><img src="img/web-search.png" alt="Search screen"><figcaption>Search: Play now, Play next</figcaption></figure>
-    <figure><img src="img/web-setlist.png" alt="Setlist screen"><figcaption>Setlist: Jump now, Jump next, time left</figcaption></figure>
-    <figure><img src="img/web-chorus.png" alt="Chorus with chords"><figcaption>Sections and chords</figcaption></figure>
+
+  <div class="split band-block">
+    <div>
+      <div class="kicker">Search</div>
+      <h2>Play now, or play next</h2>
+      <p class="sub" style="margin-bottom:0">Type three letters and search the current setlist or all setlists. <b>Play now</b> starts the song at once; <b>Play next</b> plays it after the current song. The setlist then continues where it was.</p>
+    </div>
+    <div><div class="ipad"><img src="img/web-search.png" alt="The search screen with Play now and Play next"></div></div>
+  </div>
+
+  <div class="split rev band-block">
+    <div><div class="ipad"><img src="img/web-setlist.png" alt="The setlist screen with Jump now and Jump next"></div></div>
+    <div>
+      <div class="kicker">Setlist</div>
+      <h2>Jump anywhere in the set</h2>
+      <p class="sub" style="margin-bottom:0">See the whole setlist with the length of every song and the time left until the end. <b>Jump now</b> goes there at once, <b>Jump next</b> goes there after the current song.</p>
+    </div>
   </div>
 </div></section>
 
@@ -169,13 +201,8 @@ footer .sp{margin-left:auto}
     <div class="card"><h3>Open the web page</h3><p>Go to merik.local on the band's tablets. Lyrics, chords and sections follow the music.</p></div>
     <div class="card"><h3>Or render your sound</h3><p>Turn MIDI files into audio stems with the internal SoundFont, a plug-in in your host, or a hardware module.</p></div>
   </div>
-  <div class="split" style="margin-top:56px">
-    <img src="img/main-window.png" alt="The Merik2 main window">
-    <div>
-      <h2 style="font-size:30px">A family mixer, not sixteen faders</h2>
-      <p class="sub" style="margin-bottom:0">Merik2 groups the MIDI channels by instrument into eight families: drums, bass, guitars, keys, strings, winds, others and the click. Balance the band with eight controls, switch a family off for a live player, and send the click to its own output.</p>
-    </div>
-  </div>
+  <div style="margin-top:56px;max-width:720px"><h2 style="font-size:30px">A family mixer, not sixteen faders</h2>
+      <p class="sub" style="margin-bottom:0">Merik2 groups the MIDI channels by instrument into eight families: drums, bass, guitars, keys, strings, winds, others and the click. Balance the band with eight controls, switch a family off for a live player, and send the click to its own output.</p></div>
 </div></section>
 
 <section id="download"><div class="wrap">
