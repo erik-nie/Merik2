@@ -36,7 +36,7 @@ nav .btn{padding:9px 18px;font-size:15px}
 .hero{padding:84px 0 40px;text-align:center;
   background:radial-gradient(900px 420px at 50% -10%,rgba(24,118,255,.28),transparent 70%)}
 .hero img.logo{width:92px;height:92px;border-radius:22px;box-shadow:0 10px 40px rgba(24,118,255,.4)}
-h1{font-size:clamp(36px,6vw,64px);line-height:1.08;margin:22px 0 16px;letter-spacing:-.02em}
+h1{font-size:clamp(32px,5vw,56px);line-height:1.12;margin:22px auto 16px;letter-spacing:-.02em;max-width:900px;text-wrap:balance}
 h1 em{font-style:normal;color:var(--yellow)}
 .lead{max-width:720px;margin:0 auto 30px;color:var(--muted);font-size:clamp(18px,2.4vw,22px)}
 .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
@@ -73,7 +73,8 @@ section.alt .card{background:var(--bg)}
 .docs{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
 .docs a{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:8px 16px;color:var(--text);font-size:15px}
 .docs a:hover{border-color:#3a4052;text-decoration:none}
-.kofi{text-align:center}
+.support{margin-top:44px;padding-top:30px;border-top:1px solid var(--line)}
+.support p{color:var(--muted);max-width:640px;margin:0 0 16px}
 footer{border-top:1px solid var(--line);padding:36px 0 50px;color:var(--muted);font-size:15px}
 footer .wrap{display:flex;flex-wrap:wrap;gap:16px 28px;align-items:center}
 footer .sp{margin-left:auto}
@@ -99,7 +100,7 @@ footer .sp{margin-left:auto}
 
 <header class="hero" id="top"><div class="wrap">
   <img class="logo" src="img/icon.png" alt="Merik2 logo">
-  <h1>The live MIDI/audio backing tracks player<br>built for <em>the stage</em></h1>
+  <h1>The live MIDI/audio backing tracks player built for <em>the stage</em></h1>
   <p class="lead">Play your MIDI and audio backing tracks from one laptop, and show the lyrics, chords and sections to everybody in the band, on any tablet or phone.</p>
   <div class="cta">
     <a class="btn primary" href="#download">Download for macOS or Windows</a>
@@ -216,6 +217,10 @@ footer .sp{margin-left:auto}
   </div>
   <p style="margin-top:28px"><a class="btn primary" href="https://github.com/erik-nie/Merik2/releases/latest">Download the latest release</a></p>
   <p class="small">The apps are not code-signed yet, so macOS and Windows warn on the first start. The README on GitHub shows how to open Merik2 anyway. You bring your own SoundFont (<code>.sf2</code>); Merik2 does not include one.</p>
+  <div class="support">
+    <p>Merik2 is free and made in spare time. If it helps your band or your gigs, a coffee keeps the development going.</p>
+    <a href="https://ko-fi.com/eriknie" target="_blank" rel="noopener"><img height="40" style="border:0;height:40px" src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support Merik2 on Ko-fi"></a>
+  </div>
 </div></section>
 
 <section class="alt" id="docs"><div class="wrap">
@@ -232,12 +237,6 @@ footer .sp{margin-left:auto}
     <a href="https://github.com/erik-nie/Merik2">Source code</a>
     <a href="https://github.com/erik-nie/Merik2/issues">Report an issue</a>
   </div>
-</div></section>
-
-<section class="kofi"><div class="wrap">
-  <h2>Support Merik2</h2>
-  <p class="sub" style="margin:0 auto 22px">Merik2 is free and made in spare time. If it helps your band or your gigs, a coffee keeps the development going.</p>
-  <a class="btn primary" href="https://ko-fi.com/eriknie" style="background:#ff5e5b;border-color:#ff5e5b">Support on Ko-fi</a>
 </div></section>
 
 <footer><div class="wrap">
