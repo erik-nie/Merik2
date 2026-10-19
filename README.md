@@ -1,11 +1,18 @@
-# Merik
+<p align="center">
+  <img src="site/img/icon.png" width="96" alt="Merik2 logo">
+</p>
+
+<h1 align="center">Merik2</h1>
+
+<p align="center"><b>The live MIDI/audio backing tracks player built for the stage</b></p>
+
+<p align="center"><a href="https://merik2.merik2.workers.dev"><b>Website: merik2.merik2.workers.dev</b></a></p>
 
 [![Downloads](https://img.shields.io/github/downloads/erik-nie/Merik2/total?label=downloads&color=1876ff)](https://github.com/erik-nie/Merik2/releases)
 [![Latest release](https://img.shields.io/github/v/release/erik-nie/Merik2?include_prereleases&label=release&color=1876ff)](https://github.com/erik-nie/Merik2/releases)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue)](LICENSE)
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20Merik-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/eriknie)
 
-**The live MIDI player built for the stage.**
 Play your MIDI backing tracks through a SoundFont or your own sound modules, mix them on the fly, and keep every singer and player in the band in sync with lyrics and chords on any phone, tablet or laptop.
 
 <p align="center">
