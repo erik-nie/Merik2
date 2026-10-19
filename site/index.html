@@ -82,6 +82,12 @@ section.alt .card{background:var(--bg)}
 .whatsnew h3{margin:0 0 10px;font-size:20px}
 .whatsnew ul{margin:0 0 12px;padding-left:20px;color:var(--muted)} .whatsnew li{margin:7px 0}
 .whatsnew li b{color:var(--text)}
+.firststart{margin-top:34px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:26px 28px}
+.firststart h3{margin:0 0 8px;font-size:20px}
+.fs-grid{display:grid;gap:26px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:14px}
+.fs-grid p{color:var(--muted);font-size:15px;margin:6px 0}
+.fs-grid b{color:var(--text)}
+.fs-grid pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13.5px;margin:8px 0 0}
 .support{margin-top:44px;padding-top:30px;border-top:1px solid var(--line)}
 .support p{color:var(--muted);max-width:640px;margin:0 0 16px}
 footer{border-top:1px solid var(--line);padding:36px 0 50px;color:var(--muted);font-size:15px}
@@ -260,7 +266,23 @@ footer .sp{margin-left:auto}
     <p class="small"><a id="notes" href="https://github.com/erik-nie/Merik2/releases/tag/v0.7.0">Read the full release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>
   </div>
 
-  <p class="small">The apps are not code-signed yet, so macOS and Windows warn on the first start. The README on GitHub shows how to open Merik2 anyway. You bring your own SoundFont (<code>.sf2</code>); Merik2 does not include one.</p>
+  <div class="firststart">
+    <h3>First start</h3>
+    <p class="small" style="margin-top:0">The apps are not code-signed yet, so macOS and Windows block the first start. You bring your own SoundFont (<code>.sf2</code>); Merik2 does not include one.</p>
+    <div class="fs-grid">
+      <div>
+        <b>macOS</b>
+        <p>Drag Merik to Applications, then right-click it, choose <b>Open</b> and confirm. If it is still blocked, run this in Terminal:</p>
+        <pre>xattr -dr com.apple.quarantine /Applications/Merik.app</pre>
+      </div>
+      <div>
+        <b>Windows</b>
+        <p>Extract the zip and run <code>Merik.exe</code>. If SmartScreen warns, click <b>More info</b>, then <b>Run anyway</b>.</p>
+        <p>If <b>Smart App Control</b> blocks it (no "Run anyway" button): open <b>Windows Security, App &amp; browser control, Smart App Control settings</b> and choose <b>Off</b>. On some Windows 11 versions it cannot be turned on again afterwards.</p>
+      </div>
+    </div>
+  </div>
+
   <div class="support">
     <p>Merik2 is free and made in spare time. If it helps your band or your gigs, a coffee keeps the development going.</p>
     <a href="https://ko-fi.com/eriknie" target="_blank" rel="noopener"><img height="40" style="border:0;height:40px" src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support Merik2 on Ko-fi"></a>
