@@ -44,10 +44,10 @@ struct SynthSettings
 {
     int gain = 50;                   // 0..100  -> 0.0 .. 1.0
 
-    int reverbRoom = 20;             // 0..100  -> 0.0 .. 1.0
-    int reverbDamp = 0;              // 0..100  -> 0.0 .. 1.0
+    int reverbRoom = 50;             // 0..100  -> 0.0 .. 1.0
+    int reverbDamp = 50;             // 0..100  -> 0.0 .. 1.0
     int reverbWidth = 50;            // 0..100
-    int reverbLevel = 90;            // 0..100  -> 0.0 .. 1.0
+    int reverbLevel = 10;            // 0..100  -> 0.0 .. 1.0
 };
 
 struct FamilySettings

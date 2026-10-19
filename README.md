@@ -171,7 +171,7 @@ Settings → **Tools → Render MIDI files...**. The overview is in [docs/render
 - **Search** (magnifier next to the song list, or Ctrl/Cmd+F): type 3 letters and pick from the candidates; search in the current setlist or in all setlists. Each result has **Play now** and **Play next** buttons. Choose **Play next** (shown as the next song; when the current one ends it starts by itself if *auto play next* is on, otherwise it is loaded and waits for Play) or **Play now**. An inserted song does not change where you are in your setlist: when it ends, or when you press Next, the setlist goes on where it was. The **Continue** button also takes you back to that setlist and position.
 - Right-click menus to rename (your own title, the file name is untouched), transpose, duplicate, copy, move, delete, or show a file in the Finder.
 - Song length, the **time left until the end of the setlist for every song** (this song included, so the first song shows the total), setlist total time, and tags that show which songs have **lyrics**, **chords**, **MIDI** and **audio**. Missing files are flagged in red.
-- Everything is remembered between sessions.
+- Everything is remembered between sessions. **Settings, Tools, Backup** saves all setlists and songs in one file (`merik.backup`) and restores them later, see [Backing up and restoring setlists](docs/backup.md).
 
 ### Lyrics and chords
 - Reads lyrics from standard MIDI files, including karaoke (KAR) and Midisoft files, with word-by-word highlighting and correct handling of accented characters.
@@ -206,7 +206,7 @@ More pictures and the advanced pages (search, setlist, control) are in [The web 
 ### Settings
 - **General:** remote-control key, the playback options, whether the click track is on at startup, and the update check. Merik can tell you at startup when a newer version is available on GitHub, and you can switch that off or check by hand.
 - **Soundfont:** the SoundFont, and the gain and reverb of the built-in sound.
-- **Tools:** create a `.merik` from a folder, and render MIDI files into audio stems (see [Rendering MIDI to audio](#rendering-midi-to-audio)).
+- **Tools:** create a `.merik` from a folder, back up and restore all setlists, and render MIDI files into audio stems (see [Rendering MIDI to audio](#rendering-midi-to-audio)).
 - **Audio:** output device, sample rate and buffer size, the main output (a stereo pair or one channel), the click output (any other channel or pair), and an output per audio-stem family.
 - **Midi:** input, output, controller LEDs and all CC assignments.
 
@@ -252,6 +252,7 @@ Leave the key empty to make the web page strictly view-only. The key travels ove
 - [Remote control from the browser](docs/web-page.md#advanced-control-with-the-key): search, setlist and the mixer
 - [Rendering MIDI to audio](docs/render.md): the internal SoundFont, a standalone app, a plug-in in a host, or a hardware module
 - [Rendering through an external module, in detail](docs/render-external-module.md)
+- [Backing up and restoring setlists](docs/backup.md)
 - [The .merik format](docs/merik-format.md)
 
 The same list, with a short introduction, is in [docs/index.md](docs/index.md).

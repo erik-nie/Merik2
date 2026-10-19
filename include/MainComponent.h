@@ -464,6 +464,13 @@ private:
     void loadPersistentState();
     void savePersistentState();
 
+    // Back-up van alle setlists en nummers in één bestand (merik.backup), en terugzetten.
+    std::shared_ptr<juce::FileChooser> backupChooser;
+    void backupSetlists();
+    void restoreSetlists();
+    void applyBackup(const juce::XmlElement& backup);
+    bool writeBackup(const juce::File& file) const;
+
     void refreshSetlistModel();
     void refreshSongModel();
 

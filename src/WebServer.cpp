@@ -501,7 +501,8 @@ void WebServer::handleClient(std::intptr_t socket)
         }
 
         // Alleen voor ontwikkeling (screenshots): "seek:<seconden>" als MERIK_DEV gezet is.
-        if (std::getenv("MERIK_DEV") != nullptr && (command.rfind("seek:", 0) == 0 || command.rfind("snapshot:", 0) == 0 || command.rfind("settings:", 0) == 0))
+        if (std::getenv("MERIK_DEV") != nullptr && (command.rfind("seek:", 0) == 0 || command.rfind("snapshot:", 0) == 0 || command.rfind("settings:", 0) == 0
+                                                      || command.rfind("backupto:", 0) == 0 || command.rfind("restorefrom:", 0) == 0))
             loadCommand = true;
 
         if (callback && (command == "play" || command == "stop" || command == "next" || command == "resume" || loadCommand))

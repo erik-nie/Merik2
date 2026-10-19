@@ -659,6 +659,9 @@ struct SettingsContext
 
     bool clickOnAtStart = true;
     std::function<void(bool)> clickOnAtStartChanged;
+
+    std::function<void()> backup;
+    std::function<void()> restore;
 };
 
 class SettingsContent final : public juce::Component,
@@ -1381,6 +1384,22 @@ private:
                               "SoundFont, or by recording a hardware sound module or a software synth.");
         toolsPage.content.addAndMakeVisible(renderHint);
 
+        styleHeading(backupHeading, "Backup");
+        toolsPage.content.addAndMakeVisible(backupHeading);
+
+        backupButton.setButtonText("Back up all setlists...");
+        backupButton.onClick = [this] { if (context.backup) context.backup(); };
+        toolsPage.content.addAndMakeVisible(backupButton);
+
+        restoreButton.setButtonText("Restore from a backup...");
+        restoreButton.onClick = [this] { if (context.restore) context.restore(); };
+        toolsPage.content.addAndMakeVisible(restoreButton);
+
+        styleHint(backupHint, "Saves all setlists and songs (with names, transpose and volume) in one file, merik.backup. "
+                              "The MIDI and .merik files themselves are not in it: keep them in the same folders. "
+                              "Restoring replaces everything; songs that cannot be found are shown in red.");
+        toolsPage.content.addAndMakeVisible(backupHint);
+
         toolsPage.layoutContent = [this](int width)
         {
             const int controlX = juce::roundToInt(static_cast<float>(width) * 0.30f);
@@ -1400,6 +1419,14 @@ private:
             y += 38;
             renderHint.setBounds(controlX, y, controlWidth, 40);
             y += 64;
+
+            backupHeading.setBounds(controlX, y, controlWidth, 24);
+            y += 30;
+            backupButton.setBounds(controlX, y, 190, 30);
+            restoreButton.setBounds(controlX + 200, y, 190, 30);
+            y += 38;
+            backupHint.setBounds(controlX, y, controlWidth, 70);
+            y += 80;
 
             return y;
         };
@@ -1648,7 +1675,8 @@ private:
     ScrollPage soundFontPage;
     ScrollPage audioPage;
     ScrollPage toolsPage;
-    juce::Label makeHeading, makeHint, renderHeading, renderHint;
+    juce::Label makeHeading, makeHint, renderHeading, renderHint, backupHeading, backupHint;
+    juce::TextButton backupButton, restoreButton;
     juce::TextButton renderButton;
     juce::Label soundFontLabel, soundHeading, reverbHeading;
     juce::Label deviceHeading, mainHeading, clickHeading, clickHint;
@@ -4093,7 +4121,10 @@ void MainComponent::showAudioSettings()
                 properties->setValue("click.onAtStart", on);
                 properties->saveIfNeeded();
             }
-        }
+        },
+
+        [this] { backupSetlists(); },
+        [this] { restoreSetlists(); }
     };
 
     auto* content = new SettingsContent(std::move(context));
@@ -5690,6 +5721,13 @@ MainComponent::MainComponent()
                             ? safeThis->deviceManager.getCurrentAudioDevice()->getCurrentSampleRate() : 48000.0;
                         safeThis->synthEngine.seekSamples(static_cast<std::int64_t>(std::atof(command.c_str() + 5) * rate));
                     }
+                    else if (command.rfind("backupto:", 0) == 0)
+                        safeThis->writeBackup(juce::File(juce::String(command.substr(9))));
+                    else if (command.rfind("restorefrom:", 0) == 0)
+                    {
+                        if (auto backup = juce::parseXML(juce::File(juce::String(command.substr(12)))))
+                            safeThis->applyBackup(*backup);
+                    }
                     else if (command.rfind("snapshot:", 0) == 0)
                     {
                         // Alleen voor ontwikkeling (MERIK_DEV): het venster als PNG opslaan voor de handleiding.
@@ -7247,6 +7285,36 @@ void MainComponent::loadPersistentState()
             selectedSetlist);
 }
 
+namespace
+{
+// De nummers van een setlist als <s .../>-elementen (voor de instellingen en de back-up).
+template <typename Setlist>
+void writeSongs(juce::XmlElement& parent, const Setlist& setlist)
+{
+    for (const auto& song : setlist.songs)
+    {
+        auto* item = parent.createNewChildElement("s");
+        item->setAttribute("file", song.file.getFullPathName());
+
+        if (song.displayName.isNotEmpty())
+            item->setAttribute("name", song.displayName);
+
+        if (song.transpose != 0)
+            item->setAttribute("transpose", song.transpose);
+
+        if (song.volumeDb != 0)
+            item->setAttribute("volume", song.volumeDb);
+
+        item->setAttribute("fileTime", juce::String(song.fileTime));
+        item->setAttribute("length", song.lengthSeconds);
+        item->setAttribute("lyrics", song.hasLyrics);
+        item->setAttribute("chords", song.hasChords);
+        item->setAttribute("midi", song.hasMidi);
+        item->setAttribute("audio", song.hasAudio);
+    }
+}
+}
+
 void MainComponent::savePersistentState()
 {
     auto* properties =
@@ -7293,28 +7361,7 @@ void MainComponent::savePersistentState()
         // Alle nummers van een setlist in één waarde: duizenden losse sleutels
         // maakten het opslaan traag (elke sleutel zoeken is een lineaire scan).
         juce::XmlElement songsXml("songs");
-
-        for (const auto& song : setlists[i].songs)
-        {
-            auto* item = songsXml.createNewChildElement("s");
-            item->setAttribute("file", song.file.getFullPathName());
-
-            if (song.displayName.isNotEmpty())
-                item->setAttribute("name", song.displayName);
-
-            if (song.transpose != 0)
-                item->setAttribute("transpose", song.transpose);
-
-            if (song.volumeDb != 0)
-                item->setAttribute("volume", song.volumeDb);
-
-            item->setAttribute("fileTime", juce::String(song.fileTime));
-            item->setAttribute("length", song.lengthSeconds);
-            item->setAttribute("lyrics", song.hasLyrics);
-            item->setAttribute("chords", song.hasChords);
-            item->setAttribute("midi", song.hasMidi);
-            item->setAttribute("audio", song.hasAudio);
-        }
+        writeSongs(songsXml, setlists[i]);
 
         properties->setValue("setlist." + index + ".songsXml", &songsXml);
     }
@@ -9303,4 +9350,144 @@ void MainComponent::showUpdateDialog()
                 updatePill.setVisible(false);
                 pendingUpdateVersion = {};
             }));
+}
+
+
+// ============================================================================
+// Back-up en terugzetten van alle setlists
+// ============================================================================
+
+void MainComponent::backupSetlists()
+{
+    backupChooser = std::make_shared<juce::FileChooser>(
+        "Save the backup of all setlists",
+        juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("merik.backup"),
+        "*.backup");
+
+    backupChooser->launchAsync(
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+            | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safe = juce::Component::SafePointer<MainComponent>(this)](const juce::FileChooser& chooser)
+        {
+            if (safe == nullptr || chooser.getResult() == juce::File())
+                return;
+
+            auto file = chooser.getResult();
+
+            if (!file.hasFileExtension("backup"))
+                file = file.withFileExtension("backup");
+
+            if (!safe->writeBackup(file))
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Backup failed",
+                                                       "Could not write " + file.getFullPathName());
+        });
+}
+
+bool MainComponent::writeBackup(const juce::File& file) const
+{
+    juce::XmlElement root("merikbackup");
+    root.setAttribute("version", 1);
+    root.setAttribute("selected", selectedSetlist);
+
+    for (const auto& setlist : setlists)
+    {
+        auto* element = root.createNewChildElement("setlist");
+        element->setAttribute("name", setlist.name);
+        writeSongs(*element, setlist);
+    }
+
+    return root.writeTo(file);
+}
+
+void MainComponent::restoreSetlists()
+{
+    backupChooser = std::make_shared<juce::FileChooser>(
+        "Choose a Merik backup",
+        juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+        "*.backup");
+
+    backupChooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [safe = juce::Component::SafePointer<MainComponent>(this)](const juce::FileChooser& chooser)
+        {
+            if (safe == nullptr || !chooser.getResult().existsAsFile())
+                return;
+
+            std::shared_ptr<juce::XmlElement> backup = juce::parseXML(chooser.getResult());
+
+            if (backup == nullptr || !backup->hasTagName("merikbackup"))
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Not a Merik backup",
+                                                       chooser.getResult().getFileName() + " is not a Merik backup file.");
+                return;
+            }
+
+            int lists = 0, songs = 0;
+
+            for (auto* setlist : backup->getChildWithTagNameIterator("setlist"))
+            {
+                ++lists;
+
+                for (auto* item : setlist->getChildWithTagNameIterator("s"))
+                {
+                    juce::ignoreUnused(item);
+                    ++songs;
+                }
+            }
+
+            safe->confirmDialog(
+                "Replace everything?",
+                "This replaces ALL your setlists and songs with the backup (" + juce::String(lists)
+                    + (lists == 1 ? " setlist, " : " setlists, ") + juce::String(songs)
+                    + (songs == 1 ? " song" : " songs") + ").\n\nThe current setlists are lost. "
+                    "The MIDI and .merik files themselves are not changed.",
+                "Replace",
+                [safe, backup]
+                {
+                    if (safe != nullptr)
+                        safe->applyBackup(*backup);
+                });
+        });
+}
+
+void MainComponent::applyBackup(const juce::XmlElement& backup)
+{
+    auto* properties = appProperties.getUserSettings();
+
+    if (properties == nullptr)
+        return;
+
+    stop();
+
+    int count = 0;
+
+    for (auto* setlist : backup.getChildWithTagNameIterator("setlist"))
+    {
+        const auto index = juce::String(count++);
+        properties->setValue("setlist." + index + ".name", setlist->getStringAttribute("name", "Setlist " + juce::String(count)));
+
+        juce::XmlElement songs("songs");
+
+        for (auto* item : setlist->getChildWithTagNameIterator("s"))
+            songs.addChildElement(new juce::XmlElement(*item));
+
+        properties->setValue("setlist." + index + ".songsXml", &songs);
+    }
+
+    properties->setValue("setlistCount", count);
+    properties->setValue("selectedSetlist", backup.getIntAttribute("selected", 0));
+
+    // Wat aan de oude setlists hing is niet meer geldig.
+    playingRow = -1;
+    playingSetlist = -1;
+    resumeValid = false;
+    resumeSetlist = resumeRow = -1;
+    queuedInsert = {};
+    currentIsInsert = false;
+
+    loadPersistentState();
+    refreshSetlistModel();
+    refreshSongModel();
+    savePersistentState();
+    scanSongInfo();
 }

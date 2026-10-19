@@ -18,6 +18,7 @@ Everything you need to run a gig with Merik, from the first song to your own aud
 | [Remote control from the browser](web-page.md#advanced-control-with-the-key) | Play, stop, next, search, jump in the setlist and the mixer, from an iPad, tablet or phone |
 | [Rendering MIDI to audio](render.md) | Four ways to turn MIDI files into `.merik` files with audio stems: the internal SoundFont, a standalone audio app, a plug-in in a host, or a hardware module |
 | [Rendering through an external module, in detail](render-external-module.md) | Levels, delay measurement and virtual cables for the recording methods |
+| [Backing up and restoring setlists](backup.md) | Save all setlists and songs in one file, and restore them, also on another computer |
 | [The .merik format](merik-format.md) | File names, JSON formats, priorities, and making a `.merik` by hand |
 
 ## Quick start in one minute
