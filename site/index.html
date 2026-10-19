@@ -84,6 +84,8 @@ section.alt .card{background:var(--bg)}
 .whatsnew li b{color:var(--text)}
 .firststart{margin-top:34px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:26px 28px}
 .firststart h3{margin:0 0 8px;font-size:20px}
+.sf{margin:16px 0 4px;padding:14px 16px;background:var(--bg);border:1px solid var(--line);border-radius:12px}
+.sf p{color:var(--muted);font-size:15px;margin:6px 0 0}
 .fs-grid{display:grid;gap:26px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:14px}
 .fs-grid p{color:var(--muted);font-size:15px;margin:6px 0}
 .fs-grid b{color:var(--text)}
@@ -268,7 +270,11 @@ footer .sp{margin-left:auto}
 
   <div class="firststart">
     <h3>First start</h3>
-    <p class="small" style="margin-top:0">The apps are not code-signed yet, so macOS and Windows block the first start. You bring your own SoundFont (<code>.sf2</code>); Merik2 does not include one.</p>
+    <p class="small" style="margin-top:0">The apps are not code-signed yet, so macOS and Windows block the first start.</p>
+    <div class="sf">
+      <b>You need a SoundFont</b>
+      <p>Merik2 plays MIDI through a General MIDI SoundFont (<code>.sf2</code>) and does not include one. Good free choices to start with are <b>MatrixSF_v2.1.5.sf2</b> and <b>MS_Basic.sf2</b>, and any other General MIDI SoundFont works. Choose it under <b>Settings, Soundfont</b>. Check the licence of the one you download.</p>
+    </div>
     <div class="fs-grid">
       <div>
         <b>macOS</b>
