@@ -248,24 +248,22 @@ footer .sp{margin-left:auto}
 
 <section id="download"><div class="wrap">
   <div class="kicker">Download</div>
-  <h2>Get Merik2 <span id="ver" style="color:var(--yellow)">0.7.0</span></h2>
+  <h2>Get Merik2 <span id="ver" style="color:var(--yellow)">0.7.1</span></h2>
   <p class="sub">Free for macOS and Windows.</p>
   <div class="dl">
-    <a class="card dlcard" id="dl-arm" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.0/Merik-0.7.0-arm64.dmg"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p><span class="get">Download .dmg</span></a>
-    <a class="card dlcard" id="dl-intel" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.0/Merik-0.7.0-intel.dmg"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p><span class="get">Download .dmg</span></a>
-    <a class="card dlcard" id="dl-win" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.0/Merik-0.7.0-windows-x64.zip"><b>Windows</b><p>Windows 10 or 11, 64-bit.</p><span class="get">Download .zip</span></a>
+    <a class="card dlcard" id="dl-arm" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.1/Merik-0.7.1-arm64.dmg"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-intel" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.1/Merik-0.7.1-intel.dmg"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-win" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.1/Merik-0.7.1-windows-x64-setup.exe"><b>Windows</b><p>Windows 10 or 11, 64-bit. Installer.</p><span class="get">Download installer</span></a>
   </div>
 
   <div class="whatsnew" id="whatsnew">
-    <h3>What's new in <span id="ver2">0.7.0</span></h3>
+    <h3>What's new in <span id="ver2">0.7.1</span></h3>
     <ul>
-      <li><b>merik.local:</b> open <b>http://merik.local</b> on any tablet or phone, no IP address needed (web port 80).</li>
-      <li><b>Render with Merik's SoundFont:</b> turn MIDI files into audio stems, much faster than real time, without hardware.</li>
-      <li><b>Backup and restore</b> of all setlists and songs in one file.</li>
-      <li><b>Setlist view on the web page:</b> jump to any song now or next, with the time left in the set.</li>
-      <li><b>Sections</b>, a beat counter and a wait pill on the web page, and per-song volume and transpose that reset properly.</li>
+      <li><b>Windows installer:</b> Merik for Windows is now an installer instead of a zip, with a Start menu entry and an uninstaller. No administrator rights needed.</li>
+      <li><b>Code signing is on the way</b>, which should remove the Windows warnings.</li>
+      <li>From 0.7.0: <b>merik.local</b>, rendering with Merik's own SoundFont, backup and restore of setlists, and a setlist view with jump buttons on the web page.</li>
     </ul>
-    <p class="small"><a id="notes" href="https://github.com/erik-nie/Merik2/releases/tag/v0.7.0">Read the full release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>
+    <p class="small"><a id="notes" href="https://github.com/erik-nie/Merik2/releases/tag/v0.7.1">Read the full release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>
   </div>
 
   <div class="firststart">
@@ -283,8 +281,10 @@ footer .sp{margin-left:auto}
       </div>
       <div>
         <b>Windows</b>
-        <p>Extract the zip and run <code>Merik.exe</code>. If SmartScreen warns, click <b>More info</b>, then <b>Run anyway</b>.</p>
-        <p>If <b>Smart App Control</b> blocks it (no "Run anyway" button): open <b>Windows Security, App &amp; browser control, Smart App Control settings</b> and choose <b>Off</b>. On some Windows 11 versions it cannot be turned on again afterwards.</p>
+        <p>Run the installer. If SmartScreen says "Windows protected your PC", click <b>More info</b>, then <b>Run anyway</b>.</p>
+        <p>No "Run anyway"? Open <b>Windows Security, App &amp; browser control, Reputation-based protection settings</b> and set <b>Check apps and files</b> to <b>Warn</b>.</p>
+        <p>Windows 11 with <b>Smart App Control</b> on blocks it completely: open <b>Windows Security, App &amp; browser control, Smart App Control settings</b> and choose <b>Off</b>. On some versions it cannot be turned on again afterwards.</p>
+        <p>A <b>code-signed release is on the way</b>, which should remove these warnings.</p>
       </div>
     </div>
   </div>
@@ -318,18 +318,18 @@ footer .sp{margin-left:auto}
 </div></footer>
 
 <script>
-// Houdt de downloadknoppen op de nieuwste release; zonder verbinding blijven de ingebouwde links van 0.7.0 staan.
+// Houdt de downloadknoppen op de nieuwste release; zonder verbinding blijven de ingebouwde links van 0.7.1 staan.
 (function(){
   fetch("https://api.github.com/repos/erik-nie/Merik2/releases/latest").then(function(r){return r.ok?r.json():null}).then(function(rel){
     if(!rel||!rel.tag_name) return;
     var version=rel.tag_name.replace(/^v/,"");
-    var map={"dl-arm":/arm64\.dmg$/,"dl-intel":/intel\.dmg$/,"dl-win":/windows-x64\.zip$/};
+    var map={"dl-arm":/arm64\.dmg$/,"dl-intel":/intel\.dmg$/,"dl-win":/windows-x64(-setup\.exe|\.zip)$/};
     (rel.assets||[]).forEach(function(a){
       for(var id in map) if(map[id].test(a.name)) document.getElementById(id).href=a.browser_download_url;
     });
     document.getElementById("ver").textContent=version;
     document.getElementById("notes").href=rel.html_url;
-    if(version!=="0.7.0"){
+    if(version!=="0.7.1"){
       document.getElementById("whatsnew").innerHTML='<h3>What\'s new in '+version+'</h3><p class="small"><a href="'+rel.html_url+'">Read the release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>';
     }
   }).catch(function(){});
