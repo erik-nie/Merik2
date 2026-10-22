@@ -151,7 +151,16 @@ if [[ -n "${SIGN_IDENTITY:-}" ]]; then
     if [[ -n "${NOTARY_PROFILE:-}" ]]; then
         step "Notariseren (kan enkele minuten duren)"
         xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
-        xcrun stapler staple "$DMG"
+
+        # Het ticket ophalen bij Apple mislukt soms door een tijdelijke netwerkfout: opnieuw proberen.
+        stapled=0
+        for attempt in 1 2 3 4 5 6; do
+            if xcrun stapler staple "$DMG"; then stapled=1; break; fi
+            echo "Stapelen mislukte (poging $attempt van 6), over 20 seconden opnieuw..."
+            sleep 20
+        done
+        [[ $stapled == 1 ]] || fail "het notarisatieticket kon niet in de DMG worden gestapeld."
+        xcrun stapler validate "$DMG"
     fi
 fi
 
