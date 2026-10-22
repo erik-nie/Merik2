@@ -1,6 +1,6 @@
 name: Release
 
-# Bouwt een DMG voor Apple silicon, een DMG voor Intel-Macs en een zip (Windows) en zet ze als
+# Bouwt een DMG voor Apple silicon, een DMG voor Intel-Macs en een installatieprogramma (Windows) en zet ze als
 # concept-release op GitHub. Starten door een tag te pushen:
 #
 #   git tag -a v0.2.0-alpha.2 -m "Alpha 2" && git push origin v0.2.0-alpha.2
@@ -58,7 +58,7 @@ jobs:
           path: dist/*.dmg
 
   windows:
-    name: Windows zip
+    name: Windows installer
     runs-on: windows-latest
     env:
       VCPKG_ROOT: ${{ github.workspace }}\vcpkg
@@ -85,7 +85,7 @@ jobs:
         shell: pwsh
         run: cmake --build --preset windows-release --parallel
 
-      - name: Package the zip
+      - name: Package the installer
         shell: pwsh
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'dev' }
@@ -109,26 +109,20 @@ jobs:
           Copy-Item LICENSE "$stage\LICENSE.txt"
           Copy-Item THIRD-PARTY-LICENSES.md $stage
 
-          @"
-          Merik $version (Windows, 64-bit)
+          # Het installatieprogramma (Inno Setup) maken uit de map met Merik.exe.
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$version" "/DSourceDir=$stage" "/DOutputDir=$PWD\dist" installer\merik.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
-          Start: extract this zip to a folder (for example C:\Merik) and run Merik.exe.
-
-          Windows SmartScreen may warn that the app is unknown, because this build is not
-          code-signed. Click "More info", then "Run anyway".
-
-          Merik needs a General MIDI SoundFont (.sf2): choose one in Settings > Audio.
-          The first time, Windows may ask whether Merik may use your network: allow it on
-          private networks to use the lyrics and remote control web page.
-          "@ | Set-Content -Path "$stage\READ ME FIRST.txt" -Encoding UTF8
-
-          Compress-Archive -Path $stage -DestinationPath "dist\$name.zip" -Force
+          # De map zelf hoort niet in de release.
+          Remove-Item $stage -Recurse -Force
           Get-ChildItem dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-zip
-          path: dist/*.zip
+          name: windows-installer
+          path: dist/*.exe
 
   release:
     name: Create the draft release
