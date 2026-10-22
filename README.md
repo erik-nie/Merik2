@@ -47,7 +47,7 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 4. If Windows 11 blocks it with **Smart App Control** (no "Run anyway" either), open **Windows Security, App & browser control, Smart App Control settings** and choose **Off**. On some Windows 11 versions Smart App Control cannot be turned on again afterwards.
 5. Allow Merik on private networks when Windows asks, to use the lyrics and remote control web page.
 
-A **code-signed Windows release is on the way** (free code signing for open-source projects). It should remove these warnings.
+The Windows build is **not code-signed yet**; code signing is planned, but it is not available for this project at the moment. Until then these warnings can appear.
 
 **First start (both systems):** choose a General MIDI SoundFont (`.sf2`) under **Settings → Soundfont**. Merik does not include one. `MatrixSF_v2.1.5.sf2` is a great free option, but many others exist.
 
