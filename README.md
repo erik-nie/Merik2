@@ -27,31 +27,27 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 ## Download
 
-**[Download Merik 0.7.1](https://github.com/erik-nie/Merik2/releases/tag/v0.7.1)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+**[Download Merik 0.7.2](https://github.com/erik-nie/Merik2/releases/tag/v0.7.2)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS, Apple silicon** (M1 and newer) | `Merik-0.7.1-arm64.dmg` | macOS 14 or later |
-| **macOS, Intel** | `Merik-0.7.1-intel.dmg` | Intel Mac, macOS 15 or later |
-| **Windows** | `Merik-0.7.1-windows-x64-setup.exe` | Windows 10 or 11, 64-bit |
+| **macOS, Apple silicon** (M1 and newer) | `Merik-0.7.2-arm64.dmg` | macOS 14 or later |
+| **macOS, Intel** | `Merik-0.7.2-intel.dmg` | Intel Mac, macOS 15 or later |
+| **Windows** | `Merik-0.7.2-windows-x64-setup.exe` | Windows 10 or 11, 64-bit |
 
 **Install on macOS** (both versions)
 
-1. Open the DMG and drag **Merik** onto **Applications**.
-2. The app is **not notarized**, so macOS blocks the first start. Right-click **Merik.app**, choose **Open** and confirm. If it is still blocked, run this in Terminal:
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/Merik.app
-   ```
+1. Open the DMG and drag **Merik** onto **Applications**, then start it. The app is **signed and notarized by Apple**, so macOS opens it without extra steps (it may ask once to confirm that it was downloaded from the internet).
 
 **Install on Windows**
 
-1. Download and run `Merik-0.7.1-windows-x64-setup.exe` and follow the installer. It installs for your own account and needs no administrator rights.
+1. Download and run `Merik-0.7.2-windows-x64-setup.exe` and follow the installer. It installs for your own account and needs no administrator rights.
 2. The installer is **not code-signed** yet, so Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 3. If there is no "Run anyway" button, SmartScreen is set to block: open **Windows Security, App & browser control, Reputation-based protection settings** and set **Check apps and files** to **Warn** (or **Off**).
 4. If Windows 11 blocks it with **Smart App Control** (no "Run anyway" either), open **Windows Security, App & browser control, Smart App Control settings** and choose **Off**. On some Windows 11 versions Smart App Control cannot be turned on again afterwards.
 5. Allow Merik on private networks when Windows asks, to use the lyrics and remote control web page.
 
-A **code-signed release is on the way** (free code signing for open-source projects). It should remove these warnings.
+A **code-signed Windows release is on the way** (free code signing for open-source projects). It should remove these warnings.
 
 **First start (both systems):** choose a General MIDI SoundFont (`.sf2`) under **Settings → Soundfont**. Merik does not include one. `MatrixSF_v2.1.5.sf2` is a great free option, but many others exist.
 
@@ -316,8 +312,8 @@ The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's
 Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMGs (Apple silicon and Intel) and the Windows installer and creates a draft release with the three files:
 
 ```sh
-git tag -a v0.7.1 -m "Merik 0.7.1"
-git push origin v0.7.1
+git tag -a v0.7.2 -m "Merik 0.7.2"
+git push origin v0.7.2
 ```
 
 The release notes come from `docs/release-notes/<version>.md`. You can also start the workflow by hand (Actions, Release, Run workflow) to build the files without making a release.
@@ -325,10 +321,10 @@ The release notes come from `docs/release-notes/<version>.md`. You can also star
 On a Mac you can build the DMG yourself with `scripts/make-release.sh` (it builds for the processor of that Mac). It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
 
 ```sh
-scripts/make-release.sh 0.7.1
+scripts/make-release.sh 0.7.2
 ```
 
-For a Developer ID signature and notarization, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.
+The GitHub release workflow signs and notarizes the macOS DMGs with a Developer ID certificate (stored as GitHub secrets). For your own build, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.
 
 ### Project layout
 

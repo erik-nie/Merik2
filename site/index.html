@@ -248,27 +248,27 @@ footer .sp{margin-left:auto}
 
 <section id="download"><div class="wrap">
   <div class="kicker">Download</div>
-  <h2>Get Merik2 <span id="ver" style="color:var(--yellow)">0.7.1</span></h2>
+  <h2>Get Merik2 <span id="ver" style="color:var(--yellow)">0.7.2</span></h2>
   <p class="sub">Free for macOS and Windows.</p>
   <div class="dl">
-    <a class="card dlcard" id="dl-arm" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.1/Merik-0.7.1-arm64.dmg"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p><span class="get">Download .dmg</span></a>
-    <a class="card dlcard" id="dl-intel" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.1/Merik-0.7.1-intel.dmg"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p><span class="get">Download .dmg</span></a>
-    <a class="card dlcard" id="dl-win" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.1/Merik-0.7.1-windows-x64-setup.exe"><b>Windows</b><p>Windows 10 or 11, 64-bit. Installer.</p><span class="get">Download installer</span></a>
+    <a class="card dlcard" id="dl-arm" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.2/Merik-0.7.2-arm64.dmg"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-intel" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.2/Merik-0.7.2-intel.dmg"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-win" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.2/Merik-0.7.2-windows-x64-setup.exe"><b>Windows</b><p>Windows 10 or 11, 64-bit. Installer.</p><span class="get">Download installer</span></a>
   </div>
 
   <div class="whatsnew" id="whatsnew">
-    <h3>What's new in <span id="ver2">0.7.1</span></h3>
+    <h3>What's new in <span id="ver2">0.7.2</span></h3>
     <ul>
-      <li><b>Windows installer:</b> Merik for Windows is now an installer instead of a zip, with a Start menu entry and an uninstaller. No administrator rights needed.</li>
-      <li><b>Code signing is on the way</b>, which should remove the Windows warnings.</li>
+      <li><b>macOS: signed and notarized by Apple.</b> Open the DMG, drag Merik to Applications and start it, with no extra steps.</li>
+      <li><b>Windows installer</b> instead of a zip, with a Start menu entry and an uninstaller. A <b>code-signed Windows release is on the way</b>.</li>
       <li>From 0.7.0: <b>merik.local</b>, rendering with Merik's own SoundFont, backup and restore of setlists, and a setlist view with jump buttons on the web page.</li>
     </ul>
-    <p class="small"><a id="notes" href="https://github.com/erik-nie/Merik2/releases/tag/v0.7.1">Read the full release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>
+    <p class="small"><a id="notes" href="https://github.com/erik-nie/Merik2/releases/tag/v0.7.2">Read the full release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>
   </div>
 
   <div class="firststart">
     <h3>First start</h3>
-    <p class="small" style="margin-top:0">The apps are not code-signed yet, so macOS and Windows block the first start.</p>
+    <p class="small" style="margin-top:0">macOS opens Merik2 without extra steps. The Windows installer is not code-signed yet, so Windows may warn.</p>
     <div class="sf">
       <b>You need a SoundFont</b>
       <p>Merik2 plays MIDI through a General MIDI SoundFont (<code>.sf2</code>) and does not include one. Good free choices to start with are <b>MatrixSF_v2.1.5.sf2</b> and <b>MS_Basic.sf2</b>, and any other General MIDI SoundFont works. Choose it under <b>Settings, Soundfont</b>. Check the licence of the one you download.</p>
@@ -276,15 +276,14 @@ footer .sp{margin-left:auto}
     <div class="fs-grid">
       <div>
         <b>macOS</b>
-        <p>Drag Merik to Applications, then right-click it, choose <b>Open</b> and confirm. If it is still blocked, run this in Terminal:</p>
-        <pre>xattr -dr com.apple.quarantine /Applications/Merik.app</pre>
+        <p>Open the DMG, drag Merik to Applications and start it. The app is <b>signed and notarized by Apple</b>. macOS may ask once to confirm that it was downloaded from the internet.</p>
       </div>
       <div>
         <b>Windows</b>
         <p>Run the installer. If SmartScreen says "Windows protected your PC", click <b>More info</b>, then <b>Run anyway</b>.</p>
         <p>No "Run anyway"? Open <b>Windows Security, App &amp; browser control, Reputation-based protection settings</b> and set <b>Check apps and files</b> to <b>Warn</b>.</p>
         <p>Windows 11 with <b>Smart App Control</b> on blocks it completely: open <b>Windows Security, App &amp; browser control, Smart App Control settings</b> and choose <b>Off</b>. On some versions it cannot be turned on again afterwards.</p>
-        <p>A <b>code-signed release is on the way</b>, which should remove these warnings.</p>
+        <p>A <b>code-signed Windows release is on the way</b>, which should remove these warnings.</p>
       </div>
     </div>
   </div>
@@ -318,7 +317,7 @@ footer .sp{margin-left:auto}
 </div></footer>
 
 <script>
-// Houdt de downloadknoppen op de nieuwste release; zonder verbinding blijven de ingebouwde links van 0.7.1 staan.
+// Houdt de downloadknoppen op de nieuwste release; zonder verbinding blijven de ingebouwde links van 0.7.2 staan.
 (function(){
   fetch("https://api.github.com/repos/erik-nie/Merik2/releases/latest").then(function(r){return r.ok?r.json():null}).then(function(rel){
     if(!rel||!rel.tag_name) return;
@@ -329,7 +328,7 @@ footer .sp{margin-left:auto}
     });
     document.getElementById("ver").textContent=version;
     document.getElementById("notes").href=rel.html_url;
-    if(version!=="0.7.1"){
+    if(version!=="0.7.2"){
       document.getElementById("whatsnew").innerHTML='<h3>What\'s new in '+version+'</h3><p class="small"><a href="'+rel.html_url+'">Read the release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>';
     }
   }).catch(function(){});
