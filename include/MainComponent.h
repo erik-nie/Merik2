@@ -466,6 +466,7 @@ private:
 
     // Back-up van alle setlists en nummers in één bestand (merik.backup), en terugzetten.
     std::shared_ptr<juce::FileChooser> backupChooser;
+    std::unique_ptr<juce::Timer> devRecorder;   // alleen voor ontwikkeling (MERIK_DEV): het venster als beeldjes opnemen
     void backupSetlists();
     void restoreSetlists();
     void applyBackup(const juce::XmlElement& backup);

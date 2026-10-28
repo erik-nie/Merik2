@@ -620,6 +620,53 @@ private:
     juce::Viewport viewport;
 };
 
+namespace
+{
+// Alleen voor ontwikkeling (MERIK_DEV): neemt het venster op een vast tempo op als JPEG-beeldjes, met per beeld de
+// tijd (frames.csv). Zo kan een demo-film zonder schermopname-toestemming en zonder wiebelende camera worden gemaakt.
+class DevFrameRecorder final : public juce::Timer
+{
+public:
+    DevFrameRecorder(juce::Component& componentToRecord, juce::File folderToUse, int fps, float scaleToUse)
+        : target(componentToRecord), folder(std::move(folderToUse)), scale(scaleToUse)
+    {
+        folder.createDirectory();
+        log = folder.getChildFile("frames.csv");
+        log.deleteFile();
+        startTimer(juce::jmax(1, 1000 / juce::jmax(1, fps)));
+    }
+
+    ~DevFrameRecorder() override
+    {
+        stopTimer();
+        log.appendText(lines);
+    }
+
+private:
+    void timerCallback() override
+    {
+        const auto now = juce::Time::currentTimeMillis();
+        const auto image = target.createComponentSnapshot(target.getLocalBounds(), true, scale);
+        const auto file = folder.getChildFile(juce::String(++count).paddedLeft('0', 5) + ".jpg");
+
+        if (auto stream = file.createOutputStream())
+        {
+            juce::JPEGImageFormat jpeg;
+            jpeg.setQuality(0.93f);
+            jpeg.writeImageToStream(image, *stream);
+        }
+
+        lines << juce::String(count) << "," << juce::String(now) << "\n";
+    }
+
+    juce::Component& target;
+    juce::File folder, log;
+    float scale = 1.0f;
+    int count = 0;
+    juce::String lines;
+};
+}
+
 struct SettingsContext
 {
     juce::AudioDeviceManager& deviceManager;
@@ -5720,6 +5767,24 @@ MainComponent::MainComponent()
                         const double rate = safeThis->deviceManager.getCurrentAudioDevice() != nullptr
                             ? safeThis->deviceManager.getCurrentAudioDevice()->getCurrentSampleRate() : 48000.0;
                         safeThis->synthEngine.seekSamples(static_cast<std::int64_t>(std::atof(command.c_str() + 5) * rate));
+                    }
+                    else if (command.rfind("record:", 0) == 0)
+                    {
+                        // "record:<map>:<fps>:<schaal>"
+                        const auto parts = juce::StringArray::fromTokens(juce::String(command.substr(7)), ":", "");
+                        safeThis->devRecorder = std::make_unique<DevFrameRecorder>(
+                            *safeThis, juce::File(parts[0]), parts.size() > 1 ? parts[1].getIntValue() : 20,
+                            parts.size() > 2 ? parts[2].getFloatValue() : 1.0f);
+                    }
+                    else if (command == "recordstop")
+                        safeThis->devRecorder.reset();
+                    else if (command.rfind("click:", 0) == 0)
+                    {
+                        // Een klik op de naamknop van een familie (0..7), zoals met de muis.
+                        const int family = std::atoi(command.c_str() + 6);
+
+                        if (family >= 0 && family < static_cast<int>(safeThis->familyControls.size()))
+                            safeThis->familyControls[static_cast<std::size_t>(family)].labelButton.triggerClick();
                     }
                     else if (command.rfind("backupto:", 0) == 0)
                         safeThis->writeBackup(juce::File(juce::String(command.substr(9))));
