@@ -90,6 +90,8 @@ section.alt .card{background:var(--bg)}
 .fs-grid p{color:var(--muted);font-size:15px;margin:6px 0}
 .fs-grid b{color:var(--text)}
 .fs-grid pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13.5px;margin:8px 0 0}
+.videoframe{max-width:960px;margin:0 auto;border-radius:16px;overflow:hidden;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.6);background:#000}
+.videoframe video{display:block;width:100%;height:auto}
 .support{margin-top:44px;padding-top:30px;border-top:1px solid var(--line)}
 .support p{color:var(--muted);max-width:640px;margin:0 0 16px}
 footer{border-top:1px solid var(--line);padding:36px 0 50px;color:var(--muted);font-size:15px}
@@ -107,6 +109,7 @@ footer .sp{margin-left:auto}
 <nav><div class="wrap">
   <a class="brand" href="#top"><img src="img/icon.png" alt="">Merik2</a>
   <div class="links">
+    <a class="hide" href="#watch">Watch</a>
     <a class="hide" href="#why">Why Merik2</a>
     <a class="hide" href="#band">For the band</a>
     <a class="hide" href="#how">How it works</a>
@@ -127,6 +130,18 @@ footer .sp{margin-left:auto}
   <p class="small">Free and open source (AGPL-3.0). No cloud, no account.</p>
   <div class="shot"><img src="img/main-window.png" alt="The Merik2 app: family mixer, setlists and songs"></div>
 </div></header>
+
+<section id="watch"><div class="wrap">
+  <div class="kicker">Watch</div>
+  <h2>See Merik2 in action</h2>
+  <p class="sub">A minute and a half: the app, the band's tablet display, and the remote control.</p>
+  <div class="videoframe">
+    <video controls preload="none" playsinline poster="img/video-poster.jpg">
+      <source src="video/merik2-demo.mp4" type="video/mp4">
+      Your browser cannot play this video. <a href="video/merik2-demo.mp4">Download it</a>.
+    </video>
+  </div>
+</div></section>
 
 <section id="why"><div class="wrap">
   <div class="kicker">Why Merik2</div>
