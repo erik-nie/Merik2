@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://merik2.merik2.workers.dev/sitemap.xml

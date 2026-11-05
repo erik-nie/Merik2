@@ -3,12 +3,62 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Merik2 – the live MIDI/audio backing tracks player</title>
-<meta name="description" content="Merik2 plays your MIDI and audio backing tracks, and shows lyrics, chords and sections to the whole band on any tablet or phone.">
+<title>Merik2 – free live MIDI and audio backing tracks player</title>
+<meta name="description" content="Free backing tracks player for live bands on macOS and Windows: MIDI and audio stems, setlists, a live mixer, and lyrics and chords on any tablet or phone.">
 <link rel="icon" type="image/png" href="img/favicon.png">
-<meta property="og:title" content="Merik2 – the live MIDI/audio backing tracks player built for the stage">
-<meta property="og:description" content="Setlists, a live mixer, and lyrics and chords for the whole band in a browser.">
-<meta property="og:image" content="img/web-verse.png">
+<link rel="canonical" href="https://merik2.merik2.workers.dev/">
+<meta property="og:site_name" content="Merik2">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Merik2 – free live MIDI and audio backing tracks player">
+<meta property="og:description" content="Free backing tracks player for live bands on macOS and Windows: MIDI and audio stems, setlists, a live mixer, and lyrics and chords on any tablet or phone.">
+<meta property="og:url" content="https://merik2.merik2.workers.dev/">
+<meta property="og:image" content="https://merik2.merik2.workers.dev/img/web-verse.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="800">
+<meta property="og:image:alt" content="Lyrics, chords, section and beat counter on a tablet">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "SoftwareApplication",
+   "name": "Merik2",
+   "url": "https://merik2.merik2.workers.dev/",
+   "description": "Free backing tracks player for live bands on macOS and Windows: MIDI and audio stems, setlists, a live mixer, and lyrics and chords on any tablet or phone.",
+   "applicationCategory": "MultimediaApplication",
+   "operatingSystem": "macOS, Windows",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "EUR"
+   },
+   "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+   "downloadUrl": "https://github.com/erik-nie/Merik2/releases/latest",
+   "sameAs": [
+    "https://github.com/erik-nie/Merik2"
+   ],
+   "image": "https://merik2.merik2.workers.dev/img/icon.png",
+   "screenshot": "https://merik2.merik2.workers.dev/img/main-window.png",
+   "author": {
+    "@type": "Person",
+    "name": "Erik Nieuwlands"
+   }
+  },
+  {
+   "@type": "VideoObject",
+   "name": "See Merik2 in action",
+   "description": "A minute and a half: the app, the band's tablet display, and the remote control.",
+   "thumbnailUrl": "https://merik2.merik2.workers.dev/img/video-poster.jpg",
+   "uploadDate": "2026-10-28",
+   "duration": "PT1M27S",
+   "contentUrl": "https://merik2.merik2.workers.dev/video/merik2-demo.mp4"
+  }
+ ]
+}
+</script>
 <style>
 :root{
   --bg:#0b0c10; --panel:#14161d; --panel2:#1b1e27; --line:#262a36;
@@ -116,7 +166,7 @@ footer .sp{margin-left:auto}
 <body>
 
 <nav><div class="wrap">
-  <a class="brand" href="#top"><img src="img/icon.png" alt="">Merik2</a>
+  <a class="brand" href="#top"><img width="256" height="256" src="img/icon.png" alt="">Merik2</a>
   <div class="links">
     <a class="hide" href="#watch">Watch</a>
     <a class="hide" href="#why">Why Merik2</a>
@@ -129,7 +179,7 @@ footer .sp{margin-left:auto}
 </div></nav>
 
 <header class="hero" id="top"><div class="wrap">
-  <img class="logo" src="img/icon.png" alt="Merik2 logo">
+  <img width="256" height="256" class="logo" src="img/icon.png" alt="Merik2 logo">
   <h1>The live MIDI/audio backing tracks player built for <em>the stage</em></h1>
   <p class="lead">Play your MIDI and audio backing tracks from one laptop, and show the lyrics, chords and sections to everybody in the band, on any tablet or phone.</p>
   <div class="cta">
@@ -137,7 +187,7 @@ footer .sp{margin-left:auto}
     <a class="btn" href="https://github.com/erik-nie/Merik2">View on GitHub</a>
   </div>
   <p class="small">Free and open source (AGPL-3.0). No cloud, no account.</p>
-  <div class="shot"><img src="img/main-window.png" alt="The Merik2 app: family mixer, setlists and songs"></div>
+  <div class="shot"><img width="1936" height="1828" src="img/main-window.png" alt="The Merik2 app: family mixer, setlists and songs"></div>
 </div></header>
 
 <section id="watch"><div class="wrap">
@@ -178,11 +228,11 @@ footer .sp{margin-left:auto}
         <li><b>Sections</b> and a <b>beat counter</b> at the top right.</li>
       </ul>
     </div>
-    <div><div class="ipad"><img src="img/web-verse.png" alt="Lyrics, chords, section and beat counter on a tablet"></div></div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1280" height="800" src="img/web-verse.png" alt="Lyrics, chords, section and beat counter on a tablet"></div></div>
   </div>
 
   <div class="split rev band-block">
-    <div><div class="ipad"><img src="img/web-countdown.png" alt="The wait pill counting down in an instrumental part"></div></div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1280" height="800" src="img/web-countdown.png" alt="The wait pill counting down in an instrumental part"></div></div>
     <div>
       <div class="kicker">Never miss your entrance</div>
       <h2>The wait pill</h2>
@@ -196,13 +246,13 @@ footer .sp{margin-left:auto}
       <h2>Always know where you are</h2>
       <p class="sub" style="margin-bottom:0">Intro, Verse, Chorus, Solo... read from the MIDI file and shown at the top right, with the current chord and the next ones along the bottom.</p>
     </div>
-    <div><div class="ipad"><img src="img/web-chorus.png" alt="The chorus section with its chords"></div></div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1280" height="800" src="img/web-chorus.png" alt="The chorus section with its chords"></div></div>
   </div>
 </div></section>
 
 <section><div class="wrap">
   <div class="split rev">
-    <div><div class="ipad"><img src="img/web-advanced.png" alt="The web page with five control buttons on the left"></div></div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1280" height="800" src="img/web-advanced.png" alt="The web page with five control buttons on the left"></div></div>
     <div>
       <div class="kicker">Remote control</div>
       <h2>Run the show from the tablet</h2>
@@ -221,11 +271,11 @@ footer .sp{margin-left:auto}
       <h2>Play now, or play next</h2>
       <p class="sub" style="margin-bottom:0">Type three letters and search the current setlist or all setlists. <b>Play now</b> starts the song at once; <b>Play next</b> plays it after the current song. The setlist then continues where it was.</p>
     </div>
-    <div><div class="ipad"><img src="img/web-search.png" alt="The search screen with Play now and Play next"></div></div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1280" height="800" src="img/web-search.png" alt="The search screen with Play now and Play next"></div></div>
   </div>
 
   <div class="split rev band-block">
-    <div><div class="ipad"><img src="img/web-setlist.png" alt="The setlist screen with Jump now and Jump next"></div></div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1280" height="800" src="img/web-setlist.png" alt="The setlist screen with Jump now and Jump next"></div></div>
     <div>
       <div class="kicker">Setlist</div>
       <h2>Jump anywhere in the set</h2>
@@ -314,7 +364,7 @@ footer .sp{margin-left:auto}
 
   <div class="support">
     <p>Merik2 is free and made in spare time. If it helps your band or your gigs, a coffee keeps the development going.</p>
-    <a href="https://ko-fi.com/eriknie" target="_blank" rel="noopener"><img height="40" style="border:0;height:40px" src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support Merik2 on Ko-fi"></a>
+    <a href="https://ko-fi.com/eriknie" target="_blank" rel="noopener"><img loading="lazy" decoding="async" width="159" height="40" style="border:0;height:40px" src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support Merik2 on Ko-fi"></a>
   </div>
 </div></section>
 
@@ -339,13 +389,13 @@ footer .sp{margin-left:auto}
   <h2>Other apps</h2>
   <div class="apps">
     <a class="card app" href="https://qsheets.merik2.workers.dev" target="_blank" rel="noopener">
-      <div class="head"><img src="img/apps/qsheets-icon.jpg" alt="QSheets icon" width="56" height="56"><div><h3>QSheets</h3><span>iPad and iPhone</span></div></div>
+      <div class="head"><img loading="lazy" decoding="async" src="img/apps/qsheets-icon.jpg" alt="QSheets icon" width="56" height="56"><div><h3>QSheets</h3><span>iPad and iPhone</span></div></div>
       <p>Your sheet music, lyrics and chord charts full screen on stage, straight from a folder in iCloud Drive. With setlists, a backing track per sheet and MIDI program changes for your synths.</p>
       <img class="shot2" src="img/apps/qsheets-shot.jpg" alt="QSheets on an iPad: a folder of songs as a grid of buttons" loading="lazy" width="1200" height="900">
       <span class="go">Visit the QSheets website →</span>
     </a>
     <a class="card app" href="https://memorymate-android.merik2.workers.dev/" target="_blank" rel="noopener">
-      <div class="head"><img src="img/apps/memorymate-icon.png" alt="MemoryMate icon" width="56" height="56"><div><h3>MemoryMate</h3><span>iPad, iPhone and Android · free</span></div></div>
+      <div class="head"><img loading="lazy" decoding="async" src="img/apps/memorymate-icon.png" alt="MemoryMate icon" width="56" height="56"><div><h3>MemoryMate</h3><span>iPad, iPhone and Android · free</span></div></div>
       <p>A calm calendar clock for seniors, people with dementia and young children: a large clock, the date and the coming events, without ads.</p>
       <img class="shot2" src="img/apps/memorymate-shot.jpg" alt="MemoryMate on an iPad: a large clock and the coming events" loading="lazy" width="1200" height="788">
       <span class="go">Visit the MemoryMate website →</span>
@@ -354,7 +404,7 @@ footer .sp{margin-left:auto}
 </div></section>
 
 <footer><div class="wrap">
-  <a class="brand" href="#top" style="font-size:17px"><img src="img/icon.png" alt="" style="width:26px;height:26px">Merik2</a>
+  <a class="brand" href="#top" style="font-size:17px"><img loading="lazy" decoding="async" width="256" height="256" src="img/icon.png" alt="" style="width:26px;height:26px">Merik2</a>
   <span>Free software under the GNU AGPL v3.</span>
   <span class="sp"><a href="https://qsheets.merik2.workers.dev">QSheets</a> · <a href="https://memorymate-android.merik2.workers.dev/">MemoryMate</a> · <a href="https://github.com/erik-nie/Merik2">GitHub</a> · <a href="https://ko-fi.com/eriknie">Ko-fi</a></span>
 </div></footer>
