@@ -24,3 +24,6 @@ Makefile
 # macOS
 .DS_Store
 **/.DS_Store
+
+# Installers die de website zelf serveert (scripts/update-site-downloads.sh)
+!site/download/*.exe

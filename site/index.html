@@ -36,7 +36,7 @@
     "priceCurrency": "EUR"
    },
    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
-   "downloadUrl": "https://github.com/erik-nie/Merik2/releases/latest",
+   "downloadUrl": "https://merik2.merik2.workers.dev/#download",
    "sameAs": [
     "https://github.com/erik-nie/Merik2"
    ],
@@ -325,9 +325,9 @@ footer .sp{margin-left:auto}
   <h2>Get Merik2 <span id="ver" style="color:var(--yellow)">0.7.2</span></h2>
   <p class="sub">Free for macOS and Windows.</p>
   <div class="dl">
-    <a class="card dlcard" id="dl-arm" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.2/Merik-0.7.2-arm64.dmg"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p><span class="get">Download .dmg</span></a>
-    <a class="card dlcard" id="dl-intel" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.2/Merik-0.7.2-intel.dmg"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p><span class="get">Download .dmg</span></a>
-    <a class="card dlcard" id="dl-win" href="https://github.com/erik-nie/Merik2/releases/download/v0.7.2/Merik-0.7.2-windows-x64-setup.exe"><b>Windows</b><p>Windows 10 or 11, 64-bit. Installer.</p><span class="get">Download installer</span></a>
+    <a class="card dlcard" id="dl-arm" href="download/Merik-0.7.2-arm64.dmg"><b>macOS, Apple silicon</b><p>M1 and newer. macOS 14 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-intel" href="download/Merik-0.7.2-intel.dmg"><b>macOS, Intel</b><p>Intel Mac, macOS 15 or later.</p><span class="get">Download .dmg</span></a>
+    <a class="card dlcard" id="dl-win" href="download/Merik-0.7.2-windows-x64-setup.exe"><b>Windows</b><p>Windows 10 or 11, 64-bit. Installer.</p><span class="get">Download installer</span></a>
   </div>
 
   <div class="whatsnew" id="whatsnew">
@@ -409,23 +409,5 @@ footer .sp{margin-left:auto}
   <span class="sp"><a href="https://qsheets.merik2.workers.dev">QSheets</a> · <a href="https://memorymate-android.merik2.workers.dev/">MemoryMate</a> · <a href="https://github.com/erik-nie/Merik2">GitHub</a> · <a href="https://ko-fi.com/eriknie">Ko-fi</a></span>
 </div></footer>
 
-<script>
-// Houdt de downloadknoppen op de nieuwste release; zonder verbinding blijven de ingebouwde links van 0.7.2 staan.
-(function(){
-  fetch("https://api.github.com/repos/erik-nie/Merik2/releases/latest").then(function(r){return r.ok?r.json():null}).then(function(rel){
-    if(!rel||!rel.tag_name) return;
-    var version=rel.tag_name.replace(/^v/,"");
-    var map={"dl-arm":/arm64\.dmg$/,"dl-intel":/intel\.dmg$/,"dl-win":/windows-x64(-setup\.exe|\.zip)$/};
-    (rel.assets||[]).forEach(function(a){
-      for(var id in map) if(map[id].test(a.name)) document.getElementById(id).href=a.browser_download_url;
-    });
-    document.getElementById("ver").textContent=version;
-    document.getElementById("notes").href=rel.html_url;
-    if(version!=="0.7.2"){
-      document.getElementById("whatsnew").innerHTML='<h3>What\'s new in '+version+'</h3><p class="small"><a href="'+rel.html_url+'">Read the release notes</a> · <a href="https://github.com/erik-nie/Merik2/releases">All releases</a></p>';
-    }
-  }).catch(function(){});
-})();
-</script>
 </body>
 </html>
