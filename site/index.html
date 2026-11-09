@@ -151,6 +151,13 @@ section.alt .card{background:var(--bg)}
 .fs-grid pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13.5px;margin:8px 0 0}
 .videoframe{max-width:960px;margin:0 auto;border-radius:16px;overflow:hidden;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.6);background:#000}
 .videoframe video{display:block;width:100%;height:auto}
+.newbadge{display:inline-flex;align-items:center;gap:8px;margin-top:22px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:7px 16px 7px 8px;font-size:15px;color:var(--text)}
+.newbadge:hover{text-decoration:none;border-color:var(--blue2)}
+.newbadge b{background:var(--yellow);color:#111;border-radius:999px;padding:2px 10px;font-size:13px;letter-spacing:.04em;text-transform:uppercase}
+.soon{display:inline-block;background:var(--yellow);color:#111;border-radius:999px;padding:4px 14px;font-weight:700;font-size:14px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px}
+.ipad-pair{display:grid;gap:26px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:34px}
+.ipad-pair .ipad{padding:14px;border-radius:30px}
+.ipad-pair .ipad img{border-radius:12px}
 .support{margin-top:44px;padding-top:30px;border-top:1px solid var(--line)}
 .support p{color:var(--muted);max-width:640px;margin:0 0 16px}
 footer{border-top:1px solid var(--line);padding:36px 0 50px;color:var(--muted);font-size:15px}
@@ -169,6 +176,7 @@ footer .sp{margin-left:auto}
   <a class="brand" href="#top"><img width="256" height="256" src="img/icon.png" alt="">Merik2</a>
   <div class="links">
     <a class="hide" href="#watch">Watch</a>
+    <a class="hide" href="#ipad">iPad</a>
     <a class="hide" href="#why">Why Merik2</a>
     <a class="hide" href="#band">For the band</a>
     <a class="hide" href="#how">How it works</a>
@@ -187,6 +195,7 @@ footer .sp{margin-left:auto}
     <a class="btn" href="https://github.com/erik-nie/Merik2">View on GitHub</a>
   </div>
   <p class="small">Free and open source (AGPL-3.0). No cloud, no account.</p>
+  <a class="newbadge" href="#ipad"><b>New</b>Merik2 for iPad is coming soon →</a>
   <div class="shot"><img width="1936" height="1828" src="img/main-window.png" alt="The Merik2 app: family mixer, setlists and songs"></div>
 </div></header>
 
@@ -200,6 +209,30 @@ footer .sp{margin-left:auto}
       Your browser cannot play this video. <a href="video/merik2-demo.mp4">Download it</a>.
     </video>
   </div>
+</div></section>
+
+<section class="alt" id="ipad"><div class="wrap">
+  <div class="split">
+    <div>
+      <span class="soon">Coming soon</span>
+      <div class="kicker">Merik2 for iPad</div>
+      <h2>The whole show on one iPad</h2>
+      <p class="sub" style="margin-bottom:16px">A new, native iPad version of Merik2 is on its way. Play your MIDI backing tracks to your sound modules straight from the iPad, run your setlists, and show the lyrics, chords and sections to the band. No laptop needed.</p>
+      <ul>
+        <li><b>Tight MIDI playback</b> to any module over USB, Bluetooth or network MIDI.</li>
+        <li><b>The family mixer</b> you know: eight families, each with a fader, an on/off switch and a meter.</li>
+        <li><b>Setlists and Browse</b>: play your files where they are, in the Files app, iCloud Drive or on a USB drive.</li>
+        <li><b>Lyrics, chords and sections</b> on the iPad, and on every phone and tablet in the room through the band page.</li>
+        <li><b>Keeps playing</b> with a locked screen, in every orientation and in Split View.</li>
+      </ul>
+    </div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1600" height="1103" src="img/ipad/setlist.jpg" alt="Merik2 for iPad: the player, a setlist and the lyrics with chords"></div></div>
+  </div>
+  <div class="ipad-pair">
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1200" height="827" src="img/ipad/browse.jpg" alt="Merik2 for iPad: browsing a folder of songs"></div><p class="cap">Browse your folders and add songs to a setlist.</p></div>
+    <div><div class="ipad"><img loading="lazy" decoding="async" width="1200" height="827" src="img/ipad/channels.jpg" alt="Merik2 for iPad: the sixteen MIDI channels with programs and families"></div><p class="cap">The sixteen MIDI channels, with program and family.</p></div>
+  </div>
+  <p class="small" style="margin-top:28px">Merik2 for iPad will be a paid app. The Mac and Windows versions stay free. All songs in these pictures are invented demo songs.</p>
 </div></section>
 
 <section id="why"><div class="wrap">
