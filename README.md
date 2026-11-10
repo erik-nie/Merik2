@@ -31,7 +31,7 @@ Merik turns a folder of standard MIDI files into a gig-ready system: setlists, a
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS, Apple silicon** (M1 and newer) | `Merik-0.7.3-arm64.dmg` | macOS 14 or later |
+| **macOS, Apple silicon** (M1 and newer) | `Merik-0.7.3-arm64.dmg` | macOS 15 or later |
 | **macOS, Intel** | `Merik-0.7.3-intel.dmg` | Intel Mac, macOS 15 or later |
 | **Windows** | `Merik-0.7.3-windows-x64-setup.exe` | Windows 10 or 11, 64-bit |
 
