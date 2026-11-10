@@ -162,6 +162,11 @@ section.alt .card{background:var(--bg)}
 .ipad-pair{display:grid;gap:26px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:34px}
 .ipad-pair .ipad{padding:14px;border-radius:30px}
 .ipad-pair .ipad img{border-radius:12px}
+.setup{margin-top:90px;scroll-margin-top:80px}
+.setup figure{margin:0 0 44px}
+.setup figure img{display:block;width:100%;height:auto;border-radius:18px}
+.setup figure.photo img{border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.setup figcaption{color:var(--muted);font-size:15px;margin-top:14px;text-align:center;max-width:760px;margin-left:auto;margin-right:auto}
 .support{margin-top:44px;padding-top:30px;border-top:1px solid var(--line)}
 .support p{color:var(--muted);max-width:640px;margin:0 0 16px}
 footer{border-top:1px solid var(--line);padding:36px 0 50px;color:var(--muted);font-size:15px}
@@ -182,6 +187,7 @@ footer .sp{margin-left:auto}
     <a class="hide" href="#watch">Watch</a>
     <a class="hide" href="#ipad">iPad</a>
     <a class="hide" href="#why">Why Merik2</a>
+    <a class="hide" href="#setup">On stage</a>
     <a class="hide" href="#band">For the band</a>
     <a class="hide" href="#how">How it works</a>
     <a class="hide" href="#advanced">Advanced</a>
@@ -251,6 +257,20 @@ footer .sp{margin-left:auto}
     <div class="card"><h3>Sections</h3><p>Intro, Verse 2, Chorus, Solo... read from the MIDI file and shown with a beat counter and a countdown before the next line.</p></div>
     <div class="card"><h3>Steer the setlist live</h3><p>Search the whole library from the tablet, play a song now or next, or jump in the setlist, without losing your place. See how much time is left in the set.</p></div>
     <div class="card"><h3>MIDI, audio, or both</h3><p>Play MIDI through a SoundFont or a hardware module, play recorded stems, or mix them per instrument family.</p></div>
+  </div>
+
+  <div class="setup" id="setup">
+    <div class="kicker">On stage</div>
+    <h2>How it fits together</h2>
+    <p class="sub">The laptop stays at the back of the stage, next to the mixer or the stage box to front of house. The band only needs a browser.</p>
+    <figure>
+      <img loading="lazy" decoding="async" width="1200" height="800" src="img/setup-diagram.svg" alt="Diagram: a laptop with Merik2 at the back of the stage sends audio over USB to an audio interface or a digital mixer and MIDI to a sound module; the mixer goes to front of house; band members open merik.local on tablets and phones over Wi-Fi, and the ones with the key control playback">
+      <figcaption>One laptop runs the show: audio to the interface or straight into a digital mixer, MIDI to your modules. Every tablet and phone on the Wi-Fi opens <b>merik.local</b>; the players with the key also control playback.</figcaption>
+    </figure>
+    <figure class="photo">
+      <img loading="lazy" decoding="async" width="1600" height="1000" src="img/setup-stage.svg" alt="Illustration of a five-piece band on stage seen from above, with the Merik2 laptop and stage box at the back and tablets on the mic stands">
+      <figcaption>A typical gig from above: the laptop and stage box at the back, lyrics and chords on every mic stand, and the keyboard player running the setlist from a tablet.</figcaption>
+    </figure>
   </div>
 </div></section>
 

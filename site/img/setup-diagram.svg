@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif">
+  <title>How Merik2 connects on stage</title>
+  <desc>A laptop running Merik2 at the back of the stage sends audio over USB to an audio interface or straight to a digital mixer, and MIDI to a sound module. The mixer or stage box goes to front of house. Band members open merik.local in a browser on their tablets and phones over Wi-Fi; the ones with the key control playback.</desc>
+  <defs>
+    <marker id="aBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5aa9ff"/></marker>
+    <marker id="aPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#b67cff"/></marker>
+    <linearGradient id="scr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10131b"/><stop offset="1" stop-color="#07080b"/></linearGradient>
+    <linearGradient id="dev" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#30333c"/><stop offset="1" stop-color="#1a1b21"/></linearGradient>
+    <radialGradient id="glow" cx="50%" cy="0%" r="70%"><stop offset="0" stop-color="#1876ff" stop-opacity=".22"/><stop offset="1" stop-color="#1876ff" stop-opacity="0"/></radialGradient>
+    <!-- tablet showing lyrics (view only) -->
+    <g id="tabView">
+      <rect x="-62" y="-42" width="124" height="84" rx="10" fill="url(#dev)" stroke="#4a4e5a"/>
+      <rect x="-54" y="-34" width="108" height="68" rx="4" fill="url(#scr)"/>
+      <text x="-44" y="-16" font-size="9" font-weight="700" fill="#ffd23f">Am</text>
+      <text x="-6" y="-16" font-size="9" font-weight="700" fill="#ffd23f">F</text>
+      <rect x="-44" y="-11" width="70" height="5" rx="2.5" fill="#f2f4f8"/>
+      <text x="-44" y="7" font-size="9" font-weight="700" fill="#ffd23f">C</text>
+      <text x="4" y="7" font-size="9" font-weight="700" fill="#ffd23f">G/B</text>
+      <rect x="-44" y="12" width="84" height="5" rx="2.5" fill="#9aa3b5"/>
+      <rect x="22" y="-29" width="28" height="9" rx="4.5" fill="#1876ff"/>
+    </g>
+    <!-- tablet with remote control buttons (key holder) -->
+    <g id="tabKey">
+      <rect x="-62" y="-42" width="124" height="84" rx="10" fill="url(#dev)" stroke="#4a4e5a"/>
+      <rect x="-54" y="-34" width="108" height="68" rx="4" fill="url(#scr)"/>
+      <rect x="-50" y="-30" width="16" height="12" rx="3" fill="#1876ff"/><path d="M-45 -27.5v7l6-3.5z" fill="#fff"/>
+      <rect x="-50" y="-15" width="16" height="12" rx="3" fill="#262a36"/><rect x="-45" y="-12" width="6" height="6" fill="#f2f4f8"/>
+      <rect x="-50" y="0" width="16" height="12" rx="3" fill="#262a36"/><path d="M-46 3v6l4-3zM-42 3v6l4-3z" fill="#f2f4f8"/>
+      <rect x="-50" y="15" width="16" height="12" rx="3" fill="#262a36"/><circle cx="-42.5" cy="20.5" r="3" fill="none" stroke="#f2f4f8" stroke-width="1.4"/>
+      <text x="-26" y="-14" font-size="9" font-weight="700" fill="#ffd23f">Dm</text>
+      <text x="8" y="-14" font-size="9" font-weight="700" fill="#ffd23f">G</text>
+      <rect x="-26" y="-9" width="66" height="5" rx="2.5" fill="#f2f4f8"/>
+      <text x="-26" y="9" font-size="9" font-weight="700" fill="#ffd23f">C</text>
+      <rect x="-26" y="14" width="56" height="5" rx="2.5" fill="#9aa3b5"/>
+    </g>
+    <!-- phone -->
+    <g id="phone">
+      <rect x="-26" y="-48" width="52" height="96" rx="10" fill="url(#dev)" stroke="#4a4e5a"/>
+      <rect x="-21" y="-40" width="42" height="80" rx="5" fill="url(#scr)"/>
+      <text x="-15" y="-18" font-size="8" font-weight="700" fill="#ffd23f">E</text>
+      <rect x="-15" y="-13" width="28" height="4" rx="2" fill="#f2f4f8"/>
+      <text x="-15" y="2" font-size="8" font-weight="700" fill="#ffd23f">A</text>
+      <rect x="-15" y="7" width="22" height="4" rx="2" fill="#9aa3b5"/>
+      <text x="-15" y="22" font-size="8" font-weight="700" fill="#ffd23f">B7</text>
+      <rect x="-15" y="27" width="26" height="4" rx="2" fill="#9aa3b5"/>
+    </g>
+    <!-- key badge -->
+    <g id="key">
+      <circle r="15" fill="#ffd23f"/>
+      <circle cx="-4" cy="0" r="4.5" fill="none" stroke="#111" stroke-width="2.2"/>
+      <path d="M0.5 0H9M6 0v3.5M8.5 0v3" stroke="#111" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+    </g>
+  </defs>
+
+  <rect width="1200" height="800" rx="22" fill="#11131a"/>
+  <rect width="1200" height="800" rx="22" fill="url(#glow)"/>
+  <rect x=".5" y=".5" width="1199" height="799" rx="22" fill="none" stroke="#262a36"/>
+
+  <!-- ON STAGE -->
+  <text x="40" y="46" font-size="13" font-weight="700" letter-spacing="1.6" fill="#5aa9ff">ON STAGE: THE BAND, IN ANY BROWSER</text>
+
+  <!-- Wi-Fi links -->
+  <g stroke="#9aa3b5" stroke-width="2" stroke-dasharray="3 7" stroke-linecap="round" fill="none" opacity=".75">
+    <path d="M140 214 Q 300 300 600 300"/>
+    <path d="M370 214 Q 460 290 600 300"/>
+    <path d="M600 214 V 300"/>
+    <path d="M830 214 Q 740 290 600 300"/>
+    <path d="M1060 214 Q 900 300 600 300"/>
+  </g>
+
+  <!-- band devices -->
+  <g text-anchor="middle">
+    <text x="140" y="86" font-size="18" font-weight="700" fill="#f2f4f8">Vocals</text>
+    <text x="140" y="106" font-size="13" fill="#9aa3b5">Lyrics, word by word</text>
+    <use href="#tabView" x="140" y="164"/>
+
+    <text x="370" y="86" font-size="18" font-weight="700" fill="#f2f4f8">Guitar</text>
+    <text x="370" y="106" font-size="13" fill="#9aa3b5">Chords on a phone</text>
+    <use href="#phone" x="370" y="164"/>
+
+    <text x="600" y="86" font-size="18" font-weight="700" fill="#f2f4f8">Band leader</text>
+    <text x="600" y="106" font-size="13" font-weight="600" fill="#ffd23f">Has the key: runs the show</text>
+    <use href="#tabKey" x="600" y="164"/>
+    <use href="#key" x="664" y="130"/>
+
+    <text x="830" y="86" font-size="18" font-weight="700" fill="#f2f4f8">Bass</text>
+    <text x="830" y="106" font-size="13" fill="#9aa3b5">Chords and sections</text>
+    <use href="#tabView" x="830" y="164"/>
+
+    <text x="1060" y="86" font-size="18" font-weight="700" fill="#f2f4f8">Keys</text>
+    <text x="1060" y="106" font-size="13" font-weight="600" fill="#ffd23f">Has the key: play, next, search</text>
+    <use href="#tabKey" x="1060" y="164"/>
+    <use href="#key" x="1124" y="130"/>
+  </g>
+
+  <!-- Wi-Fi access point -->
+  <g>
+    <path d="M578 316a31 31 0 0 1 44 0" stroke="#5aa9ff" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M586 324a19 19 0 0 1 28 0" stroke="#5aa9ff" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <rect x="556" y="334" width="88" height="30" rx="8" fill="url(#dev)" stroke="#4a4e5a"/>
+    <circle cx="572" cy="349" r="3" fill="#3ddc84"/><circle cx="584" cy="349" r="3" fill="#3ddc84"/><circle cx="596" cy="349" r="3" fill="#5aa9ff"/>
+    <text x="664" y="344" font-size="15" font-weight="700" fill="#f2f4f8">Wi-Fi router or access point</text>
+    <text x="664" y="364" font-size="15" font-weight="700" fill="#5aa9ff">http://merik.local</text>
+  </g>
+
+  <!-- link AP to laptop -->
+  <path d="M600 366 V 496" stroke="#9aa3b5" stroke-width="2.5" stroke-dasharray="3 7" stroke-linecap="round" opacity=".75"/>
+  <text x="612" y="424" font-size="13" fill="#9aa3b5">Wi-Fi or network cable</text>
+
+  <!-- BACK OF STAGE zone -->
+  <rect x="30" y="446" width="1140" height="290" rx="18" fill="#0b0c10" stroke="#262a36" stroke-dasharray="6 6"/>
+  <text x="54" y="478" font-size="13" font-weight="700" letter-spacing="1.6" fill="#5aa9ff">BACK OF STAGE, NEXT TO THE MIXER OR STAGE BOX</text>
+
+  <!-- laptop -->
+  <g>
+    <rect x="484" y="500" width="232" height="142" rx="10" fill="url(#dev)" stroke="#4a4e5a"/>
+    <rect x="494" y="510" width="212" height="122" rx="4" fill="url(#scr)"/>
+    <rect x="502" y="518" width="16" height="16" rx="4" fill="#1876ff"/>
+    <text x="524" y="531" font-size="12" font-weight="700" fill="#f2f4f8">Merik2</text>
+    <g fill="#262a36">
+      <rect x="506" y="546" width="18" height="76" rx="3"/><rect x="530" y="546" width="18" height="76" rx="3"/><rect x="554" y="546" width="18" height="76" rx="3"/><rect x="578" y="546" width="18" height="76" rx="3"/>
+      <rect x="602" y="546" width="18" height="76" rx="3"/><rect x="626" y="546" width="18" height="76" rx="3"/><rect x="650" y="546" width="18" height="76" rx="3"/><rect x="674" y="546" width="18" height="76" rx="3"/>
+    </g>
+    <g>
+      <rect x="511" y="574" width="8" height="48" rx="2" fill="#5aa9ff"/><rect x="535" y="584" width="8" height="38" rx="2" fill="#5aa9ff"/><rect x="559" y="566" width="8" height="56" rx="2" fill="#5aa9ff"/><rect x="583" y="590" width="8" height="32" rx="2" fill="#5aa9ff"/>
+      <rect x="607" y="596" width="8" height="26" rx="2" fill="#5aa9ff"/><rect x="631" y="604" width="8" height="18" rx="2" fill="#5aa9ff"/><rect x="655" y="610" width="8" height="12" rx="2" fill="#5aa9ff"/><rect x="679" y="578" width="8" height="44" rx="2" fill="#ffd23f"/>
+    </g>
+    <path d="M462 642 H738 L726 658 H474 Z" fill="#2a2c33" stroke="#4a4e5a"/>
+    <text x="600" y="684" text-anchor="middle" font-size="16" font-weight="700" fill="#f2f4f8">Laptop with Merik2</text>
+    <text x="600" y="703" text-anchor="middle" font-size="13" fill="#9aa3b5">MacBook or Windows</text>
+  </g>
+
+  <!-- MIDI sound module -->
+  <g>
+    <rect x="70" y="552" width="190" height="60" rx="8" fill="url(#dev)" stroke="#4a4e5a"/>
+    <rect x="84" y="566" width="70" height="22" rx="3" fill="#0b2a1a"/>
+    <text x="90" y="582" font-size="11" font-weight="700" fill="#3ddc84" font-family="Menlo, Consolas, monospace">GM 001</text>
+    <circle cx="180" cy="582" r="9" fill="#14161d" stroke="#4a4e5a"/><circle cx="208" cy="582" r="9" fill="#14161d" stroke="#4a4e5a"/><circle cx="236" cy="582" r="9" fill="#14161d" stroke="#4a4e5a"/>
+    <text x="165" y="636" text-anchor="middle" font-size="16" font-weight="700" fill="#f2f4f8">MIDI module or synth</text>
+    <text x="165" y="655" text-anchor="middle" font-size="13" fill="#9aa3b5">optional, or the built-in SoundFont</text>
+  </g>
+  <path d="M480 582 H 270" stroke="#b67cff" stroke-width="3" marker-end="url(#aPurple)"/>
+  <text x="375" y="570" text-anchor="middle" font-size="13" font-weight="600" fill="#b67cff">MIDI out</text>
+
+  <!-- audio interface -->
+  <g>
+    <rect x="786" y="552" width="150" height="56" rx="8" fill="url(#dev)" stroke="#4a4e5a"/>
+    <circle cx="808" cy="580" r="10" fill="#14161d" stroke="#4a4e5a"/><circle cx="836" cy="580" r="10" fill="#14161d" stroke="#4a4e5a"/>
+    <rect x="858" y="568" width="5" height="24" rx="2" fill="#3ddc84"/><rect x="867" y="574" width="5" height="18" rx="2" fill="#3ddc84"/>
+    <circle cx="900" cy="580" r="14" fill="#14161d" stroke="#5aa9ff" stroke-width="2"/>
+    <text x="861" y="634" text-anchor="middle" font-size="16" font-weight="700" fill="#f2f4f8">Audio interface</text>
+    <text x="861" y="653" text-anchor="middle" font-size="13" fill="#9aa3b5">band, stems and click</text>
+  </g>
+  <path d="M720 580 H 780" stroke="#5aa9ff" stroke-width="3" marker-end="url(#aBlue)"/>
+  <text x="750" y="569" text-anchor="middle" font-size="13" font-weight="600" fill="#5aa9ff">USB</text>
+
+  <!-- digital mixer / stage box -->
+  <g>
+    <rect x="984" y="520" width="164" height="110" rx="10" fill="url(#dev)" stroke="#4a4e5a"/>
+    <rect x="996" y="530" width="64" height="38" rx="3" fill="#0d2240"/>
+    <rect x="1002" y="538" width="40" height="4" rx="2" fill="#5aa9ff"/><rect x="1002" y="548" width="28" height="4" rx="2" fill="#5aa9ff" opacity=".6"/>
+    <g fill="#14161d" stroke="#4a4e5a"><circle cx="1078" cy="540" r="6"/><circle cx="1098" cy="540" r="6"/><circle cx="1118" cy="540" r="6"/><circle cx="1136" cy="540" r="6"/></g>
+    <g stroke="#3a3d46" stroke-width="3" stroke-linecap="round"><path d="M1004 580v38M1024 580v38M1044 580v38M1064 580v38M1084 580v38M1104 580v38M1124 580v38"/></g>
+    <g fill="#f2f4f8"><rect x="998" y="596" width="12" height="6" rx="1.5"/><rect x="1018" y="588" width="12" height="6" rx="1.5"/><rect x="1038" y="600" width="12" height="6" rx="1.5"/><rect x="1058" y="592" width="12" height="6" rx="1.5"/><rect x="1078" y="604" width="12" height="6" rx="1.5"/><rect x="1098" y="590" width="12" height="6" rx="1.5"/><rect x="1118" y="598" width="12" height="6" rx="1.5"/></g>
+    <text x="1066" y="654" text-anchor="middle" font-size="16" font-weight="700" fill="#f2f4f8">Digital mixer</text>
+    <text x="1066" y="673" text-anchor="middle" font-size="13" fill="#9aa3b5">or stage box</text>
+  </g>
+  <path d="M940 580 H 978" stroke="#5aa9ff" stroke-width="3" marker-end="url(#aBlue)"/>
+  <!-- USB straight into a digital mixer -->
+  <path d="M712 502 C 780 474, 960 474, 1040 514" stroke="#5aa9ff" stroke-width="2.5" stroke-dasharray="8 6" fill="none" marker-end="url(#aBlue)"/>
+  <text x="876" y="472" text-anchor="middle" font-size="13" font-weight="600" fill="#5aa9ff">or USB straight into a digital mixer</text>
+  <!-- module audio to mixer -->
+  <path d="M165 664 V 718 H 975 Q 990 718 990 703 V 636" stroke="#5aa9ff" stroke-width="2.5" fill="none" marker-end="url(#aBlue)" opacity=".85"/>
+  <text x="290" y="710" font-size="12" fill="#5aa9ff">audio out</text>
+
+  <!-- to FOH -->
+  <path d="M1130 682 V 752" stroke="#5aa9ff" stroke-width="3.5" marker-end="url(#aBlue)"/>
+  <text x="1118" y="760" text-anchor="end" font-size="15" font-weight="700" fill="#f2f4f8">To front of house</text>
+  <text x="1118" y="779" text-anchor="end" font-size="13" fill="#9aa3b5">snake or network to the FOH desk</text>
+
+  <!-- legend -->
+  <g font-size="13" fill="#9aa3b5">
+    <path d="M40 762 H 74" stroke="#5aa9ff" stroke-width="3"/><text x="82" y="767">Audio</text>
+    <path d="M140 762 H 174" stroke="#b67cff" stroke-width="3"/><text x="182" y="767">MIDI</text>
+    <path d="M236 762 H 270" stroke="#9aa3b5" stroke-width="2" stroke-dasharray="3 6" stroke-linecap="round"/><text x="278" y="767">Wi-Fi, web page</text>
+    <use href="#key" transform="translate(410 762) scale(.7)"/><text x="428" y="767">Key: controls playback</text>
+  </g>
+</svg>
