@@ -240,6 +240,7 @@
 <ellipse cx="-4" cy="-4" rx="7" ry="5" fill="#fff" opacity=".12"/>
 </g>
 <path d="M750 186l-12 26M820 176l4 30" stroke="#e7cf9b" stroke-width="3.5" stroke-linecap="round"/>
+<g transform="translate(0 648) scale(1 -1)">
 <g filter="url(#sh)"><rect x="150" y="296" width="300" height="56" rx="6" fill="#18181b"/></g>
 <rect x="160" y="318" width="280" height="28" fill="#f1efe9"/>
 <path d="M160.0 318v28" stroke="#9c9a95" stroke-width=".8"/>
@@ -307,6 +308,7 @@
 <rect x="429.6" y="318" width="4.6" height="17" fill="#121214"/>
 <rect x="437.2" y="318" width="4.6" height="17" fill="#121214"/>
 <rect x="170" y="302" width="60" height="10" rx="2" fill="#0c2340"/><circle cx="330" cy="307" r="5" fill="#333"/><circle cx="348" cy="307" r="5" fill="#333"/><circle cx="366" cy="307" r="5" fill="#333"/>
+</g>
 <g transform="translate(290 262) rotate(0) scale(1.0)">
 <ellipse cx="4" cy="10" rx="46" ry="30" fill="#000" opacity=".35" filter="url(#blur)"/>
 <path d="M-30 2 Q-46.5 31.0 -48 62" stroke="#5b2a86" stroke-width="15" fill="none" stroke-linecap="round"/>
