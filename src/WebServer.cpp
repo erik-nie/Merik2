@@ -1107,6 +1107,8 @@ footer {
     position:fixed; top:18px; right:28px; z-index:90; display:flex; flex-direction:column; align-items:flex-end; gap:12px;
     pointer-events:none;
 }
+#topRow { display:flex; align-items:center; gap:18px; }
+#clock { font-size:24px; font-weight:600; font-variant-numeric:tabular-nums; color:#fff; opacity:.9; }
 #beatBox {
     --led:18px; --ledgap:10px; --sig:24px;
     display:flex; align-items:center; gap:14px; padding:6px 14px; border-radius:999px;
@@ -1193,6 +1195,8 @@ body:not(.control) #btnSearch, body:not(.control) #btnSetlist { display:none; }
 }
 .led.first { --c:255,176,32; }
 @media (max-width:600px) {
+    #topRow { gap:10px; }
+    #clock { font-size:17px; }
     #beatBox { --led:13px; --ledgap:6px; --sig:17px; padding:5px 10px; gap:8px; }
     #beatBox.medium { --led:11px; --ledgap:5px; --sig:15px; }
     #beatBox.small { --led:9px; --ledgap:4px; --sig:13px; }
@@ -1292,7 +1296,7 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 <div id="lyricCountdown"></div>
 <div id="offline" hidden><div class="card"><div class="title">Merik is not running</div><div class="text">Start Merik on the computer.<br>This page reconnects by itself.</div><div class="dots"><span></span><span></span><span></span></div></div></div>
 <div id="topRight">
-<div id="beatBox" hidden><span id="beatSig">4/4</span><span id="beatLeds"></span></div>
+<div id="topRow"><div id="clock"></div><div id="beatBox" hidden><span id="beatSig">4/4</span><span id="beatLeds"></span></div></div>
 <div id="sections" hidden><div class="section-slot current"><span class="section-name" id="sectionCurrent"></span><div class="section-progress"><div id="sectionRemaining" class="section-progress-fill"></div></div></div><div class="section-slot next"><span class="section-name" id="sectionNext"></span></div></div>
 </div>
 <main>
@@ -2691,6 +2695,16 @@ function beatFrame()
 }
 
 requestAnimationFrame(beatFrame);
+
+// Klok links van de maatteller (uren:minuten)
+(function () {
+    const clock = document.getElementById("clock");
+    function tick() {
+        const d = new Date();
+        clock.textContent = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    }
+    tick(); setInterval(tick, 5000);
+})();
 
 let stateInFlight = false;
 let songBase = null;
