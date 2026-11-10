@@ -311,12 +311,12 @@
 </g>
 <g transform="translate(290 262) rotate(0) scale(1.0)">
 <ellipse cx="4" cy="10" rx="46" ry="30" fill="#000" opacity=".35" filter="url(#blur)"/>
-<path d="M-30 2 Q-46.5 31.0 -48 62" stroke="#5b2a86" stroke-width="15" fill="none" stroke-linecap="round"/>
-<path d="M-47.2 46.5 L-48 62" stroke="#f0c7a8" stroke-width="11" fill="none" stroke-linecap="round"/>
-<circle cx="-48" cy="62" r="7" fill="#f0c7a8"/>
-<path d="M30 2 Q42.5 33.0 40 66" stroke="#5b2a86" stroke-width="15" fill="none" stroke-linecap="round"/>
-<path d="M41.2 49.5 L40 66" stroke="#f0c7a8" stroke-width="11" fill="none" stroke-linecap="round"/>
-<circle cx="40" cy="66" r="7" fill="#f0c7a8"/>
+<path d="M-30 2 Q-46.5 24.0 -48 48" stroke="#5b2a86" stroke-width="15" fill="none" stroke-linecap="round"/>
+<path d="M-47.2 36.0 L-48 48" stroke="#f0c7a8" stroke-width="11" fill="none" stroke-linecap="round"/>
+<circle cx="-48" cy="48" r="7" fill="#f0c7a8"/>
+<path d="M30 2 Q42.5 25.0 40 50" stroke="#5b2a86" stroke-width="15" fill="none" stroke-linecap="round"/>
+<path d="M41.2 37.5 L40 50" stroke="#f0c7a8" stroke-width="11" fill="none" stroke-linecap="round"/>
+<circle cx="40" cy="50" r="7" fill="#f0c7a8"/>
 <ellipse cx="0" cy="0" rx="40" ry="21" fill="#5b2a86"/>
 <ellipse cx="0" cy="-4" rx="34" ry="13" fill="#fff" opacity=".07"/>
 <circle cx="-15" cy="3" r="4" fill="#f0c7a8"/><circle cx="15" cy="3" r="4" fill="#f0c7a8"/>
