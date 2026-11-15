@@ -162,7 +162,14 @@ if [[ -n "${SIGN_IDENTITY:-}" ]]; then
             sleep 20
         done
         [[ $stapled == 1 ]] || fail "het notarisatieticket kon niet in de DMG worden gestapeld."
-        xcrun stapler validate "$DMG"
+        # Ook de controle praat met Apple (CloudKit) en faalt soms door een tijdelijke netwerkfout.
+        validated=0
+        for attempt in 1 2 3 4 5 6; do
+            if xcrun stapler validate "$DMG"; then validated=1; break; fi
+            echo "Valideren mislukte (poging $attempt van 6), over 20 seconden opnieuw..."
+            sleep 20
+        done
+        [[ $validated == 1 ]] || fail "het notarisatieticket in de DMG kon niet worden gevalideerd."
     fi
 fi
 
