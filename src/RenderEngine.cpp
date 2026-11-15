@@ -169,7 +169,7 @@ bool RenderEngine::start(const juce::String& midiOutIdentifier, const juce::Stri
 
     if (device == nullptr || device->getActiveInputChannels().countNumberOfSetBits() < count)
     {
-        error = "The audio input could not be opened. On macOS, allow Merik to use the microphone "
+        error = "The audio input could not be opened. On macOS, allow Merik Studio to use the microphone "
                 "(System Settings > Privacy & Security > Microphone).";
         manager.setAudioDeviceSetup(savedSetup, true);
         setupChanged = false;

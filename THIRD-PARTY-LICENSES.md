@@ -7,8 +7,8 @@ keeps its own license.
 | Component | License | Notes |
 |---|---|---|
 | [JUCE](https://juce.com) | AGPL-3.0 (or a commercial JUCE license) | User interface, audio and MIDI I/O. Used under the AGPL. |
-| [FluidSynth](https://www.fluidsynth.org) | LGPL-2.1-or-later | Built-in SoundFont synthesizer. Included as a separate dynamic library in `Merik.app/Contents/Frameworks` so it can be replaced. |
-| FluidSynth's own dependencies (GLib, libsndfile, PortAudio and others) | LGPL, BSD and similar | Included in `Merik.app/Contents/Frameworks`. |
+| [FluidSynth](https://www.fluidsynth.org) | LGPL-2.1-or-later | Built-in SoundFont synthesizer. Included as a separate dynamic library in `Merik Studio.app/Contents/Frameworks` so it can be replaced. |
+| FluidSynth's own dependencies (GLib, libsndfile, PortAudio and others) | LGPL, BSD and similar | Included in `Merik Studio.app/Contents/Frameworks`. |
 | [midifile](https://github.com/craigsapp/midifile) by Craig Stuart Sapp | BSD-2-Clause | MIDI file reading, in `src/midifile`. |
 | [Noto Sans](https://fonts.google.com/noto) | SIL Open Font License 1.1 | Interface typeface, in `assets/fonts`. |
 

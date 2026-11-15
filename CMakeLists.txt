@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Merik2 VERSION 0.7.3)
+project(MerikStudio VERSION 1.0.0)
 
 
 set(CMAKE_CXX_STANDARD 20)
@@ -86,12 +86,12 @@ target_include_directories(
 
 juce_add_gui_app(
     Merik
-    PRODUCT_NAME "Merik"
+    PRODUCT_NAME "Merik Studio"
     COMPANY_NAME "Erik Nieuwlands"
     BUNDLE_ID "nl.eriknieuwlands.merik"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.png"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "Merik records the audio of an external sound module when you render a MIDI file to audio stems (Settings > Tools)."
+    MICROPHONE_PERMISSION_TEXT "Merik Studio records the audio of an external sound module when you render a MIDI file to audio stems (Settings > Tools)."
 )
 
 

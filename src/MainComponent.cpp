@@ -937,7 +937,7 @@ private:
 
         webHint.setText(
             key.isEmpty()
-                ? "Empty: the web page is view-only and can never control Merik."
+                ? "Empty: the web page is view-only and can never control Merik Studio."
                 : "Remote control: http://merik.local" + suffix + "/?key=" + key + "  (or http://" + ip + suffix
                     + "/?key=" + key + ")  Without the key: view only.",
             juce::dontSendNotification);
@@ -1413,7 +1413,7 @@ private:
         toolsPage.content.addAndMakeVisible(createMerikButton);
 
         styleHint(makeHint, "Choose a folder with stems (1-drums.wav, ...), optionally with a MIDI file. "
-                            "Merik shows what it found and saves a .merik without compression.");
+                            "Merik Studio shows what it found and saves a .merik without compression.");
         toolsPage.content.addAndMakeVisible(makeHint);
 
         styleHeading(renderHeading, "Render MIDI files");
@@ -1427,7 +1427,7 @@ private:
         };
         toolsPage.content.addAndMakeVisible(renderButton);
 
-        styleHint(renderHint, "Turns MIDI files into audio, one family at a time, and saves a .merik per song: with Merik's own "
+        styleHint(renderHint, "Turns MIDI files into audio, one family at a time, and saves a .merik per song: with Merik Studio's own "
                               "SoundFont, or by recording a hardware sound module or a software synth.");
         toolsPage.content.addAndMakeVisible(renderHint);
 
@@ -1772,7 +1772,7 @@ public:
         addAndMakeVisible(heading);
 
         hint.setText("Choose a folder with your stems (1-drums.wav, 2-bass.flac, ...), and optionally song.mid, "
-                     "click.wav, chords.json and lyrics.json. Merik shows what it found, can convert WAV to FLAC, "
+                     "click.wav, chords.json and lyrics.json. Merik Studio shows what it found, can convert WAV to FLAC, "
                      "and saves everything as a .merik without compression, so it loads instantly.",
                      juce::dontSendNotification);
         hint.setFont(merikLookAndFeel.getMediumFont(14.0f));
@@ -2225,7 +2225,7 @@ public:
         hint.setText("1. Press Start and listen: a piano and drums play at the highest velocity.\n"
                      "2. Turn the level of your module (or the input gain on your mixer) up or down until the peaks "
                      "sit in the green zone, around -6 dB. Not higher: the loudest notes of a song must not clip.\n"
-                     "3. Press Measure delay: Merik plays short hits and measures how long the sound takes to come "
+                     "3. Press Measure delay: Merik Studio plays short hits and measures how long the sound takes to come "
                      "back. Measure again after changing the audio buffer size.",
                      juce::dontSendNotification);
         hint.setFont(merikLookAndFeel.getMediumFont(14.0f));
@@ -2599,7 +2599,7 @@ public:
         addAndMakeVisible(heading);
 
         hint.setText("Renders each MIDI file one family at a time (drums, bass, ...) and saves a .merik per song with real audio stems. "
-                     "Use Merik's own SoundFont, or record a sound module or software synth live.",
+                     "Use Merik Studio's own SoundFont, or record a sound module or software synth live.",
                      juce::dontSendNotification);
         hint.setFont(merikLookAndFeel.getMediumFont(13.0f));
         hint.setColour(juce::Label::textColourId, secondaryTextColour);
@@ -2610,7 +2610,7 @@ public:
         label(sourceLabel, "Sound source");
         addAndMakeVisible(sourceBox);
         sourceBox.addItem("External module or software synth (records live)", 1);
-        sourceBox.addItem("Merik's SoundFont (fast, no hardware needed)", 2);
+        sourceBox.addItem("Merik Studio's SoundFont (fast, no hardware needed)", 2);
         sourceBox.setSelectedId(prefs.internalSynth ? 2 : 1, juce::dontSendNotification);
         sourceBox.onChange = [this]
         {
@@ -9398,7 +9398,7 @@ void MainComponent::showUpdateDialog()
     showStyledDialog(
         this, "Update available",
         std::make_unique<StyledDialog>(
-            "Merik " + version + " is available.\nYou have " + currentVersion + ".",
+            "Merik Studio " + version + " is available.\nYou have " + currentVersion + ".",
             nullptr, "Download", true,
             [url](const juce::String&) { juce::URL(url).launchInDefaultBrowser(); },
             "Later",

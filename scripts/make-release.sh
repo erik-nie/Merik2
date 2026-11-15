@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Maakt een macOS-release van Merik, voor de processor van deze Mac
+# Maakt een macOS-release van Merik Studio, voor de processor van deze Mac
 # (Apple silicon: -arm64.dmg, Intel: -intel.dmg):
 #
 #   1. Release-build in build-release/
@@ -42,22 +42,24 @@ for tool in cmake pkg-config dylibbundler hdiutil codesign otool vtool shasum; d
 done
 
 # Versie: argument, anders het nummer uit CMakeLists.txt.
-CMAKE_VERSION="$(sed -n 's/^project(Merik2 VERSION \([0-9.]*\)).*/\1/p' CMakeLists.txt)"
+CMAKE_VERSION="$(sed -n 's/^project(MerikStudio VERSION \([0-9.]*\)).*/\1/p' CMakeLists.txt)"
 VERSION="${1:-$CMAKE_VERSION}"
 [[ -n "$VERSION" ]] || fail "geen versie gevonden."
 
-APP_NAME="Merik"
+APP_NAME="Merik Studio"         # naam van de app (PRODUCT_NAME in CMakeLists.txt)
+TARGET="Merik"                  # CMake-target: de build staat in ${TARGET}_artefacts/
+FILE_NAME="Merik-Studio"        # zonder spatie, voor de bestandsnaam van de DMG
 BUILD_DIR="$ROOT/build-release"
 DIST_DIR="$ROOT/dist"
 APP="$DIST_DIR/$APP_NAME.app"
-DMG="$DIST_DIR/$APP_NAME-$VERSION-$ARCH_NAME.dmg"
+DMG="$DIST_DIR/$FILE_NAME-$VERSION-$ARCH_NAME.dmg"
 
-step "Merik $VERSION bouwen (Release, $ARCH)"
+step "$APP_NAME $VERSION bouwen (Release, $ARCH)"
 cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH" >/dev/null
 cmake --build "$BUILD_DIR" -j "$(sysctl -n hw.ncpu)"
 
-BUILT_APP="$BUILD_DIR/${APP_NAME}_artefacts/$APP_NAME.app"
-[[ -d "$BUILT_APP" ]] || BUILT_APP="$BUILD_DIR/${APP_NAME}_artefacts/Release/$APP_NAME.app"
+BUILT_APP="$BUILD_DIR/${TARGET}_artefacts/$APP_NAME.app"
+[[ -d "$BUILT_APP" ]] || BUILT_APP="$BUILD_DIR/${TARGET}_artefacts/Release/$APP_NAME.app"
 [[ -d "$BUILT_APP" ]] || fail "de gebouwde app is niet gevonden in $BUILD_DIR."
 
 step "App klaarzetten in dist/"

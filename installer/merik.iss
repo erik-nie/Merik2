@@ -1,6 +1,6 @@
-; Inno Setup-script voor het Windows-installatieprogramma van Merik.
+; Inno Setup-script voor het Windows-installatieprogramma van Merik Studio.
 ; Wordt gebouwd door .github/workflows/release.yml:
-;   ISCC /DAppVersion=0.7.1 /DSourceDir=<map met Merik.exe en de dll's> /DOutputDir=dist installer\merik.iss
+;   ISCC /DAppVersion=0.7.1 /DSourceDir=<map met "Merik Studio.exe" en de dll's> /DOutputDir=dist installer\merik.iss
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -13,21 +13,23 @@
 #endif
 
 [Setup]
+; AppId blijft dat van "Merik" (0.x): de installer werkt een bestaande installatie dan bij in
+; plaats van er een tweede naast te zetten (zelfde map, zelfde regel in Apps & features).
 AppId={{6B0F7A3E-2C41-4D58-9E73-5A1C8B2D4F90}
-AppName=Merik
+AppName=Merik Studio
 AppVersion={#AppVersion}
-AppVerName=Merik {#AppVersion}
+AppVerName=Merik Studio {#AppVersion}
 AppPublisher=Erik Nie
 AppPublisherURL=https://github.com/erik-nie/Merik2
 AppSupportURL=https://github.com/erik-nie/Merik2/issues
 AppUpdatesURL=https://github.com/erik-nie/Merik2/releases
-DefaultDirName={autopf}\Merik
-DefaultGroupName=Merik
+DefaultDirName={autopf}\Merik Studio
+DefaultGroupName=Merik Studio
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\Merik.exe
+UninstallDisplayIcon={app}\Merik Studio.exe
 LicenseFile={#SourceDir}\LICENSE.txt
 OutputDir={#OutputDir}
-OutputBaseFilename=Merik-{#AppVersion}-windows-x64-setup
+OutputBaseFilename=Merik-Studio-{#AppVersion}-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -47,9 +49,16 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; Overblijfselen van "Merik" (0.x) bij een update: het oude programma en de oude snelkoppelingen.
+; Instellingen en setlists staan in %APPDATA%\Merik2 en blijven staan.
+Type: files; Name: "{app}\Merik.exe"
+Type: files; Name: "{autoprograms}\Merik.lnk"
+Type: files; Name: "{autodesktop}\Merik.lnk"
+
 [Icons]
-Name: "{autoprograms}\Merik"; Filename: "{app}\Merik.exe"
-Name: "{autodesktop}\Merik"; Filename: "{app}\Merik.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Merik Studio"; Filename: "{app}\Merik Studio.exe"
+Name: "{autodesktop}\Merik Studio"; Filename: "{app}\Merik Studio.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Merik.exe"; Description: "Start Merik"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Merik Studio.exe"; Description: "Start Merik Studio"; Flags: nowait postinstall skipifsilent

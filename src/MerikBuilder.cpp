@@ -119,7 +119,7 @@ namespace MerikBuilder
                         firstRate = reader->sampleRate;
                     else if (std::abs(reader->sampleRate - firstRate) > 0.5)
                         plan.warnings.add(name + " has another sample rate (" + juce::String(reader->sampleRate, 0)
-                                          + " Hz instead of " + juce::String(firstRate, 0) + " Hz). Merik converts it, but check the length.");
+                                          + " Hz instead of " + juce::String(firstRate, 0) + " Hz). Merik Studio converts it, but check the length.");
                 }
                 else
                 {
@@ -166,7 +166,7 @@ namespace MerikBuilder
             plan.warnings.add("No audio stems found. Name them like 1-drums.wav, 2-bass.wav, ... (number 1-8 or a family name).");
 
         if (!plan.hasMidi && !plan.hasTempo && plan.stemCount > 0)
-            plan.warnings.add("No MIDI file and no tempo.json: Merik will not play its own click and shows no beat display "
+            plan.warnings.add("No MIDI file and no tempo.json: Merik Studio will not play its own click and shows no beat display "
                               "(a click stem named 8-click works).");
 
         if (stemSeconds.size() > 1)

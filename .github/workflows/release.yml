@@ -1,6 +1,6 @@
 name: Release
 
-# Bouwt een DMG voor Apple silicon, een DMG voor Intel-Macs en een installatieprogramma (Windows) en zet ze als
+# Bouwt Merik Studio: een DMG voor Apple silicon, een DMG voor Intel-Macs en een installatieprogramma (Windows) en zet ze als
 # concept-release op GitHub. Starten door een tag te pushen:
 #
 #   git tag -a v0.2.0-alpha.2 -m "Alpha 2" && git push origin v0.2.0-alpha.2
@@ -161,11 +161,11 @@ jobs:
         shell: pwsh
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'dev' }
-          $name = "Merik-$version-windows-x64"
+          $name = "Merik-Studio-$version-windows-x64"
           $stage = Join-Path $PWD "dist\$name"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          $built = Get-ChildItem -Path build-windows -Recurse -Filter Merik.exe | Select-Object -First 1
+          $built = Get-ChildItem -Path build-windows -Recurse -Filter "Merik Studio.exe" | Select-Object -First 1
           Copy-Item "$($built.DirectoryName)\*" $stage -Recurse -Force
 
           # Visual C++-runtime meeleveren, zodat er niets geïnstalleerd hoeft te worden.
@@ -181,7 +181,7 @@ jobs:
           Copy-Item LICENSE "$stage\LICENSE.txt"
           Copy-Item THIRD-PARTY-LICENSES.md $stage
 
-          # Het installatieprogramma (Inno Setup) maken uit de map met Merik.exe.
+          # Het installatieprogramma (Inno Setup) maken uit de map met "Merik Studio.exe".
           choco install innosetup -y --no-progress
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DAppVersion=$version" "/DSourceDir=$stage" "/DOutputDir=$PWD\dist" installer\merik.iss
@@ -224,5 +224,5 @@ jobs:
           cat checksums.txt
 
           gh release create "$GITHUB_REF_NAME" artifacts/* \
-            --title "Merik $VERSION" --draft $FLAGS \
+            --title "Merik Studio $VERSION" --draft $FLAGS \
             --notes-file "$NOTES"

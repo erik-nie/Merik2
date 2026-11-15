@@ -1,6 +1,6 @@
 # The .merik format (audio stems)
 
-A `.merik` file is a normal **zip file** with a different extension. There is **no manifest to write**: Merik recognises the files by their name. Whatever is present is used; whatever is missing falls back to the MIDI file or to Merik's own click.
+A `.merik` file is a normal **zip file** with a different extension. There is **no manifest to write**: Merik Studio recognises the files by their name. Whatever is present is used; whatever is missing falls back to the MIDI file or to Merik Studio's own click.
 
 ```
 My Song.merik
@@ -85,19 +85,19 @@ One entry per line. `words` is optional; with words the lyrics light up word by 
 
 ## tempo.json (optional)
 
-For a package without a MIDI file: `{ "bpm": 96, "timeSignature": [4, 4] }`. Merik then plays its internal click and shows the beat. Without a MIDI file and without this there is no internal click.
+For a package without a MIDI file: `{ "bpm": 96, "timeSignature": [4, 4] }`. Merik Studio then plays its internal click and shows the beat. Without a MIDI file and without this there is no internal click.
 
 ## delay.json (optional)
 
-For stems that were recorded through external hardware (for example a MIDI file played through a sound module and recorded back). The sound then arrives a little **late** compared with the MIDI. `delay.json` says how late, so Merik plays the stems earlier by that amount and MIDI and audio run together:
+For stems that were recorded through external hardware (for example a MIDI file played through a sound module and recorded back). The sound then arrives a little **late** compared with the MIDI. `delay.json` says how late, so Merik Studio plays the stems earlier by that amount and MIDI and audio run together:
 
 ```json
 { "audioDelayMs": 37.3 }
 ```
 
-- `audioDelayMs`: the delay in milliseconds (the time from sending the MIDI to hearing the sound in the recording). Positive = the audio is late, Merik plays it that many ms earlier. It applies to all stems of the package. Values of 5 seconds or more are ignored.
+- `audioDelayMs`: the delay in milliseconds (the time from sending the MIDI to hearing the sound in the recording). Positive = the audio is late, Merik Studio plays it that many ms earlier. It applies to all stems of the package. Values of 5 seconds or more are ignored.
 - The audio files themselves are not changed: they start at the same moment as the MIDI file and contain the sound at its recorded (late) position.
-- Merik writes this file itself when you render a MIDI file with an external module (see [render-external-module.md](render-external-module.md)). A normal `.merik` does not need it.
+- Merik Studio writes this file itself when you render a MIDI file with an external module (see [render-external-module.md](render-external-module.md)). A normal `.merik` does not need it.
 - *Create a .merik file from a folder* recognises `delay.json` and includes it.
 - `manifest.json` can also shift the audio (`timing.audioOffsetSeconds`); both are added together.
 
@@ -126,16 +126,16 @@ Only needed for things the file names cannot say:
 - The click (family 8) follows the MIDI tempo and time signature, so it stays in sync with the stems **if the stems start exactly at the start of the song** (bar 1 at time 0).
 - **Transpose** is not available for songs with stems.
 - With an external MIDI output, the audio is delayed by the same 20 ms as the MIDI so they stay together.
-- **Loading and memory:** a `.merik` whose audio is stored **without compression** in the zip is *streamed*: Merik loads only the first ~11 seconds of each stem (the song starts in a fraction of a second) and reads the rest from disk a few seconds ahead while playing, using about 17 MB per stem. After a seek there can be a very short silence (about 0.1 s) while the new position is loaded; a family that could not be read in time briefly shows **BUFFER**. Stems in a compressed zip (or when the file cannot be streamed) are decoded completely at load time instead (about 11 MB per minute per stereo stem at 48 kHz), with a progress screen. A slow or network drive can cause stutter when streaming: copy the file to a local drive.
+- **Loading and memory:** a `.merik` whose audio is stored **without compression** in the zip is *streamed*: Merik Studio loads only the first ~11 seconds of each stem (the song starts in a fraction of a second) and reads the rest from disk a few seconds ahead while playing, using about 17 MB per stem. After a seek there can be a very short silence (about 0.1 s) while the new position is loaded; a family that could not be read in time briefly shows **BUFFER**. Stems in a compressed zip (or when the file cannot be streamed) are decoded completely at load time instead (about 11 MB per minute per stereo stem at 48 kHz), with a progress screen. A slow or network drive can cause stutter when streaming: copy the file to a local drive.
 
 ## Stem requirements
 
-- All stems the same length and starting at time 0. Mono or stereo; Merik converts to the sample rate of the audio device.
+- All stems the same length and starting at time 0. Mono or stereo; Merik Studio converts to the sample rate of the audio device.
 - Prefer FLAC (lossless). MP3 works but has a start delay that can shift timing.
 
 ## Making a .merik
 
-**Inside Merik (recommended):** *Settings → Tools → Create a .merik file from a folder...*. Merik recognises the files in a folder by their names (using the rules above), warns about problems (different stem lengths, missing MIDI/tempo, unknown files), converts WAV to FLAC if you want (lossless; 32-bit float becomes 24-bit) and saves the `.merik` without compression. You can add the result to the current setlist right away. This is much more stable than doing it by hand: the common mistakes (a compressed zip, an extra folder, a wrongly named stem) cannot happen.
+**Inside Merik Studio (recommended):** *Settings → Tools → Create a .merik file from a folder...*. Merik Studio recognises the files in a folder by their names (using the rules above), warns about problems (different stem lengths, missing MIDI/tempo, unknown files), converts WAV to FLAC if you want (lossless; 32-bit float becomes 24-bit) and saves the `.merik` without compression. You can add the result to the current setlist right away. This is much more stable than doing it by hand: the common mistakes (a compressed zip, an extra folder, a wrongly named stem) cannot happen.
 
 A test song is included: [docs/demo/Stems Demo.merik](demo/Stems%20Demo.merik) (drums, bass, keys, strings and others as audio, a MIDI file whose guitar part plays through the SoundFont, plus `chords.json` and `lyrics.json`).
 
@@ -143,7 +143,7 @@ A test song is included: [docs/demo/Stems Demo.merik](demo/Stems%20Demo.merik) (
 
 For the command line and scripts. It works, but it is easier to get wrong: one wrong flag or file name and the song loads slowly or a stem is not recognised.
 
-A `.merik` is just a zip. The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
+A `.merik` is just a zip. The one thing that matters: **store the audio without compression** (`zip -0`). Audio files (wav, flac, mp3) are already compressed or do not shrink much, and a stored zip is the only kind Merik Studio can **stream**: the song is ready in a fraction of a second and uses very little memory. A normal compressed zip has to be unpacked completely first, which is slow.
 
 Put the stems in a folder, named `1-drums.wav`, `2-bass.wav`, ... (see *File names* above), optionally with `song.mid`, `click.wav`, `chords.json`, `lyrics.json`.
 
@@ -155,7 +155,7 @@ zip -0 -j "songname.merik" *.wav song.mid
 zip -0 -j "songname.merik" *.wav
 ```
 
-`-0` means "store, don't compress" and `-j` leaves out the folder name. This takes a second or two and the result loads almost instantly. **Don't use right-click → Compress in Finder**: it compresses the audio (slow to make, slow to load, Merik can't stream it) and adds an extra folder.
+`-0` means "store, don't compress" and `-j` leaves out the folder name. This takes a second or two and the result loads almost instantly. **Don't use right-click → Compress in Finder**: it compresses the audio (slow to make, slow to load, Merik Studio can't stream it) and adds an extra folder.
 
 **Windows** (PowerShell, in the folder). The simplest is the `tar` that ships with Windows 10 and 11:
 

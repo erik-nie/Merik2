@@ -1,6 +1,6 @@
 # Mixed playback: MIDI and audio together
 
-A `.merik` file can hold audio for some families and leave the other families to the MIDI file. Merik plays both together, in time, and one set of family faders controls them all.
+A `.merik` file can hold audio for some families and leave the other families to the MIDI file. Merik Studio plays both together, in time, and one set of family faders controls them all.
 
 **The rule is simple: audio wins per family.** A family that has an audio stem does not play its MIDI notes; a family without a stem keeps playing from the MIDI file through the SoundFont (or your external module).
 
@@ -13,7 +13,7 @@ A `.merik` file can hold audio for some families and leave the other families to
 
 ## How to build one
 
-1. Make a folder with the MIDI file (`song.mid`, or any name; Merik renames it) and the stems you want: `7-vocal.mp3`, `1-drums.wav`, ...
+1. Make a folder with the MIDI file (`song.mid`, or any name; Merik Studio renames it) and the stems you want: `7-vocal.mp3`, `1-drums.wav`, ...
 2. **Settings, Tools, Create a .merik file from a folder...**, or zip them by hand ([merik-format.md](merik-format.md#making-a-merik)).
 
 Keep the **original order of the families**. If a bass player joins live, you switch family 2 off, so don't put backing vocals there. Extra tracks belong in **7 (Others)**.
@@ -21,7 +21,7 @@ Keep the **original order of the families**. If a bass player joins live, you sw
 ## What you see and hear
 
 - Every family button shows **MIDI** or **AUDIO** next to its level meter, so you can see where each sound comes from.
-- The **time of the audio** and the MIDI file are the same. If your audio comes from a recording with a fixed delay (a hardware module, for example), a `delay.json` in the file plays the audio earlier by that amount. Merik writes this file itself when it records a module.
+- The **time of the audio** and the MIDI file are the same. If your audio comes from a recording with a fixed delay (a hardware module, for example), a `delay.json` in the file plays the audio earlier by that amount. Merik Studio writes this file itself when it records a module.
 - **Outputs:** each family can go to its own output under **Settings, Audio**. The MIDI families all go to the main output (or to the MIDI out).
 - **Transpose** is switched off when a song has audio stems.
 - **Volume per song** works on the audio stems and on the SoundFont.
