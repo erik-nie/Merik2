@@ -6,10 +6,8 @@
 
 <p align="center"><b>The live MIDI/audio backing tracks player built for the stage</b></p>
 
-<p align="center"><a href="https://merik2.merik2.workers.dev"><b>Website: merik2.merik2.workers.dev</b></a></p>
+<p align="center"><a href="https://merik.app/studio/"><b>Website: merik.app/studio</b></a></p>
 
-[![Downloads](https://img.shields.io/github/downloads/erik-nie/Merik2/total?label=downloads&color=1876ff)](https://github.com/erik-nie/Merik2/releases)
-[![Latest release](https://img.shields.io/github/v/release/erik-nie/Merik2?include_prereleases&label=release&color=1876ff)](https://github.com/erik-nie/Merik2/releases)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue)](LICENSE)
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20Merik-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/eriknie)
 
@@ -29,13 +27,13 @@ Merik Studio turns a folder of standard MIDI files into a gig-ready system: setl
 
 ## Download
 
-**[Download Merik Studio 1.0.0](https://github.com/erik-nie/Merik2/releases/tag/v1.0.0)** for macOS or Windows. All releases are listed on the [releases page](https://github.com/erik-nie/Merik2/releases).
+**[Download Merik Studio](https://merik.app/studio/#download)** for macOS or Windows. Release notes are on the [website](https://merik.app/studio/releases/).
 
 | System | File | Requirements |
 |---|---|---|
-| **macOS, Apple silicon** (M1 and newer) | `Merik-Studio-1.0.0-arm64.dmg` | macOS 15 or later |
-| **macOS, Intel** | `Merik-Studio-1.0.0-intel.dmg` | Intel Mac, macOS 15 or later |
-| **Windows** | `Merik-Studio-1.0.0-windows-x64-setup.exe` | Windows 10 or 11, 64-bit |
+| **macOS, Apple silicon** (M1 and newer) | `Merik-Studio-1.0.1-arm64.dmg` | macOS 15 or later |
+| **macOS, Intel** | `Merik-Studio-1.0.1-intel.dmg` | Intel Mac, macOS 15 or later |
+| **Windows** | `Merik-Studio-1.0.1-windows-x64-setup.exe` | Windows 10 or 11, 64-bit |
 
 **Install on macOS** (both versions)
 
@@ -43,7 +41,7 @@ Merik Studio turns a folder of standard MIDI files into a gig-ready system: setl
 
 **Install on Windows**
 
-1. Download and run `Merik-Studio-1.0.0-windows-x64-setup.exe` and follow the installer. It installs for your own account and needs no administrator rights.
+1. Download and run `Merik-Studio-1.0.1-windows-x64-setup.exe` and follow the installer. It installs for your own account and needs no administrator rights.
 2. The installer is **not code-signed** yet, so Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**.
 3. If there is no "Run anyway" button, SmartScreen is set to block: open **Windows Security, App & browser control, Reputation-based protection settings** and set **Check apps and files** to **Warn** (or **Off**).
 4. If Windows 11 blocks it with **Smart App Control** (no "Run anyway" either), open **Windows Security, App & browser control, Smart App Control settings** and choose **Off**. On some Windows 11 versions Smart App Control cannot be turned on again afterwards.
@@ -314,8 +312,8 @@ The remote-control server uses Winsock on Windows. MIDI out falls back to JUCE's
 Releases are built on GitHub. Pushing a version tag starts the **Release** workflow, which builds the macOS DMGs (Apple silicon and Intel) and the Windows installer and creates a draft release with the three files:
 
 ```sh
-git tag -a v1.0.0 -m "Merik Studio 1.0.0"
-git push origin v1.0.0
+git tag -a v1.0.1 -m "Merik Studio 1.0.1"
+git push origin v1.0.1
 ```
 
 The release notes come from `docs/release-notes/<version>.md`. You can also start the workflow by hand (Actions, Release, Run workflow) to build the files without making a release.
@@ -323,7 +321,7 @@ The release notes come from `docs/release-notes/<version>.md`. You can also star
 On a Mac you can build the DMG yourself with `scripts/make-release.sh` (it builds for the processor of that Mac). It bundles FluidSynth and its libraries into the app, signs it ad hoc and packs a DMG in `dist/` with an arrow to the Applications folder. It needs `dylibbundler` (`brew install dylibbundler`).
 
 ```sh
-scripts/make-release.sh 1.0.0
+scripts/make-release.sh 1.0.1
 ```
 
 The GitHub release workflow signs and notarizes the macOS DMGs with a Developer ID certificate (stored as GitHub secrets). For your own build, set `SIGN_IDENTITY` and `NOTARY_PROFILE` (see the comments in the script). A release runs on the macOS version it was built on or newer, because the bundled libraries are built for that version; the script prints it.

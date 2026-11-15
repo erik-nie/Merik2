@@ -12,7 +12,7 @@ keeps its own license.
 | [midifile](https://github.com/craigsapp/midifile) by Craig Stuart Sapp | BSD-2-Clause | MIDI file reading, in `src/midifile`. |
 | [Noto Sans](https://fonts.google.com/noto) | SIL Open Font License 1.1 | Interface typeface, in `assets/fonts`. |
 
-Source code for Merik: <https://github.com/erik-nie/Merik2>
+Source code for Merik Studio (GNU AGPL v3): <https://merik.app/studio/source/>
 
 The LGPL libraries come from the Homebrew distribution; their source code is
 available from the respective projects and from Homebrew.

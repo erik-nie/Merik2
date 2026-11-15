@@ -8,10 +8,10 @@
 #include <functional>
 #include <utility>
 
-// Kijkt op GitHub of er een nieuwere versie van Merik is. Draait op een
-// achtergronddraad (de app blijft gewoon starten); het resultaat komt op de
-// GUI-thread terug. Er wordt niets over de gebruiker verstuurd behalve het
-// gewone HTTPS-verzoek zelf.
+// Kijkt op de website of er een nieuwere versie van Merik Studio is (een klein JSON-bestand,
+// zie docs/update-check.md). Draait op een achtergronddraad (de app blijft gewoon starten);
+// het resultaat komt op de GUI-thread terug. Er wordt niets over de gebruiker verstuurd
+// behalve het gewone HTTPS-verzoek zelf.
 class UpdateChecker
 {
 public:
@@ -35,63 +35,46 @@ public:
     }
 
 private:
+    static constexpr const char* feeds[] = {
+        "https://merik.app/studio/latest.json",
+    };
+
+    // latest.json: { "version": "1.0.1", "url": "https://.../studio/#download" }
     static Result fetch(const juce::String& currentVersion)
     {
         Result result;
 
-        const juce::URL url("https://api.github.com/repos/erik-nie/Merik2/releases?per_page=15");
-
-        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                           .withExtraHeaders("Accept: application/vnd.github+json\r\n"
-                                             "User-Agent: Merik/" + currentVersion)
-                           .withConnectionTimeoutMs(6000);
-
-        const auto stream = url.createInputStream(options);
-
-        if (stream == nullptr)
-            return result;
-
-        const auto json = juce::JSON::parse(stream->readEntireStreamAsString());
-        const auto* releases = json.getArray();
-
-        if (releases == nullptr)
-            return result;
-
-        // Wie een pre-release gebruikt (alpha/beta) krijgt ook pre-releases
-        // te zien; wie een gewone release gebruikt alleen gewone releases.
-        const bool acceptPrereleases = VersionCompare::isPrerelease(currentVersion.toStdString());
-
-        juce::String bestTag;
-        juce::String bestUrl;
-
-        for (const auto& release : *releases)
+        for (const auto* feed : feeds)
         {
-            if (static_cast<bool>(release["draft"]))
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                               .withExtraHeaders("Accept: application/json\r\n"
+                                                 "User-Agent: MerikStudio/" + currentVersion)
+                               .withConnectionTimeoutMs(6000);
+
+            const auto stream = juce::URL(feed).createInputStream(options);
+
+            if (stream == nullptr)
                 continue;
 
-            if (static_cast<bool>(release["prerelease"]) && !acceptPrereleases)
+            const auto json = juce::JSON::parse(stream->readEntireStreamAsString());
+            const auto version = json["version"].toString().trim();
+
+            if (version.isEmpty())
                 continue;
 
-            const auto tag = release["tag_name"].toString();
+            result.ok = true;
+            result.latestVersion = version.trimCharactersAtStart("vV");
+            result.url = json["url"].toString();
 
-            if (tag.isEmpty())
-                continue;
+            // Alleen een adres op onze eigen website openen; anders de downloadpagina.
+            if (!result.url.startsWith("https://merik.app/"))
+                result.url = "https://merik.app/studio/#download";
 
-            if (bestTag.isEmpty() || VersionCompare::compare(tag.toStdString(), bestTag.toStdString()) > 0)
-            {
-                bestTag = tag;
-                bestUrl = release["html_url"].toString();
-            }
-        }
-
-        result.ok = true;
-
-        if (bestTag.isNotEmpty())
-        {
-            result.latestVersion = bestTag.trimCharactersAtStart("vV");
-            result.url = bestUrl;
-            result.updateAvailable =
-                VersionCompare::compare(bestTag.toStdString(), currentVersion.toStdString()) > 0;
+            // Wie een pre-release gebruikt (alpha/beta) vergelijkt gewoon mee; een gewone versie
+            // wordt nooit "teruggezet" naar een lagere.
+            result.updateAvailable = VersionCompare::compare(result.latestVersion.toStdString(),
+                                                              currentVersion.toStdString()) > 0;
+            return result;
         }
 
         return result;

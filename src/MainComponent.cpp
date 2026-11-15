@@ -9328,7 +9328,7 @@ bool MainComponent::hasNextSong() const
 
 
 // ============================================================================
-// Nieuwe versie (GitHub)
+// Nieuwe versie (website)
 // ============================================================================
 
 void MainComponent::checkForUpdates(bool userInitiated)
