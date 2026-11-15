@@ -55,12 +55,12 @@ jobs:
       - name: Collect the build
         shell: pwsh
         run: |
-          $out = Get-ChildItem -Path build-windows -Recurse -Filter Merik.exe | Select-Object -First 1
+          $out = Get-ChildItem -Path build-windows -Recurse -Filter "Merik Studio.exe" | Select-Object -First 1
           Write-Host "Built: $($out.FullName)"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item "$($out.DirectoryName)\*" dist -Recurse -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: merik-windows-x64
+          name: merik-studio-windows-x64
           path: dist

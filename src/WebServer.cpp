@@ -924,7 +924,7 @@ std::string WebServer::createHtml() const
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Merik</title>
+<title>Merik Studio</title>
 <style>
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
@@ -1291,10 +1291,10 @@ body.family-panel-open #lyricsViewport { width: 80%; margin-right: 20%; }
 <!-- ########################## HTML   ################################# -->
 <!-- ################################################################### -->
 <body>
-<header><div id="song">Merik</div><div id="time">00:00 / 00:00</div><div id="nextSong"></div><div id="setlistRemaining"></div></header>
+<header><div id="song">Merik Studio</div><div id="time">00:00 / 00:00</div><div id="nextSong"></div><div id="setlistRemaining"></div></header>
 <div id="songProgress"><div id="songProgressFill"></div></div>
 <div id="lyricCountdown"></div>
-<div id="offline" hidden><div class="card"><div class="title">Merik is not running</div><div class="text">Start Merik on the computer.<br>This page reconnects by itself.</div><div class="dots"><span></span><span></span><span></span></div></div></div>
+<div id="offline" hidden><div class="card"><div class="title">Merik Studio is not running</div><div class="text">Start Merik Studio on the computer.<br>This page reconnects by itself.</div><div class="dots"><span></span><span></span><span></span></div></div></div>
 <div id="topRight">
 <div id="topRow"><div id="clock"></div><div id="beatBox" hidden><span id="beatSig">4/4</span><span id="beatLeds"></span></div></div>
 <div id="sections" hidden><div class="section-slot current"><span class="section-name" id="sectionCurrent"></span><div class="section-progress"><div id="sectionRemaining" class="section-progress-fill"></div></div></div><div class="section-slot next"><span class="section-name" id="sectionNext"></span></div></div>
@@ -2758,7 +2758,7 @@ async function update() {
 
         songData = Object.assign({}, songBase, { position: state.position });
 
-        document.getElementById("song").textContent = songData.song || "Merik";
+        document.getElementById("song").textContent = songData.song || "Merik Studio";
 
         const keyText = state.transpose
             ? '<span class="key">Key ' + (state.transpose > 0 ? "+" : "") + state.transpose + "</span>"

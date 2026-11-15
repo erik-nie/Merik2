@@ -1,6 +1,6 @@
-# Merik help
+# Merik Studio help
 
-Everything you need to run a gig with Merik, from the first song to your own audio stems. Start with the **basics**; the **advanced** pages are for when you want more.
+Everything you need to run a gig with Merik Studio, from the first song to your own audio stems. Start with the **basics**; the **advanced** pages are for when you want more.
 
 ## Basics
 
@@ -23,7 +23,7 @@ Everything you need to run a gig with Merik, from the first song to your own aud
 
 ## Quick start in one minute
 
-1. Start Merik and choose a General MIDI SoundFont (`.sf2`) under **Settings, Soundfont**.
+1. Start Merik Studio and choose a General MIDI SoundFont (`.sf2`) under **Settings, Soundfont**.
 2. Drag your MIDI files onto the window, or use the **+** in the Songs header.
 3. Double-click a song and press **Play**.
 4. On a tablet or phone on the same network, open **http://merik.local**.

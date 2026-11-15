@@ -22,12 +22,12 @@ public:
 
     const juce::String getApplicationName() override
     {
-        return "Merik";
+        return "Merik Studio";
     }
 
     const juce::String getApplicationVersion() override
     {
-        return "0.7.3";
+        return "1.0.0";
     }
 
     bool moreThanOneInstanceAllowed() override

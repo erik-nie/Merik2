@@ -1,20 +1,20 @@
 # The web page for the band
 
-Merik has a small web server built in. Open it in any browser on the same network (iPad, Android tablet, phone, another laptop) and everybody in the band sees the lyrics, the chords, the sections and the beat of the song that is playing, live. With the control key, the same page also becomes a **remote control**.
+Merik Studio has a small web server built in. Open it in any browser on the same network (iPad, Android tablet, phone, another laptop) and everybody in the band sees the lyrics, the chords, the sections and the beat of the song that is playing, live. With the control key, the same page also becomes a **remote control**.
 
 ## Opening the page
 
 | Address | When |
 |---|---|
-| `http://merik.local` | The easy one. Merik announces itself on the network under this name (mDNS, also known as Bonjour). |
+| `http://merik.local` | The easy one. Merik Studio announces itself on the network under this name (mDNS, also known as Bonjour). |
 | `http://<IP address>` | The same page by IP address. **Settings, General** shows the full addresses. |
 
-- Merik listens on **one** port: the normal web port **80**, so no port number is needed (`http://192.168.1.20`). Only if something else on the computer already uses port 80, Merik uses **8888** instead, and then only `:8888` works. Settings, General always shows the address that is in use.
+- Merik Studio listens on **one** port: the normal web port **80**, so no port number is needed (`http://192.168.1.20`). Only if something else on the computer already uses port 80, Merik Studio uses **8888** instead, and then only `:8888` works. Settings, General always shows the address that is in use.
 - **If `merik.local` does not work** (the Wi-Fi network blocks mDNS, as some guest networks and hotspots do, or the device does not support it), use the IP address from Settings, General. The IP address works on every network where the devices can reach each other.
 - `merik.local` works on iPhones, iPads, Macs and current Windows 10 and 11 versions. Some Android phones and tablets cannot resolve `.local` names in the browser; use the IP address there. (Tested here with a Mac; other devices not yet.)
 - The computer and the tablet must be on the same network. A mobile hotspot, a router or the Wi-Fi of the venue all work, as long as devices may talk to each other (some guest Wi-Fi networks block that).
-- On Windows, allow Merik on **private networks** when Windows asks.
-- If Merik is not running, the page says so and connects again by itself as soon as it starts.
+- On Windows, allow Merik Studio on **private networks** when Windows asks.
+- If Merik Studio is not running, the page says so and connects again by itself as soon as it starts.
 
 ## What the band sees (view only)
 
@@ -92,5 +92,5 @@ The setlist that is playing, with the length of each song and the **time left un
 
 ## Good to know
 
-- The same page opens on this computer with the **Lyrics** button in Merik. Click it with <kbd>Cmd</kbd> (<kbd>Ctrl</kbd> or <kbd>Alt</kbd> on Windows) held down to open it with the key.
+- The same page opens on this computer with the **Lyrics** button in Merik Studio. Click it with <kbd>Cmd</kbd> (<kbd>Ctrl</kbd> or <kbd>Alt</kbd> on Windows) held down to open it with the key.
 - Several devices can open the page at the same time.

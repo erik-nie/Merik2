@@ -1,20 +1,20 @@
 # Playing MIDI files in setlists
 
-This is the basic way to use Merik: standard MIDI files, played through a SoundFont (or a hardware module), organised in setlists.
+This is the basic way to use Merik Studio: standard MIDI files, played through a SoundFont (or a hardware module), organised in setlists.
 
 <p align="center">
-  <img src="images/main-window.png" width="560" alt="The Merik main window">
+  <img src="images/main-window.png" width="560" alt="The Merik Studio main window">
 </p>
 
 ## 1. Choose the sound
 
-1. Open **Settings, Soundfont** and choose a General MIDI SoundFont (`.sf2`). Merik does not include one; `MatrixSF_v2.1.5.sf2` is a good free choice.
+1. Open **Settings, Soundfont** and choose a General MIDI SoundFont (`.sf2`). Merik Studio does not include one; `MatrixSF_v2.1.5.sf2` is a good free choice.
 2. Open **Settings, Audio** and choose the **output device** (your audio interface, the USB connection of your digital mixer, or the built-in output), the sample rate and the buffer size. 512 samples at 48 kHz is a good start; go lower if you can, higher if you hear crackles.
 3. Under **Main output** choose where the band mix goes. With a multichannel device you pick one stereo pair (or one channel); all other channels stay free, for example for the click.
 
 The gain and reverb of the SoundFont are on the **Soundfont** tab.
 
-*Playing through a hardware module instead?* Choose the MIDI output on the **Midi** tab (the sound then comes from the module, not from Merik).
+*Playing through a hardware module instead?* Choose the MIDI output on the **Midi** tab (the sound then comes from the module, not from Merik Studio).
 
 ## 2. Put songs in setlists
 
@@ -39,11 +39,11 @@ Each song shows its length, the **time left until the end of the setlist**, and 
 - **Transpose** (the capsule in the Songs header): up or down by semitones, live. Drums stay as they are and the chords follow. It is remembered per song.
 - **Volume per song** (the capsule next to it): a difference in dB, remembered per song, so a quiet song does not need a hand on the fader every time.
 - **Normalize** levels the channels against the drum channel, so files that were mixed differently start from a similar balance.
-- **Click track.** Merik generates a click from the tempo and the time signature of the song, exactly in time with the music. Family 8 sets its volume and switches it on or off. Send it to its own output (for example the drummer's in-ear mix) under **Settings, Audio, Click output**.
+- **Click track.** Merik Studio generates a click from the tempo and the time signature of the song, exactly in time with the music. Family 8 sets its volume and switches it on or off. Send it to its own output (for example the drummer's in-ear mix) under **Settings, Audio, Click output**.
 
 ## 5. Lyrics and chords
 
-Merik reads lyrics (including karaoke `.kar` files and word-by-word highlighting) and chords (Yamaha XF, Midisoft, markers and text events) from the MIDI file, and also the section names (Intro, Verse, Chorus and so on). Press **Lyrics** to see them on this computer, or open **http://merik.local** on any other device so that everybody in the band can read along. More in [The web page for the band](web-page.md).
+Merik Studio reads lyrics (including karaoke `.kar` files and word-by-word highlighting) and chords (Yamaha XF, Midisoft, markers and text events) from the MIDI file, and also the section names (Intro, Verse, Chorus and so on). Press **Lyrics** to see them on this computer, or open **http://merik.local** on any other device so that everybody in the band can read along. More in [The web page for the band](web-page.md).
 
 ## 6. Find songs quickly
 
