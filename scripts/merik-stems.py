@@ -329,6 +329,32 @@ def to_flac(wav, flac):
         die("making flac failed: " + r.stderr.strip()[-300:])
 
 
+def load_existing(work, src):
+    """Stems uit een eerdere run (drums/bass/guitars/keys/others/vocals.wav) als ze net zo lang zijn als het nummer."""
+    import soundfile as sf
+    need = {"drums": "1-drums.wav", "bass": "2-bass.wav", "guitar": "3-guitars.wav", "piano": "4-keys.wav",
+            "other": "7-others.wav", "vocals": "vocals.wav"}
+    frames = sf.info(str(src)).frames
+    out, sr = {}, 44100
+    for key, fname in need.items():
+        path = work / fname
+        if not path.exists():
+            if key in ("bass", "guitar", "piano"):  # stille stems zijn niet geschreven
+                out[key] = None
+                continue
+            return None, 44100
+        info = sf.info(str(path))
+        if info.frames != frames:
+            return None, 44100
+        data, sr = sf.read(str(path), always_2d=True, dtype="float32")
+        out[key] = data
+    ref = next(v for v in out.values() if v is not None)
+    for key in out:
+        if out[key] is None:
+            out[key] = ref * 0
+    return out, sr
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--audio", required=True)
@@ -338,6 +364,8 @@ def main():
     ap.add_argument("--flac", action="store_true", help="stems als flac in het .merik")
     ap.add_argument("--vocals-out", help="sla de zang op als wav op dit pad (komt niet in het .merik)")
     ap.add_argument("--keep-work", action="store_true", help="tussenmap niet verwijderen")
+    ap.add_argument("--reuse", action="store_true",
+                    help="stems die al in de tussenmap staan met de lengte van het nummer niet opnieuw maken (met --keep-work)")
     ap.add_argument("--title")
     args = ap.parse_args()
 
@@ -360,8 +388,14 @@ def main():
     src = work / "input.wav"
     decode(audio, src)
 
-    progress(0.05, "Separating stems (first run downloads the model)")
-    sources, sr = separate(src, lambda f: progress(0.05 + 0.5 * f, "Separating stems (first run downloads the model)"))
+    sources = None
+    if args.reuse:
+        sources, sr = load_existing(work, src)
+        if sources:
+            progress(0.55, "Reusing the stems already in the intermediate folder")
+    if not sources:
+        progress(0.05, "Separating stems (first run downloads the model)")
+        sources, sr = separate(src, lambda f: progress(0.05 + 0.5 * f, "Separating stems (first run downloads the model)"))
     stem_files = []
     others = np.zeros_like(sources["vocals"])
     for name, data in sources.items():

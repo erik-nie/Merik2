@@ -2203,7 +2203,7 @@ public:
         vocalsToggle.setButtonText("Also save the vocals as a wav file (not in the .merik)");
         addAndMakeVisible(vocalsToggle);
 
-        keepToggle.setButtonText("Keep the intermediate folder (wav, json, midi)");
+        keepToggle.setButtonText("Keep the intermediate folder (wav, json, midi); reuse stems already in it");
         addAndMakeVisible(keepToggle);
 
         log.setMultiLine(true, false);
@@ -2424,7 +2424,7 @@ private:
             args.add("--flac");
 
         if (keepToggle.getToggleState())
-            args.add("--keep-work");
+            args.addArray({ "--keep-work", "--reuse" });   // stems die al in de tussenmap staan (zelfde lengte) worden hergebruikt
 
         if (vocalsToggle.getToggleState())
             args.addArray({ "--vocals-out", output.withFileExtension("vocals.wav").getFullPathName() });
