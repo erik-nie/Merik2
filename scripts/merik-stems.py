@@ -190,7 +190,8 @@ def chord_templates():
             for k, iv in enumerate(ivs):
                 v[(root + iv) % 12] = 1.0 if k < 3 else 0.6
             names.append(NOTES[root] + suffix)
-            mats.append(v / np.linalg.norm(v))
+            # 7e-akkoorden alleen als ze duidelijk beter passen dan de gewone drieklank
+            mats.append(v / np.linalg.norm(v) * (1.0 if len(ivs) == 3 else 0.9))
     return names, np.array(mats)
 
 
@@ -237,7 +238,7 @@ def analyse_chords(harmonic, sr, on_progress):
     scores = np.array(scores)
     # Viterbi met sterke voorkeur voor blijven (akkoorden wisselen zelden per tel)
     k = len(names)
-    stay, move = 0.0, -0.9
+    stay, move = 0.0, -0.3
     path = np.zeros(len(scores), dtype=int)
     if len(scores):
         score = scores[0].copy()
