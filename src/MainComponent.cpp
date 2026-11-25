@@ -709,6 +709,8 @@ struct SettingsContext
 
     std::function<void()> backup;
     std::function<void()> restore;
+
+    std::function<void()> openStemsMaker;
 };
 
 class SettingsContent final : public juce::Component,
@@ -1416,6 +1418,15 @@ private:
                             "Merik Studio shows what it found and saves a .merik without compression.");
         toolsPage.content.addAndMakeVisible(makeHint);
 
+        stemsMakerButton.setButtonText("Make stems from a song...");
+        stemsMakerButton.onClick = [this] { if (context.openStemsMaker) context.openStemsMaker(); };
+        toolsPage.content.addAndMakeVisible(stemsMakerButton);
+
+        styleHint(stemsMakerHint, "Choose an audio file (wav, mp3, flac) and a lyrics text file. Merik separates the song into stems, "
+                                  "aligns the lyrics with the singing, detects chords, and saves a .merik with a MIDI file. "
+                                  "Needs a one-time setup (about 3 GB) and runs on your Mac, no internet except for that setup.");
+        toolsPage.content.addAndMakeVisible(stemsMakerHint);
+
         styleHeading(renderHeading, "Render MIDI files");
         toolsPage.content.addAndMakeVisible(renderHeading);
 
@@ -1458,7 +1469,11 @@ private:
             createMerikButton.setBounds(controlX, y, 320, 30);
             y += 38;
             makeHint.setBounds(controlX, y, controlWidth, 40);
-            y += 64;
+            y += 52;
+            stemsMakerButton.setBounds(controlX, y, 320, 30);
+            y += 38;
+            stemsMakerHint.setBounds(controlX, y, controlWidth, 56);
+            y += 76;
 
             renderHeading.setBounds(controlX, y, controlWidth, 24);
             y += 30;
@@ -1722,6 +1737,8 @@ private:
     ScrollPage soundFontPage;
     ScrollPage audioPage;
     ScrollPage toolsPage;
+    juce::Label stemsMakerHint;
+    juce::TextButton stemsMakerButton;
     juce::Label makeHeading, makeHint, renderHeading, renderHint, backupHeading, backupHint;
     juce::TextButton backupButton, restoreButton;
     juce::TextButton renderButton;
@@ -2119,6 +2136,508 @@ class MerikMakerWindow final : public juce::DialogWindow
 public:
     explicit MerikMakerWindow(juce::Component* content, juce::Component* owner)
         : juce::DialogWindow("Create a .merik file", backgroundColour, true)
+    {
+        setUsingNativeTitleBar(true);
+        setResizable(false, false);
+        setContentOwned(content, true);
+        centreAroundComponent(owner, getWidth(), getHeight());
+        setVisible(true);
+    }
+
+    void closeButtonPressed() override { delete this; }
+};
+
+// ============================================================================
+// Stems maken uit een nummer (audio + lyrics): voert merik-stems.py uit
+// ============================================================================
+
+class StemsMakerContent final : public juce::Component,
+                                private juce::Timer
+{
+public:
+    std::function<void(const juce::File&)> onAddToSetlist;
+
+    explicit StemsMakerContent(juce::File startFolder)
+        : lastFolder(std::move(startFolder))
+    {
+        setLookAndFeel(&merikLookAndFeel);
+
+        heading.setText("Make stems from a song", juce::dontSendNotification);
+        heading.setFont(merikLookAndFeel.getBoldFont(20.0f));
+        heading.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(heading);
+
+        hint.setText("Choose the audio file and (optionally) a text file with the lyrics. Merik separates the stems "
+                     "(drums, bass, guitars, keys, others), aligns the lyrics with the vocals, detects tempo and chords, "
+                     "and saves a .merik with a MIDI file. The vocals are not put in the .merik.",
+                     juce::dontSendNotification);
+        hint.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        hint.setColour(juce::Label::textColourId, secondaryTextColour);
+        hint.setMinimumHorizontalScale(1.0f);
+        hint.setJustificationType(juce::Justification::topLeft);
+        addAndMakeVisible(hint);
+
+        for (auto* label : { &audioLabel, &lyricsLabel, &statusLabel })
+        {
+            label->setFont(merikLookAndFeel.getMediumFont(14.0f));
+            label->setColour(juce::Label::textColourId, textColour);
+            addAndMakeVisible(*label);
+        }
+
+        audioLabel.setText("No audio file chosen", juce::dontSendNotification);
+        lyricsLabel.setText("No lyrics file (optional)", juce::dontSendNotification);
+        statusLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+
+        audioButton.setButtonText("Audio file...");
+        audioButton.onClick = [this] { chooseFile(true); };
+        addAndMakeVisible(audioButton);
+
+        lyricsButton.setButtonText("Lyrics file...");
+        lyricsButton.onClick = [this] { chooseFile(false); };
+        addAndMakeVisible(lyricsButton);
+
+        flacToggle.setButtonText("Make FLAC (about half the size, lossless)");
+        flacToggle.setToggleState(true, juce::dontSendNotification);
+        addAndMakeVisible(flacToggle);
+
+        vocalsToggle.setButtonText("Also save the vocals as a wav file (not in the .merik)");
+        addAndMakeVisible(vocalsToggle);
+
+        keepToggle.setButtonText("Keep the intermediate folder (wav, json, midi)");
+        addAndMakeVisible(keepToggle);
+
+        log.setMultiLine(true, false);
+        log.setReadOnly(true);
+        log.setScrollbarsShown(true);
+        log.setCaretVisible(false);
+        log.setFont(merikLookAndFeel.getMediumFont(13.0f));
+        log.setColour(juce::TextEditor::backgroundColourId, panelDarkColour);
+        log.setColour(juce::TextEditor::textColourId, secondaryTextColour);
+        log.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        log.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        log.setIndents(10, 8);
+        addAndMakeVisible(log);
+
+        startButton.setButtonText("Make .merik...");
+        startButton.setColour(juce::TextButton::buttonColourId, merikBlue);
+        startButton.setEnabled(false);
+        startButton.onClick = [this] { chooseOutput(); };
+        addAndMakeVisible(startButton);
+
+        cancelButton.setButtonText("Cancel");
+        cancelButton.onClick = [this] { cancel = true; };
+        addChildComponent(cancelButton);
+
+        addToSetlistButton.setButtonText("Add to the current setlist");
+        addToSetlistButton.onClick = [this]
+        {
+            if (onAddToSetlist && created != juce::File())
+                onAddToSetlist(created);
+
+            addToSetlistButton.setEnabled(false);
+        };
+        addChildComponent(addToSetlistButton);
+
+        showButton.setButtonText("Show in Finder");
+        showButton.onClick = [this] { created.revealToUser(); };
+        addChildComponent(showButton);
+
+        progressBar = std::make_unique<juce::ProgressBar>(progressValue);
+        progressBar->setPercentageDisplay(false);
+        addChildComponent(*progressBar);
+
+        setSize(640, 640);
+
+        if (!environmentReady())
+        {
+            statusLabel.setText("One-time setup needed (about 3 GB download).", juce::dontSendNotification);
+            startButton.setButtonText("Set up...");
+            startButton.setEnabled(true);
+            needsSetup = true;
+        }
+    }
+
+    ~StemsMakerContent() override
+    {
+        stopTimer();
+        cancel = true;
+
+        if (worker != nullptr)
+            worker->stopThread(15000);
+
+        setLookAndFeel(nullptr);
+    }
+
+    void paint(juce::Graphics& g) override { g.fillAll(backgroundColour); }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(22, 18);
+
+        heading.setBounds(area.removeFromTop(30));
+        area.removeFromTop(4);
+        hint.setBounds(area.removeFromTop(62));
+        area.removeFromTop(10);
+
+        auto row = area.removeFromTop(32);
+        audioButton.setBounds(row.removeFromLeft(150));
+        row.removeFromLeft(12);
+        audioLabel.setBounds(row);
+        area.removeFromTop(8);
+
+        row = area.removeFromTop(32);
+        lyricsButton.setBounds(row.removeFromLeft(150));
+        row.removeFromLeft(12);
+        lyricsLabel.setBounds(row);
+        area.removeFromTop(12);
+
+        flacToggle.setBounds(area.removeFromTop(26));
+        vocalsToggle.setBounds(area.removeFromTop(26));
+        keepToggle.setBounds(area.removeFromTop(26));
+        area.removeFromTop(10);
+
+        auto bottom = area.removeFromBottom(100);
+        log.setBounds(area);
+
+        bottom.removeFromTop(10);
+        auto progressRow = bottom.removeFromTop(24);
+        progressBar->setBounds(progressRow);
+        statusLabel.setBounds(progressRow);
+
+        bottom.removeFromTop(12);
+        auto buttons = bottom.removeFromTop(32);
+        startButton.setBounds(buttons.removeFromRight(160));
+        cancelButton.setBounds(startButton.getBounds());
+        buttons.removeFromRight(10);
+        addToSetlistButton.setBounds(buttons.removeFromRight(200));
+        buttons.removeFromRight(10);
+        showButton.setBounds(buttons.removeFromRight(130));
+    }
+
+private:
+    static juce::File envFolder()
+    {
+        return juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+            .getChildFile("Library/Application Support/Merik/stems-env");
+    }
+
+    static juce::File pythonFile() { return envFolder().getChildFile("venv/bin/python"); }
+
+    static bool environmentReady()
+    {
+        return pythonFile().existsAsFile();
+    }
+
+    static juce::File writeEmbedded(const char* name, const void* data, int size)
+    {
+        auto file = envFolder().getChildFile(name);
+        file.getParentDirectory().createDirectory();
+        file.replaceWithData(data, static_cast<std::size_t>(size));
+        file.setExecutePermission(true);
+        return file;
+    }
+
+    void chooseFile(bool audio)
+    {
+        chooser = std::make_shared<juce::FileChooser>(audio ? "Choose the audio file" : "Choose the lyrics text file",
+                                                      lastFolder, audio ? "*.wav;*.mp3;*.flac;*.m4a;*.aif;*.aiff" : "*.txt");
+
+        chooser->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [safe = juce::Component::SafePointer<StemsMakerContent>(this), audio](const juce::FileChooser& fc)
+            {
+                const auto file = fc.getResult();
+
+                if (safe == nullptr || !file.existsAsFile())
+                    return;
+
+                safe->lastFolder = file.getParentDirectory();
+
+                if (audio)
+                {
+                    safe->audioFile = file;
+                    safe->audioLabel.setText(file.getFileName(), juce::dontSendNotification);
+
+                    // Een txt met dezelfde naam ernaast is waarschijnlijk de lyrics.
+                    const auto sibling = file.withFileExtension("txt");
+
+                    if (safe->lyricsFile == juce::File() && sibling.existsAsFile())
+                    {
+                        safe->lyricsFile = sibling;
+                        safe->lyricsLabel.setText(sibling.getFileName(), juce::dontSendNotification);
+                    }
+                }
+                else
+                {
+                    safe->lyricsFile = file;
+                    safe->lyricsLabel.setText(file.getFileName(), juce::dontSendNotification);
+                }
+
+                safe->startButton.setEnabled(safe->audioFile.existsAsFile() && safe->worker == nullptr);
+            });
+    }
+
+    void chooseOutput()
+    {
+        if (worker != nullptr)
+            return;
+
+        if (needsSetup)
+        {
+            const auto script = writeEmbedded("setup-stems-env.sh", BinaryData::setupstemsenv_sh,
+                                              BinaryData::setupstemsenv_shSize);
+            run({ "/bin/bash", script.getFullPathName() }, {});
+            return;
+        }
+
+        chooser = std::make_shared<juce::FileChooser>("Save the .merik file as",
+                                                      audioFile.withFileExtension("merik"), "*.merik");
+
+        chooser->launchAsync(
+            juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                | juce::FileBrowserComponent::warnAboutOverwriting,
+            [safe = juce::Component::SafePointer<StemsMakerContent>(this)](const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+
+                if (safe == nullptr || file == juce::File())
+                    return;
+
+                if (!file.hasFileExtension("merik"))
+                    file = file.withFileExtension("merik");
+
+                safe->startMake(file);
+            });
+    }
+
+    void startMake(const juce::File& output)
+    {
+        const auto script = writeEmbedded("merik-stems.py", BinaryData::merikstems_py, BinaryData::merikstems_pySize);
+
+        juce::StringArray args { pythonFile().getFullPathName(), "-I", script.getFullPathName(),
+                                 "--audio", audioFile.getFullPathName(), "--out", output.getFullPathName() };
+
+        if (lyricsFile.existsAsFile())
+            args.addArray({ "--lyrics", lyricsFile.getFullPathName() });
+
+        if (flacToggle.getToggleState())
+            args.add("--flac");
+
+        if (keepToggle.getToggleState())
+            args.add("--keep-work");
+
+        if (vocalsToggle.getToggleState())
+            args.addArray({ "--vocals-out", output.withFileExtension("vocals.wav").getFullPathName() });
+
+        run(args, output);
+    }
+
+    void run(const juce::StringArray& command, const juce::File& output)
+    {
+        cancel = false;
+        finished = false;
+        progress = 0.0f;
+        progressValue = 0.0;
+        created = juce::File();
+        outputFile = output;
+        errorText = {};
+        log.clear();
+
+        startButton.setVisible(false);
+        cancelButton.setVisible(true);
+        audioButton.setEnabled(false);
+        lyricsButton.setEnabled(false);
+        addToSetlistButton.setVisible(false);
+        showButton.setVisible(false);
+        statusLabel.setVisible(false);
+        progressBar->setVisible(true);
+        message = "Starting...";
+
+        worker = std::make_unique<Worker>([this, command]
+        {
+            juce::ChildProcess process;
+            juce::String environmentPath = "/opt/homebrew/bin:/usr/local/bin:" + juce::SystemStats::getEnvironmentVariable("PATH", "/usr/bin:/bin");
+            setenv("PATH", environmentPath.toRawUTF8(), 1);
+            setenv("PYTHONUNBUFFERED", "1", 1);
+
+            if (!process.start(command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
+            {
+                const juce::ScopedLock lock(messageLock);
+                errorText = "Could not start the process";
+                finished = true;
+                return;
+            }
+
+            juce::String pending;
+            char buffer[2048];
+            bool done = false;
+
+            while (true)
+            {
+                if (cancel.load())
+                {
+                    process.kill();
+                    break;
+                }
+
+                const int n = process.readProcessOutput(buffer, sizeof(buffer) - 1);
+
+                if (n <= 0)
+                    break;
+
+                pending += juce::String::fromUTF8(buffer, n);
+
+                for (int nl = pending.indexOfChar('\n'); nl >= 0; nl = pending.indexOfChar('\n'))
+                {
+                    const auto line = pending.substring(0, nl).trim();
+                    pending = pending.substring(nl + 1);
+                    handleLine(line, done);
+                }
+            }
+
+            process.waitForProcessToFinish(2000);
+            const auto exitCode = process.getExitCode();
+
+            {
+                const juce::ScopedLock lock(messageLock);
+                succeeded = done && exitCode == 0 && !cancel.load();
+
+                if (!succeeded && errorText.isEmpty())
+                    errorText = cancel.load() ? "Cancelled" : "Stopped with an error (see the log)";
+            }
+
+            finished = true;
+        });
+
+        startTimerHz(10);
+    }
+
+    void handleLine(const juce::String& line, bool& done)
+    {
+        if (line.isEmpty())
+            return;
+
+        const juce::ScopedLock lock(messageLock);
+
+        if (line.startsWith("PROGRESS "))
+        {
+            const auto rest = line.fromFirstOccurrenceOf("PROGRESS ", false, false);
+            progress = rest.upToFirstOccurrenceOf(" ", false, false).getFloatValue();
+            message = rest.fromFirstOccurrenceOf(" ", false, false);
+        }
+        else if (line.startsWith("DONE"))
+            done = true;
+        else if (line.startsWith("ERROR "))
+        {
+            errorText = line.fromFirstOccurrenceOf("ERROR ", false, false);
+            logLines += line + "\n";
+        }
+        else
+            logLines += line + "\n";
+    }
+
+    void timerCallback() override
+    {
+        progressValue = static_cast<double>(progress.load());
+
+        juce::String text, extra;
+
+        {
+            const juce::ScopedLock lock(messageLock);
+            text = message;
+            extra = logLines;
+            logLines = {};
+        }
+
+        if (extra.isNotEmpty())
+            log.moveCaretToEnd(), log.insertTextAtCaret(extra);
+
+        progressBar->setTextToDisplay(juce::String(juce::roundToInt(progressValue * 100.0)) + "%   " + text);
+
+        if (!finished.load())
+            return;
+
+        stopTimer();
+
+        if (worker != nullptr)
+            worker->stopThread(5000);
+
+        worker.reset();
+
+        progressBar->setVisible(false);
+        cancelButton.setVisible(false);
+        startButton.setVisible(true);
+        statusLabel.setVisible(true);
+        audioButton.setEnabled(true);
+        lyricsButton.setEnabled(true);
+
+        if (succeeded)
+        {
+            if (needsSetup)
+            {
+                needsSetup = !environmentReady();
+                statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(46, 204, 113));
+                statusLabel.setText("Setup finished. Choose an audio file.", juce::dontSendNotification);
+                startButton.setButtonText("Make .merik...");
+                startButton.setEnabled(audioFile.existsAsFile());
+                return;
+            }
+
+            created = outputFile;
+            statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(46, 204, 113));
+            statusLabel.setText("Created " + outputFile.getFileName(), juce::dontSendNotification);
+            addToSetlistButton.setEnabled(true);
+            addToSetlistButton.setVisible(true);
+            showButton.setVisible(true);
+        }
+        else
+        {
+            statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 120, 120));
+            statusLabel.setText(errorText, juce::dontSendNotification);
+        }
+
+        startButton.setEnabled(needsSetup || audioFile.existsAsFile());
+    }
+
+    class Worker final : public juce::Thread
+    {
+    public:
+        explicit Worker(std::function<void()> jobToRun)
+            : juce::Thread("Merik stems"), job(std::move(jobToRun))
+        {
+            startThread(juce::Thread::Priority::normal);
+        }
+
+        ~Worker() override { stopThread(15000); }
+
+    private:
+        void run() override { job(); }
+        std::function<void()> job;
+    };
+
+    juce::Label heading, hint, audioLabel, lyricsLabel, statusLabel;
+    juce::TextButton audioButton, lyricsButton, startButton, cancelButton, addToSetlistButton, showButton;
+    juce::ToggleButton flacToggle, vocalsToggle, keepToggle;
+    juce::TextEditor log;
+    std::unique_ptr<juce::ProgressBar> progressBar;
+    double progressValue = 0.0;
+
+    std::shared_ptr<juce::FileChooser> chooser;
+    juce::File lastFolder, audioFile, lyricsFile, created, outputFile;
+    bool needsSetup = false;
+
+    std::unique_ptr<Worker> worker;
+    std::atomic<bool> cancel { false }, finished { false }, succeeded { false };
+    std::atomic<float> progress { 0.0f };
+    juce::CriticalSection messageLock;
+    juce::String message, errorText, logLines;
+};
+
+class StemsMakerWindow final : public juce::DialogWindow
+{
+public:
+    explicit StemsMakerWindow(juce::Component* content, juce::Component* owner)
+        : juce::DialogWindow("Make stems from a song", backgroundColour, true)
     {
         setUsingNativeTitleBar(true);
         setResizable(false, false);
@@ -4064,6 +4583,35 @@ void MainComponent::showMerikMaker()
     makerWindow = new MerikMakerWindow(content, this);
 }
 
+void MainComponent::showStemsMaker()
+{
+    if (stemsWindow != nullptr)
+    {
+        stemsWindow->toFront(true);
+        return;
+    }
+
+    auto* content = new StemsMakerContent(
+        currentMidiFile.existsAsFile() ? currentMidiFile.getParentDirectory() : juce::File());
+
+    content->onAddToSetlist = [this](const juce::File& file)
+    {
+        if (selectedSetlist < 0 || selectedSetlist >= static_cast<int>(setlists.size()))
+            return;
+
+        SongEntry entry;
+        entry.file = file;
+        setlists[static_cast<std::size_t>(selectedSetlist)].songs.push_back(std::move(entry));
+
+        savePersistentState();
+        refreshSongModel();
+        refreshSetlistModel();
+        scanSongInfo();
+    };
+
+    stemsWindow = new StemsMakerWindow(content, this);
+}
+
 void MainComponent::showAudioSettings()
 {
     if (settingsWindow != nullptr)
@@ -4171,7 +4719,8 @@ void MainComponent::showAudioSettings()
         },
 
         [this] { backupSetlists(); },
-        [this] { restoreSetlists(); }
+        [this] { restoreSetlists(); },
+        [this] { showStemsMaker(); }
     };
 
     auto* content = new SettingsContent(std::move(context));

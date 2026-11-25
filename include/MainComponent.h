@@ -321,6 +321,8 @@ private:
     juce::Component::SafePointer<juce::Component> settingsWindow;
     juce::Component::SafePointer<juce::Component> makerWindow;
     void showMerikMaker();
+    juce::Component::SafePointer<juce::Component> stemsWindow;
+    void showStemsMaker();
 
     // Zoeken in de setlists (app en webpagina) en verder gaan met de laatste setlist.
     juce::Component::SafePointer<juce::Component> searchWindow;

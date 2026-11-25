@@ -139,6 +139,8 @@ Only needed for things the file names cannot say:
 
 A test song is included: [docs/demo/Stems Demo.merik](demo/Stems%20Demo.merik) (drums, bass, keys, strings and others as audio, a MIDI file whose guitar part plays through the SoundFont, plus `chords.json` and `lyrics.json`).
 
+**From a song (Mac):** *Settings → Tools → Make stems from a song...* takes an audio file (wav, mp3, flac) and an optional lyrics text file and makes the stems (drums, bass, guitars, keys, others), a MIDI file with lyrics aligned to the singing and detected chords, and saves a `.merik`. The vocals are not put in the `.merik`; you can save them as a wav next to it. It needs a one-time setup (Python environment and models, about 3 GB) and runs locally; a 3 minute song takes about a minute on Apple silicon. The same thing from the command line: `scripts/merik-stems.py`.
+
 ### The manual way (advanced)
 
 For the command line and scripts. It works, but it is easier to get wrong: one wrong flag or file name and the song loads slowly or a stem is not recognised.

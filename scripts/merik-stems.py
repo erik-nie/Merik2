@@ -2,7 +2,7 @@
 """Maak uit een audiobestand + lyrics-txt automatisch een .merik (stems, MIDI, lyrics, akkoorden).
 
   merik-stems.py --audio song.mp3 --lyrics song.txt --out "Song.merik" [--work-dir DIR]
-                 [--flac] [--save-vocals] [--keep-work] [--title T]
+                 [--flac] [--vocals-out vocals.wav] [--keep-work] [--title T]
 
 Stappen (voortgang op stdout als regels `PROGRESS <0..1> <tekst>`):
   1 inlezen          audio -> 44.1 kHz stereo wav (ffmpeg)
@@ -13,7 +13,7 @@ Stappen (voortgang op stdout als regels `PROGRESS <0..1> <tekst>`):
   6 verpakken        .merik (zip zonder compressie, wav of flac)
 
 Families in Merik: 1 drums, 2 bass, 3 guitars, 4 keys, 5 strings, 6 winds, 7 others.
-De zang komt NIET in het .merik (alleen als vocals.wav in de werkmap met --save-vocals).
+De zang komt NIET in het .merik (alleen als wav via --vocals-out).
 Benodigd (eenmalig): python 3.10+ met torch torchaudio demucs librosa soundfile mido numpy scipy, en ffmpeg.
 """
 
@@ -48,7 +48,7 @@ def ffmpeg_bin():
     path = shutil.which("ffmpeg") or next((p for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg")
                                            if Path(p).exists()), None)
     if not path:
-        die("ffmpeg niet gevonden (installeer met: brew install ffmpeg)")
+        die("ffmpeg not found (install with: brew install ffmpeg)")
     return path
 
 
@@ -56,7 +56,7 @@ def decode(audio, wav):
     r = subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(audio), "-vn", "-ar", "44100", "-ac", "2",
                         "-c:a", "pcm_s16le", str(wav)], capture_output=True, text=True)
     if r.returncode:
-        die("audio inlezen mislukt: " + r.stderr.strip()[-300:])
+        die("reading audio failed: " + r.stderr.strip()[-300:])
 
 
 # ------------------------------------------------------------------ bronscheiding
@@ -157,12 +157,12 @@ def align_lyrics(vocals, sr, lines, on_progress):
     if not tokens:
         return []
     if len(tokens) > frames:
-        die("de lyrics zijn te lang voor deze audio")
+        die("the lyrics are too long for this audio")
     targets = torch.tensor([tokens], dtype=torch.int32)
     aligned, scores = torchaudio.functional.forced_align(emission, targets, blank=0)
     spans = torchaudio.functional.merge_tokens(aligned[0], scores[0].exp())
     if len(spans) != len(tokens):
-        die("uitlijnen van de lyrics mislukt")
+        die("aligning the lyrics failed")
     timing = {}
     for span, (li, wi) in zip(spans, owner):
         s, e = span.start * sec_per_frame, span.end * sec_per_frame
@@ -255,8 +255,6 @@ def analyse_chords(harmonic, sr, on_progress):
     chords, last = [], None
     for t, c in zip(grid[:-1], path):
         # stilte (zeer lage chroma-energie) overslaan
-        if scores[len(chords) if False else 0].size == 0:
-            break
         if names[c] != last:
             chords.append((float(t), names[c]))
             last = names[c]
@@ -327,7 +325,7 @@ def to_flac(wav, flac):
     r = subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-i", str(wav), "-c:a", "flac", str(flac)],
                        capture_output=True, text=True)
     if r.returncode:
-        die("flac maken mislukt: " + r.stderr.strip()[-300:])
+        die("making flac failed: " + r.stderr.strip()[-300:])
 
 
 def main():
@@ -335,9 +333,9 @@ def main():
     ap.add_argument("--audio", required=True)
     ap.add_argument("--lyrics")
     ap.add_argument("--out", required=True, help="uitvoer .merik")
-    ap.add_argument("--work-dir", help="tussenmap (wav, json, midi); standaard naast de uitvoer")
+    ap.add_argument("--work-dir", help="tussenmap (wav, json, midi); standaard een tijdelijke map")
     ap.add_argument("--flac", action="store_true", help="stems als flac in het .merik")
-    ap.add_argument("--save-vocals", action="store_true", help="vocals.wav in de werkmap bewaren")
+    ap.add_argument("--vocals-out", help="sla de zang op als wav op dit pad (komt niet in het .merik)")
     ap.add_argument("--keep-work", action="store_true", help="tussenmap niet verwijderen")
     ap.add_argument("--title")
     args = ap.parse_args()
@@ -347,16 +345,22 @@ def main():
 
     audio, out = Path(args.audio), Path(args.out)
     title = args.title or audio.stem
-    work = Path(args.work_dir) if args.work_dir else out.with_suffix("").parent / (out.stem + " - tussenmap")
+    import tempfile
+    if args.work_dir:
+        work = Path(args.work_dir)
+    elif args.keep_work:
+        work = out.parent / (out.stem + " - intermediate")
+    else:
+        work = Path(tempfile.mkdtemp(prefix="merik-stems-"))
     work.mkdir(parents=True, exist_ok=True)
     lines = parse_lyrics(args.lyrics) if args.lyrics else []
 
-    progress(0.01, "Audio inlezen")
+    progress(0.01, "Reading audio")
     src = work / "input.wav"
     decode(audio, src)
 
-    progress(0.05, "Stems scheiden (Demucs)")
-    sources, sr = separate(src, lambda f: progress(0.05 + 0.5 * f, "Stems scheiden (Demucs)"))
+    progress(0.05, "Separating stems (first run downloads the model)")
+    sources, sr = separate(src, lambda f: progress(0.05 + 0.5 * f, "Separating stems (first run downloads the model)"))
     stem_files = []
     others = np.zeros_like(sources["vocals"])
     for name, data in sources.items():
@@ -379,23 +383,23 @@ def main():
 
     lyric_lines = []
     if lines:
-        progress(0.56, "Lyrics uitlijnen")
-        lyric_lines = align_lyrics(vocals, sr, lines, lambda f: progress(0.56 + 0.2 * f, "Lyrics uitlijnen"))
+        progress(0.56, "Aligning lyrics (first run downloads the model)")
+        lyric_lines = align_lyrics(vocals, sr, lines, lambda f: progress(0.56 + 0.2 * f, "Aligning lyrics (first run downloads the model)"))
         (work / "lyrics.json").write_text(json.dumps([
             {"time": round(l[0][1], 3), "text": " ".join(w for w, _, _ in l),
              "words": [{"time": round(s, 3), "text": w} for w, s, _ in l]} for l in lyric_lines
         ], ensure_ascii=False, indent=1), encoding="utf-8")
 
-    progress(0.77, "Tempo en akkoorden herkennen")
+    progress(0.77, "Detecting tempo and chords")
     backing = sum(s for n, s in sources.items() if n not in ("vocals", "drums"))
-    bpm, first, chords = analyse_chords(backing, sr, lambda f: progress(0.77 + 0.1 * f, "Tempo en akkoorden herkennen"))
+    bpm, first, chords = analyse_chords(backing, sr, lambda f: progress(0.77 + 0.1 * f, "Detecting tempo and chords"))
     (work / "chords.json").write_text(json.dumps([{"time": round(t, 3), "chord": c} for t, c in chords],
                                                   indent=1), encoding="utf-8")
 
-    progress(0.88, "MIDI schrijven")
+    progress(0.88, "Writing MIDI")
     write_midi(work / "song.mid", bpm, first, lyric_lines, chords, title)
 
-    progress(0.90, "Pakket maken")
+    progress(0.90, "Building the .merik")
     entries = []
     for fam, label, wav in stem_files:
         if args.flac:
@@ -410,15 +414,13 @@ def main():
         entries.append(("lyrics.json", work / "lyrics.json"))
     out.parent.mkdir(parents=True, exist_ok=True)
     write_merik(out, entries)
-    progress(0.98, "Opruimen")
+    progress(0.98, "Cleaning up")
 
-    if not args.save_vocals:
-        (work / "vocals.wav").unlink(missing_ok=True)
+    if args.vocals_out:
+        shutil.copyfile(work / "vocals.wav", args.vocals_out)
     (work / "input.wav").unlink(missing_ok=True)
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
-        if args.save_vocals:
-            pass  # vocals.wav ging mee met de map; bewaar die dan naast het .merik
     print(f"DONE {out}", flush=True)
 
 

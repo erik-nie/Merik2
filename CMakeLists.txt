@@ -51,6 +51,8 @@ juce_add_binary_data(MerikAssets
         assets/fonts/NotoSans-Regular.ttf
         assets/fonts/NotoSans-Medium.ttf
         assets/fonts/NotoSans-SemiBold.ttf
+        scripts/merik-stems.py
+        scripts/setup-stems-env.sh
 )
 
 
