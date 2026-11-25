@@ -19,6 +19,7 @@ Benodigd (eenmalig): python 3.10+ met torch torchaudio demucs librosa soundfile 
 
 import argparse
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -28,6 +29,7 @@ import zipfile
 from pathlib import Path
 
 DEMUCS_MODEL = "htdemucs_6s"
+LYRICS_SCORE_THRESHOLD = -4.0   # gemiddelde log-waarschijnlijkheid per letter: juiste tekst ~ -3, een andere tekst ~ -5 (MMS_FA)
 # demucs-bron -> (merik familie, naam)
 FAMILY = {"drums": (1, "drums"), "bass": (2, "bass"), "guitar": (3, "guitars"), "piano": (4, "keys")}
 OTHERS = (7, "others")
@@ -120,8 +122,8 @@ def parse_lyrics(path):
     return lines
 
 
-def align_lyrics(vocals, sr, lines, on_progress):
-    """Forced alignment (MMS_FA). Geeft per regel [(woord, start, einde)] in seconden."""
+def lyric_emissions(vocals, sr, on_progress):
+    """Letter-waarschijnlijkheden (MMS_FA) van de zang: (emission, seconden per frame, dictionary)."""
     import torch
     import torchaudio
     from torchaudio.pipelines import MMS_FA as bundle
@@ -131,7 +133,6 @@ def align_lyrics(vocals, sr, lines, on_progress):
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     model = bundle.get_model(with_star=False).to(device).eval()
     dictionary = bundle.get_dict(star=None)
-
     # emissions per venster van 30 s (attention is kwadratisch in de lengte)
     win = 30 * int(bundle.sample_rate)
     parts = []
@@ -143,36 +144,170 @@ def align_lyrics(vocals, sr, lines, on_progress):
                 continue
             em, _ = model(piece)
             parts.append(torch.log_softmax(em, dim=-1).cpu())
-            on_progress((i + 1) / nwin * 0.8)
+            on_progress((i + 1) / nwin)
     emission = torch.cat(parts, dim=1)
-    frames = emission.shape[1]
-    sec_per_frame = mono.shape[1] / bundle.sample_rate / frames
+    return emission, mono.shape[1] / bundle.sample_rate / emission.shape[1], dictionary
 
+
+def align_text(emission, sec_per_frame, dictionary, lines):
+    """Forced alignment van een tekst. -> (per regel [(woord, start, einde)], score) of None.
+    score = gemiddelde log-waarschijnlijkheid van de letters op hun plek: de tekst die echt gezongen wordt scoort duidelijk hoger."""
+    import math
+    import torch
+    import torchaudio
     tokens, owner = [], []  # owner = (regel, woord)
     for li, words in enumerate(lines):
         for wi, w in enumerate(words):
             for ch in clean_word(w):
                 tokens.append(dictionary[ch])
                 owner.append((li, wi))
-    if not tokens:
-        return []
-    if len(tokens) > frames:
-        die("the lyrics are too long for this audio")
+    if not tokens or len(tokens) > emission.shape[1]:
+        return None
     targets = torch.tensor([tokens], dtype=torch.int32)
     aligned, scores = torchaudio.functional.forced_align(emission, targets, blank=0)
     spans = torchaudio.functional.merge_tokens(aligned[0], scores[0].exp())
     if len(spans) != len(tokens):
-        die("aligning the lyrics failed")
+        return None
     timing = {}
     for span, (li, wi) in zip(spans, owner):
         s, e = span.start * sec_per_frame, span.end * sec_per_frame
         old = timing.get((li, wi))
         timing[(li, wi)] = (s, e) if old is None else (min(old[0], s), max(old[1], e))
     result = []
+    last = 0.0
     for li, words in enumerate(lines):
-        result.append([(w, *timing[(li, wi)]) for wi, w in enumerate(words)])
-    on_progress(1.0)
-    return result
+        line = []
+        for wi, w in enumerate(words):
+            st, en = timing.get((li, wi), (last, last))
+            last = en
+            line.append((w, st, en))
+        result.append(line)
+    score = sum(math.log(max(float(sp.score), 1e-6)) for sp in spans) / len(spans)
+    return result, score
+
+
+# ------------------------------------------------------------------ MIDI/KAR/TXT als bron
+
+CHORD_RE = re.compile(r"^[A-G][#b]?(m|maj|min|dim|aug|sus|add)?[0-9()+b#-]*(/[A-G][#b]?)?$")
+SECTION_RE = re.compile(r"^(intro|verse|vers|chorus|refrain|pre[- ]?chorus|bridge|solo|outro|coda|interlude|instrumental|break|hook|tag)\b", re.I)
+
+
+class Candidate:
+    def __init__(self, path, kind, lines, sections=None, chords=None):
+        self.path, self.kind, self.lines = Path(path), kind, lines
+        self.sections = sections or {}   # regelindex -> naam
+        self.chords = chords or []       # akkoordnamen in volgorde (alleen MIDI)
+
+
+def load_text_candidate(path):
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    text = re.sub(r"[\u200b-\u200f\u2060\ufeff]", "", text)
+    lines, sections, pending = [], {}, None
+    for raw in text.splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        m = re.fullmatch(r"\[([^\]]*)\]", raw)
+        if m:
+            name = m.group(1).split(":")[0].strip()
+            pending = name or None
+            continue
+        if re.fullmatch(r"\([^)]*\)", raw):
+            continue
+        raw = re.sub(r"\[[^\]]*\]", "", raw)
+        words = [w for w in raw.split() if clean_word(w)]
+        if words:
+            if pending:
+                sections[len(lines)] = pending
+                pending = None
+            lines.append(words)
+    return Candidate(path, "text", lines, sections) if lines else None
+
+
+def load_midi_candidate(path):
+    import mido
+    try:
+        mid = mido.MidiFile(str(path))
+    except Exception:
+        return None
+    events = []  # (tick, soort, tekst)
+    for track in mid.tracks:
+        t = 0
+        for msg in track:
+            t += msg.time
+            if msg.type in ("lyrics", "text", "marker"):
+                try:
+                    events.append((t, msg.type, msg.text))
+                except Exception:
+                    pass
+    events.sort(key=lambda e: e[0])
+    has_lyrics = any(k == "lyrics" for _, k, _ in events)
+    lines, line_ticks, words = [], [], []
+    first_tick = 0
+    chords, sections = [], []
+    word_open = False  # het laatste woord is nog niet afgesloten (geen spatie erna)
+
+    def flush():
+        nonlocal words, word_open
+        keep = [w for w in words if clean_word(w)]
+        if keep:
+            lines.append(keep)
+            line_ticks.append(first_tick)
+        words, word_open = [], False
+
+    for tick, kind, txt in events:
+        raw = txt.replace("\x00", "")
+        stripped = raw.strip()
+        if kind == "marker":
+            if stripped and CHORD_RE.match(stripped):
+                chords.append(stripped)
+            elif SECTION_RE.match(stripped):
+                sections.append((tick, re.sub(r"^[0-9]+@", "", stripped).rstrip(":").strip()))
+            continue
+        if kind == "text" and (has_lyrics or stripped.startswith(("@", "%"))):
+            if CHORD_RE.match(stripped):
+                chords.append(stripped)
+            continue
+        for chord in re.findall(r"\[([A-G][^\]]*)\]", raw):
+            chords.append(chord)
+        raw = re.sub(r"\[[^\]]*\]", "", raw)
+        if raw.startswith(("/", "\\", "\r", "\n")):
+            flush()
+        raw = raw.lstrip("/\\")
+        end_line = raw.endswith(("\r", "\n"))
+        piece = raw.strip("\r\n")
+        if piece.strip():
+            if not words:
+                first_tick = tick
+            starts_new = (not word_open) or piece.startswith(" ")
+            if starts_new or not words:
+                words.append(piece.strip())
+            else:
+                words[-1] += piece.strip()
+            word_open = not piece.endswith(" ")
+        if end_line:
+            flush()
+    flush()
+    if not lines:
+        return None
+    smap = {}
+    for tick, name in sections:
+        for i, lt in enumerate(line_ticks):
+            if lt >= tick - 10:
+                smap.setdefault(i, name)
+                break
+    return Candidate(path, "midi", lines, smap, chords)
+
+
+def load_candidate(path):
+    ext = Path(path).suffix.lower()
+    try:
+        if ext in (".mid", ".midi", ".kar"):
+            return load_midi_candidate(path)
+        return load_text_candidate(path)
+    except Exception as exc:
+        print(f"INFO could not read {path}: {exc}", flush=True)
+        return None
 
 
 # ------------------------------------------------------------------ akkoorden en tempo
@@ -195,7 +330,7 @@ def chord_templates():
     return names, np.array(mats)
 
 
-def analyse_chords(harmonic, sr, on_progress):
+def analyse_chords(harmonic, sr, on_progress, rhythm=None, midi_chords=None):
     """-> (bpm, eerste beat in s, beat-tijden, [(tijd, akkoord)])."""
     import librosa
     import numpy as np
@@ -255,12 +390,113 @@ def analyse_chords(harmonic, sr, on_progress):
             path[t - 1] = back[t, path[t]]
     chords, last = [], None
     for t, c in zip(grid[:-1], path):
-        # stilte (zeer lage chroma-energie) overslaan
         if names[c] != last:
             chords.append((float(t), names[c]))
             last = names[c]
+    info = {"fit": None}
+    if midi_chords and len(scores):
+        aligned = align_chord_sequence(midi_chords, names, grid[:-1], scores)
+        if aligned:
+            info["fit"] = (aligned[1], float(scores.max(axis=1).mean()))
+            chords = aligned[0]
+    first_beat = float(grid[0]) if len(grid) else 0.0
+    beats, downbeat, conf = 4, first_beat, 0.0
+    if rhythm is not None and len(grid) > 24:
+        beats, downbeat, conf = find_downbeat(rhythm, sr, first_beat, tempo, chords)
     on_progress(1.0)
-    return tempo, float(grid[0]) if len(grid) else 0.0, chords
+    return tempo, downbeat, chords, beats, conf, info
+
+
+def chord_index(name, names):
+    """Index van een akkoordnaam in de templates ("Am7", "F#m", "Bb", "Cmaj7", "G/B"...); grofweg dichtstbijzijnde soort."""
+    m = re.match(r"^([A-G])([#b]?)(.*)$", name.strip())
+    if not m:
+        return None
+    base = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}[m.group(1)]
+    root = (base + (1 if m.group(2) == "#" else -1 if m.group(2) == "b" else 0)) % 12
+    q = m.group(3).split("/")[0].lower()
+    minor = (q.startswith("m") and not q.startswith("maj")) or q.startswith("min") or q.startswith("dim")
+    if "maj7" in q:
+        suffix = "maj7"
+    elif minor and "7" in q:
+        suffix = "m7"
+    elif minor:
+        suffix = "m"
+    elif "7" in q and "sus" not in q:
+        suffix = "7"
+    else:
+        suffix = ""
+    try:
+        return names.index(NOTES[root] + suffix)
+    except ValueError:
+        return None
+
+
+def align_chord_sequence(midi_chords, names, times, scores):
+    """De akkoorden van een MIDI-bestand, in volgorde, op de audio gelegd: een monotoon pad over de tellen dat het best past."""
+    import numpy as np
+    entries = [(n, chord_index(n, names)) for n in midi_chords]
+    entries = [(n, i) for n, i in entries if i is not None]
+    M, B = len(entries), len(times)
+    if M == 0 or B < M:
+        return None
+    NEG = -1e30
+    best = np.full(M, NEG)
+    best[0] = scores[0][entries[0][1]]
+    back = np.zeros((B, M), dtype=bool)
+    for b in range(1, B):
+        stay = best
+        move = np.concatenate(([NEG], best[:-1]))
+        take = move > stay
+        back[b] = take
+        base = np.where(take, move, stay)
+        best = np.where(base <= NEG / 2, NEG, base + np.array([scores[b][i] for _, i in entries]) - np.where(take, 0.0, 0.0) - 0.02 * take)
+    if best[-1] <= NEG / 2:
+        return None
+    j, start, total = M - 1, [0] * M, 0.0
+    for b in range(B - 1, -1, -1):
+        total += scores[b][entries[j][1]]
+        if back[b][j]:
+            start[j] = b
+            j -= 1
+        if j < 0:
+            break
+    return [(float(times[start[k]]), entries[k][0]) for k in range(M)], total / B
+
+
+def find_downbeat(rhythm, sr, first_beat, bpm, chords):
+    """Maatsoort (3 of 4 tellen) en de eerste 1: de tel waar de basdrum en de akkoordwissels het sterkst zijn."""
+    import librosa
+    import numpy as np
+    y = librosa.to_mono(rhythm.T) if rhythm.ndim > 1 else rhythm
+    y = librosa.resample(y, orig_sr=sr, target_sr=22050)
+    hop = 512
+    S = librosa.power_to_db(librosa.feature.melspectrogram(y=y, sr=22050, n_fft=1024, hop_length=hop, n_mels=24, fmax=150))
+    kick = librosa.onset.onset_strength(S=S, sr=22050, hop_length=hop)
+    fd = hop / 22050.0
+    beat = 60.0 / bpm
+    count = int((len(y) / 22050.0 - first_beat) / beat)
+    if count <= 24:
+        return 4, first_beat, 0.0
+    mean_k = max(float(kick.mean()), 1e-6)
+    feature = np.zeros(count)
+    for b in range(count):
+        t = first_beat + b * beat
+        a, z = max(0, int((t - 0.06) / fd)), min(len(kick) - 1, int((t + 0.06) / fd))
+        if a <= z:
+            feature[b] = kick[a:z + 1].max() / mean_k
+    for t, _ in chords:
+        b = int(round((t - first_beat) / beat))
+        if 0 <= b < count:
+            feature[b] += 2
+    c = feature - feature.mean()
+    corr = lambda lag: float(np.dot(c[:-lag], c[lag:])) / (count - lag)
+    beats = 3 if (corr(3) > 1.3 * corr(4) and corr(3) > 0 and corr(6) > corr(8)) else 4
+    means = [feature[k::beats].mean() for k in range(beats)]
+    k = int(np.argmax(means))
+    others = (sum(means) - means[k]) / (beats - 1)
+    conf = max(0.0, min(1.0, (means[k] - others) / max(means[k], 1e-6)))
+    return beats, first_beat + k * beat, conf
 
 
 # ------------------------------------------------------------------ MIDI
@@ -274,19 +510,22 @@ def vlq(value):
     return bytes(reversed(out))
 
 
-def write_midi(path, bpm, first_beat, lyric_lines, chords, title):
-    """Constante tempo; als de eerste tel later dan 0 valt komt er een inleidende maat vóór."""
+def write_midi(path, bpm, downbeat, lyric_lines, chords, title, beats_per_bar=4, sections=()):
+    """Constante tempo. `downbeat` is de eerste "1" van een maat; ligt die niet op 0, dan komen er hele maten vóór,
+    zodat maten, tellen en click gelijklopen met de audio. Lyrics (FF05), akkoorden en secties (markers FF06)."""
     ppq = 480
     events = []  # (tick, volgorde, bytes)
-    lead = first_beat if first_beat > 0.05 else 0.0
     beat = 60.0 / bpm
-    lead_ticks = 4 * ppq if lead else 0
+    lead = downbeat if downbeat > 0.05 else 0.0
+    lead_bars = max(1, math.ceil(lead / beat / beats_per_bar)) if lead else 0
+    lead_beats = lead_bars * beats_per_bar
+    lead_ticks = lead_beats * ppq
     if lead:
-        events.append((0, 0, b"\xff\x51\x03" + int(lead / 4 * 1e6).to_bytes(3, "big")))
+        events.append((0, 0, b"\xff\x51\x03" + int(lead / lead_beats * 1e6).to_bytes(3, "big")))
         events.append((lead_ticks, 0, b"\xff\x51\x03" + int(beat * 1e6).to_bytes(3, "big")))
     else:
         events.append((0, 0, b"\xff\x51\x03" + int(beat * 1e6).to_bytes(3, "big")))
-    events.append((0, 0, b"\xff\x58\x04\x04\x02\x18\x08"))
+    events.append((0, 0, b"\xff\x58\x04" + bytes([beats_per_bar, 2, 24, 8])))
 
     def tick(t):
         if lead and t < lead:
@@ -295,14 +534,16 @@ def write_midi(path, bpm, first_beat, lyric_lines, chords, title):
 
     name = title.encode("utf-8")
     events.append((0, 0, b"\xff\x03" + vlq(len(name)) + name))
+    for t, sec in sections:
+        raw = sec.encode("utf-8")
+        events.append((tick(t), 1, b"\xff\x06" + vlq(len(raw)) + raw))
     for t, chord in chords:
         raw = chord.encode("utf-8")
-        events.append((tick(t), 1, b"\xff\x06" + vlq(len(raw)) + raw))
+        events.append((tick(t), 2, b"\xff\x06" + vlq(len(raw)) + raw))
     for line in lyric_lines:
         for i, (word, start, _end) in enumerate(line):
-            last = i == len(line) - 1
-            raw = (word + ("\r" if last else " ")).encode("utf-8", errors="replace")
-            events.append((tick(start), 2, b"\xff\x05" + vlq(len(raw)) + raw))
+            raw = (word + ("\r" if i == len(line) - 1 else " ")).encode("utf-8", errors="replace")
+            events.append((tick(start), 3, b"\xff\x05" + vlq(len(raw)) + raw))
     events.sort(key=lambda e: (e[0], e[1]))
     track, prev = b"", 0
     for t, _o, data in events:
@@ -358,7 +599,9 @@ def load_existing(work, src):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--audio", required=True)
-    ap.add_argument("--lyrics")
+    ap.add_argument("--lyrics", help="(oud) een lyrics-txt; zelfde als --source")
+    ap.add_argument("--source", action="append", default=[],
+                    help="kandidaat voor lyrics/akkoorden/secties: .mid, .kar of .txt (herhaalbaar); de beste wordt gekozen op de zang, MIDI heeft voorrang")
     ap.add_argument("--out", required=True, help="uitvoer .merik")
     ap.add_argument("--work-dir", help="tussenmap (wav, json, midi); standaard een tijdelijke map")
     ap.add_argument("--flac", action="store_true", help="stems als flac in het .merik")
@@ -366,6 +609,8 @@ def main():
     ap.add_argument("--keep-work", action="store_true", help="tussenmap niet verwijderen")
     ap.add_argument("--reuse", action="store_true",
                     help="stems die al in de tussenmap staan met de lengte van het nummer niet opnieuw maken (met --keep-work)")
+    ap.add_argument("--use-edited", action="store_true",
+                    help="gebruik de (bewerkte) analysis.json, chords.json en lyrics.json uit de tussenmap (met --keep-work)")
     ap.add_argument("--title")
     args = ap.parse_args()
 
@@ -382,7 +627,7 @@ def main():
     else:
         work = Path(tempfile.mkdtemp(prefix="merik-stems-"))
     work.mkdir(parents=True, exist_ok=True)
-    lines = parse_lyrics(args.lyrics) if args.lyrics else []
+    inventory = [f"audio: {audio.name}"]
 
     progress(0.01, "Reading audio")
     src = work / "input.wav"
@@ -393,9 +638,11 @@ def main():
         sources, sr = load_existing(work, src)
         if sources:
             progress(0.55, "Reusing the stems already in the intermediate folder")
+            inventory.append("stems: hergebruikt uit de tussenmap")
     if not sources:
         progress(0.05, "Separating stems (first run downloads the model)")
         sources, sr = separate(src, lambda f: progress(0.05 + 0.5 * f, "Separating stems (first run downloads the model)"))
+        inventory.append("stems: gescheiden met htdemucs_6s")
     stem_files = []
     others = np.zeros_like(sources["vocals"])
     for name, data in sources.items():
@@ -416,23 +663,90 @@ def main():
     vocals = sources["vocals"]
     sf.write(str(work / "vocals.wav"), vocals, sr, subtype="PCM_24")
 
-    lyric_lines = []
-    if lines:
-        progress(0.56, "Aligning lyrics (first run downloads the model)")
-        lyric_lines = align_lyrics(vocals, sr, lines, lambda f: progress(0.56 + 0.2 * f, "Aligning lyrics (first run downloads the model)"))
-        (work / "lyrics.json").write_text(json.dumps([
-            {"time": round(l[0][1], 3), "text": " ".join(w for w, _, _ in l),
-             "words": [{"time": round(s, 3), "text": w} for w, s, _ in l]} for l in lyric_lines
-        ], ensure_ascii=False, indent=1), encoding="utf-8")
+    analysis_json, chords_json, lyrics_json = work / "analysis.json", work / "chords.json", work / "lyrics.json"
+    lyric_lines, section_list = [], []
+    chords, bpm, downbeat, beats_per_bar = [], 120.0, 0.0, 4
+    edited = False
+    if args.use_edited and args.keep_work and analysis_json.exists() and chords_json.exists():
+        try:
+            info = json.loads(analysis_json.read_text(encoding="utf-8"))
+            bpm, downbeat, beats_per_bar = float(info["bpm"]), float(info.get("downbeat", 0)), int(info.get("beatsPerBar", 4))
+            chords = sorted([(float(c["time"]), str(c["chord"])) for c in json.loads(chords_json.read_text(encoding="utf-8"))])
+            if lyrics_json.exists():
+                for entry in sorted(json.loads(lyrics_json.read_text(encoding="utf-8")), key=lambda e: float(e["time"])):
+                    words = [(w["text"], float(w["time"]), float(w["time"])) for w in entry.get("words", [])] or \
+                            [(w, float(entry["time"]), float(entry["time"])) for w in str(entry.get("text", "")).split()]
+                    if words:
+                        lyric_lines.append(words)
+                        if entry.get("section"):
+                            section_list.append((words[0][1], entry["section"]))
+            edited = True
+            inventory.append("bewerkte json uit de tussenmap gebruikt: analysis.json, chords.json" + (", lyrics.json" if lyric_lines else ""))
+            progress(0.88, "Using the edited json of the intermediate folder")
+        except Exception as exc:
+            print(f"INFO edited json could not be read ({exc}): analysing again", flush=True)
+            edited = False
+            lyric_lines, section_list = [], []
 
-    progress(0.77, "Detecting tempo and chords")
-    backing = sum(s for n, s in sources.items() if n not in ("vocals", "drums"))
-    bpm, first, chords = analyse_chords(backing, sr, lambda f: progress(0.77 + 0.1 * f, "Detecting tempo and chords"))
-    (work / "chords.json").write_text(json.dumps([{"time": round(t, 3), "chord": c} for t, c in chords],
-                                                  indent=1), encoding="utf-8")
+    if not edited:
+        # kandidaten voor lyrics/akkoorden/secties: MIDI/KAR eerst, dan txt; de zang beslist
+        paths = list(args.source) + ([args.lyrics] if args.lyrics else [])
+        candidates = [c for c in (load_candidate(p) for p in paths) if c]
+        chosen, timed = None, None
+        if candidates:
+            progress(0.56, "Aligning lyrics (first run downloads the model)")
+            emission, spf, dictionary = lyric_emissions(vocals, sr, lambda f: progress(0.56 + 0.15 * f, "Aligning lyrics (first run downloads the model)"))
+            scored = []
+            for c in candidates:
+                r = align_text(emission, spf, dictionary, c.lines)
+                if r:
+                    scored.append((c, r[0], r[1]))
+                    inventory.append(f"kandidaat {c.path.name}: score {r[1]:.2f}")
+                else:
+                    inventory.append(f"kandidaat {c.path.name}: past niet bij de zang")
+            threshold = LYRICS_SCORE_THRESHOLD
+            top = max((x[2] for x in scored), default=-99)
+            pick = [x for x in scored if x[0].kind == "midi" and x[2] >= threshold and x[2] >= top - 0.3]
+            pick = max(pick, key=lambda x: x[2]) if pick else None
+            if pick is None:
+                rest = [x for x in scored if x[2] >= threshold]
+                pick = max(rest, key=lambda x: x[2]) if rest else None
+            if pick:
+                chosen, timed, _ = pick
+                inventory.append(f"gekozen: {chosen.path.name} ({chosen.kind})")
+                lyric_lines = timed
+                for i, name in chosen.sections.items():
+                    if i < len(timed) and timed[i]:
+                        section_list.append((timed[i][0][1], name))
+            else:
+                inventory.append("geen kandidaat past bij de zang: zonder lyrics verder")
+
+        progress(0.77, "Detecting tempo and chords")
+        backing = sum(s for n, s in sources.items() if n not in ("vocals", "drums"))
+        midi_chords = chosen.chords if chosen is not None and chosen.kind == "midi" else None
+        bpm, downbeat, chords, beats_per_bar, conf, info = analyse_chords(
+            backing, sr, lambda f: progress(0.77 + 0.1 * f, "Detecting tempo and chords"), rhythm=sources["drums"], midi_chords=midi_chords)
+        inventory.append(f"tempo {bpm:.1f} bpm, maat {beats_per_bar}/4, eerste 1 op {downbeat:.2f} s (zekerheid {conf * 100:.0f}%)")
+        if info["fit"]:
+            inventory.append(f"akkoorden: uit de MIDI over de audio gelegd (pasvorm {info['fit'][0]:.2f}, vrije keuze {info['fit'][1]:.2f})")
+        else:
+            inventory.append("akkoorden: herkend uit de audio")
+        analysis_json.write_text(json.dumps({"title": title, "bpm": round(bpm, 2), "downbeat": round(downbeat, 3),
+                                             "beatsPerBar": beats_per_bar}, indent=1), encoding="utf-8")
+        chords_json.write_text(json.dumps([{"time": round(t, 3), "chord": c} for t, c in chords], indent=1), encoding="utf-8")
+        if lyric_lines:
+            sec_by_time = {round(t, 3): n for t, n in section_list}
+            entries = []
+            for l in lyric_lines:
+                e = {"time": round(l[0][1], 3), "text": " ".join(w for w, _, _ in l),
+                     "words": [{"time": round(st, 3), "text": w} for w, st, _ in l]}
+                if round(l[0][1], 3) in sec_by_time:
+                    e["section"] = sec_by_time[round(l[0][1], 3)]
+                entries.append(e)
+            lyrics_json.write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")
 
     progress(0.88, "Writing MIDI")
-    write_midi(work / "song.mid", bpm, first, lyric_lines, chords, title)
+    write_midi(work / "song.mid", bpm, downbeat, lyric_lines, chords, title, beats_per_bar, section_list)
 
     progress(0.90, "Building the .merik")
     entries = []
@@ -444,11 +758,15 @@ def main():
         else:
             entries.append((wav.name, wav))
     entries.append(("song.mid", work / "song.mid"))
-    entries.append(("chords.json", work / "chords.json"))
+    entries.append(("chords.json", chords_json))
     if lyric_lines:
-        entries.append(("lyrics.json", work / "lyrics.json"))
+        entries.append(("lyrics.json", lyrics_json))
     out.parent.mkdir(parents=True, exist_ok=True)
     write_merik(out, entries)
+    inventory.append("tussenbestanden: " + ", ".join(sorted(p.name for p in work.iterdir())))
+    inventory.append(f"uitvoer: {out.name}")
+    for line in inventory:
+        print(f"INFO {line}", flush=True)
     progress(0.98, "Cleaning up")
 
     if args.vocals_out:

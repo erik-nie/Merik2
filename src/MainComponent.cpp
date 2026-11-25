@@ -1418,7 +1418,7 @@ private:
                             "Merik Studio shows what it found and saves a .merik without compression.");
         toolsPage.content.addAndMakeVisible(makeHint);
 
-        stemsMakerButton.setButtonText("Make stems from a song...");
+        stemsMakerButton.setButtonText("Make stems from songs...");
         stemsMakerButton.onClick = [this] { if (context.openStemsMaker) context.openStemsMaker(); };
         toolsPage.content.addAndMakeVisible(stemsMakerButton);
 
@@ -2162,14 +2162,15 @@ public:
     {
         setLookAndFeel(&merikLookAndFeel);
 
-        heading.setText("Make stems from a song", juce::dontSendNotification);
+        heading.setText("Make stems from songs", juce::dontSendNotification);
         heading.setFont(merikLookAndFeel.getBoldFont(20.0f));
         heading.setColour(juce::Label::textColourId, textColour);
         addAndMakeVisible(heading);
 
-        hint.setText("Choose the audio file and (optionally) a text file with the lyrics. Merik separates the stems "
-                     "(drums, bass, guitars, keys, others), aligns the lyrics with the vocals, detects tempo and chords, "
-                     "and saves a .merik with a MIDI file. The vocals are not put in the .merik.",
+        hint.setText("Choose a folder with songs (flac, wav, mp3), or several audio files. For every song Merik looks for "
+                     "files with exactly the same name next to it (.mid, .kar, .txt) and takes lyrics, chords and sections from "
+                     "them: a MIDI/KAR file first, then a txt, whichever really fits the singing. Merik separates the stems, "
+                     "aligns the lyrics, detects tempo and chords, and saves a .merik next to every song. The vocals are not put in the .merik.",
                      juce::dontSendNotification);
         hint.setFont(merikLookAndFeel.getMediumFont(14.0f));
         hint.setColour(juce::Label::textColourId, secondaryTextColour);
@@ -2177,34 +2178,30 @@ public:
         hint.setJustificationType(juce::Justification::topLeft);
         addAndMakeVisible(hint);
 
-        for (auto* label : { &audioLabel, &lyricsLabel, &statusLabel })
-        {
-            label->setFont(merikLookAndFeel.getMediumFont(14.0f));
-            label->setColour(juce::Label::textColourId, textColour);
-            addAndMakeVisible(*label);
-        }
-
-        audioLabel.setText("No audio file chosen", juce::dontSendNotification);
-        lyricsLabel.setText("No lyrics file (optional)", juce::dontSendNotification);
+        statusLabel.setFont(merikLookAndFeel.getMediumFont(14.0f));
         statusLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        addAndMakeVisible(statusLabel);
 
-        audioButton.setButtonText("Audio file...");
-        audioButton.onClick = [this] { chooseFile(true); };
-        addAndMakeVisible(audioButton);
+        folderButton.setButtonText("Choose folder...");
+        folderButton.onClick = [this] { chooseFolder(); };
+        addAndMakeVisible(folderButton);
 
-        lyricsButton.setButtonText("Lyrics file...");
-        lyricsButton.onClick = [this] { chooseFile(false); };
-        addAndMakeVisible(lyricsButton);
+        filesButton.setButtonText("Choose audio files...");
+        filesButton.onClick = [this] { chooseFiles(); };
+        addAndMakeVisible(filesButton);
 
         flacToggle.setButtonText("Make FLAC (about half the size, lossless)");
         flacToggle.setToggleState(true, juce::dontSendNotification);
         addAndMakeVisible(flacToggle);
 
-        vocalsToggle.setButtonText("Also save the vocals as a wav file (not in the .merik)");
+        vocalsToggle.setButtonText("Also save the vocals as a wav file next to the .merik (not in the .merik)");
         addAndMakeVisible(vocalsToggle);
 
         keepToggle.setButtonText("Keep the intermediate folder (wav, json, midi); reuse stems already in it");
         addAndMakeVisible(keepToggle);
+
+        editedToggle.setButtonText("Use the edited json of the intermediate folder (analysis, chords, lyrics)");
+        addAndMakeVisible(editedToggle);
 
         log.setMultiLine(true, false);
         log.setReadOnly(true);
@@ -2218,35 +2215,25 @@ public:
         log.setIndents(10, 8);
         addAndMakeVisible(log);
 
-        startButton.setButtonText("Make .merik...");
+        startButton.setButtonText("Start");
         startButton.setColour(juce::TextButton::buttonColourId, merikBlue);
         startButton.setEnabled(false);
-        startButton.onClick = [this] { chooseOutput(); };
+        startButton.onClick = [this] { startOrSetup(); };
         addAndMakeVisible(startButton);
 
         cancelButton.setButtonText("Cancel");
         cancelButton.onClick = [this] { cancel = true; };
         addChildComponent(cancelButton);
 
-        addToSetlistButton.setButtonText("Add to the current setlist");
-        addToSetlistButton.onClick = [this]
-        {
-            if (onAddToSetlist && created != juce::File())
-                onAddToSetlist(created);
-
-            addToSetlistButton.setEnabled(false);
-        };
-        addChildComponent(addToSetlistButton);
-
         showButton.setButtonText("Show in Finder");
-        showButton.onClick = [this] { created.revealToUser(); };
+        showButton.onClick = [this] { if (lastCreated != juce::File()) lastCreated.revealToUser(); };
         addChildComponent(showButton);
 
         progressBar = std::make_unique<juce::ProgressBar>(progressValue);
         progressBar->setPercentageDisplay(false);
         addChildComponent(*progressBar);
 
-        setSize(640, 640);
+        setSize(700, 700);
 
         if (!environmentReady())
         {
@@ -2276,24 +2263,19 @@ public:
 
         heading.setBounds(area.removeFromTop(30));
         area.removeFromTop(4);
-        hint.setBounds(area.removeFromTop(62));
+        hint.setBounds(area.removeFromTop(92));
         area.removeFromTop(10);
 
         auto row = area.removeFromTop(32);
-        audioButton.setBounds(row.removeFromLeft(150));
+        folderButton.setBounds(row.removeFromLeft(170));
         row.removeFromLeft(12);
-        audioLabel.setBounds(row);
-        area.removeFromTop(8);
-
-        row = area.removeFromTop(32);
-        lyricsButton.setBounds(row.removeFromLeft(150));
-        row.removeFromLeft(12);
-        lyricsLabel.setBounds(row);
+        filesButton.setBounds(row.removeFromLeft(190));
         area.removeFromTop(12);
 
         flacToggle.setBounds(area.removeFromTop(26));
         vocalsToggle.setBounds(area.removeFromTop(26));
         keepToggle.setBounds(area.removeFromTop(26));
+        editedToggle.setBounds(area.removeFromTop(26));
         area.removeFromTop(10);
 
         auto bottom = area.removeFromBottom(100);
@@ -2309,12 +2291,16 @@ public:
         startButton.setBounds(buttons.removeFromRight(160));
         cancelButton.setBounds(startButton.getBounds());
         buttons.removeFromRight(10);
-        addToSetlistButton.setBounds(buttons.removeFromRight(200));
-        buttons.removeFromRight(10);
         showButton.setBounds(buttons.removeFromRight(130));
     }
 
 private:
+    struct Job
+    {
+        juce::File audio;
+        juce::Array<juce::File> siblings;   // exactly the same name: .mid/.kar first, then .txt
+    };
+
     static juce::File envFolder()
     {
         return juce::File::getSpecialLocation(juce::File::userHomeDirectory)
@@ -2322,11 +2308,7 @@ private:
     }
 
     static juce::File pythonFile() { return envFolder().getChildFile("venv/bin/python"); }
-
-    static bool environmentReady()
-    {
-        return pythonFile().existsAsFile();
-    }
+    static bool environmentReady() { return pythonFile().existsAsFile(); }
 
     static juce::File writeEmbedded(const char* name, const void* data, int size)
     {
@@ -2337,47 +2319,106 @@ private:
         return file;
     }
 
-    void chooseFile(bool audio)
+    static bool isAudio(const juce::File& f)
     {
-        chooser = std::make_shared<juce::FileChooser>(audio ? "Choose the audio file" : "Choose the lyrics text file",
-                                                      lastFolder, audio ? "*.wav;*.mp3;*.flac;*.m4a;*.aif;*.aiff" : "*.txt");
+        return f.hasFileExtension("flac;wav;mp3;m4a;aif;aiff");
+    }
+
+    // The files with the same name (case-insensitive) next to a song.
+    static Job makeJob(const juce::File& audio)
+    {
+        Job job { audio, {} };
+        const auto base = audio.getFileNameWithoutExtension();
+
+        for (const auto& f : audio.getParentDirectory().findChildFiles(juce::File::findFiles, false))
+            if (f.hasFileExtension("mid;midi;kar;txt")
+                && f.getFileNameWithoutExtension().equalsIgnoreCase(base))
+                job.siblings.add(f);
+
+        std::stable_sort(job.siblings.begin(), job.siblings.end(), [](const juce::File& a, const juce::File& b)
+        {
+            return a.hasFileExtension("txt") < b.hasFileExtension("txt");
+        });
+        return job;
+    }
+
+    void setJobs(juce::Array<juce::File> audioFiles)
+    {
+        jobs.clear();
+        audioFiles.sort();
+
+        for (const auto& f : audioFiles)
+            jobs.push_back(makeJob(f));
+
+        juce::String text;
+        int n = 0;
+
+        for (const auto& job : jobs)
+        {
+            text << ++n << ".  " << job.audio.getFileName();
+
+            if (job.siblings.isEmpty())
+                text << "     (no .mid/.kar/.txt with the same name)\n";
+            else
+            {
+                text << "     +  ";
+                for (int i = 0; i < job.siblings.size(); ++i)
+                    text << (i > 0 ? ", " : "") << job.siblings[i].getFileName();
+                text << "\n";
+            }
+        }
+
+        log.setText(jobs.empty() ? "No audio files found." : text, false);
+        statusLabel.setText(juce::String(static_cast<int>(jobs.size())) + (jobs.size() == 1 ? " song" : " songs"),
+                            juce::dontSendNotification);
+        statusLabel.setColour(juce::Label::textColourId, secondaryTextColour);
+        startButton.setEnabled(needsSetup || !jobs.empty());
+    }
+
+    void chooseFolder()
+    {
+        chooser = std::make_shared<juce::FileChooser>("Choose the folder with songs", lastFolder);
 
         chooser->launchAsync(
-            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [safe = juce::Component::SafePointer<StemsMakerContent>(this), audio](const juce::FileChooser& fc)
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+            [safe = juce::Component::SafePointer<StemsMakerContent>(this)](const juce::FileChooser& fc)
             {
-                const auto file = fc.getResult();
+                const auto folder = fc.getResult();
 
-                if (safe == nullptr || !file.existsAsFile())
+                if (safe == nullptr || !folder.isDirectory())
                     return;
 
-                safe->lastFolder = file.getParentDirectory();
+                safe->lastFolder = folder;
+                juce::Array<juce::File> audio;
 
-                if (audio)
-                {
-                    safe->audioFile = file;
-                    safe->audioLabel.setText(file.getFileName(), juce::dontSendNotification);
+                for (const auto& f : folder.findChildFiles(juce::File::findFiles, false))
+                    if (isAudio(f))
+                        audio.add(f);
 
-                    // Een txt met dezelfde naam ernaast is waarschijnlijk de lyrics.
-                    const auto sibling = file.withFileExtension("txt");
-
-                    if (safe->lyricsFile == juce::File() && sibling.existsAsFile())
-                    {
-                        safe->lyricsFile = sibling;
-                        safe->lyricsLabel.setText(sibling.getFileName(), juce::dontSendNotification);
-                    }
-                }
-                else
-                {
-                    safe->lyricsFile = file;
-                    safe->lyricsLabel.setText(file.getFileName(), juce::dontSendNotification);
-                }
-
-                safe->startButton.setEnabled(safe->audioFile.existsAsFile() && safe->worker == nullptr);
+                safe->setJobs(audio);
             });
     }
 
-    void chooseOutput()
+    void chooseFiles()
+    {
+        chooser = std::make_shared<juce::FileChooser>("Choose the audio files", lastFolder, "*.flac;*.wav;*.mp3;*.m4a;*.aif;*.aiff");
+
+        chooser->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                | juce::FileBrowserComponent::canSelectMultipleItems,
+            [safe = juce::Component::SafePointer<StemsMakerContent>(this)](const juce::FileChooser& fc)
+            {
+                const auto results = fc.getResults();
+
+                if (safe == nullptr || results.isEmpty())
+                    return;
+
+                safe->lastFolder = results[0].getParentDirectory();
+                safe->setJobs(results);
+            });
+    }
+
+    void startOrSetup()
     {
         if (worker != nullptr)
             return;
@@ -2386,125 +2427,49 @@ private:
         {
             const auto script = writeEmbedded("setup-stems-env.sh", BinaryData::setupstemsenv_sh,
                                               BinaryData::setupstemsenv_shSize);
-            run({ "/bin/bash", script.getFullPathName() }, {});
+            runSetup(script);
             return;
         }
 
-        chooser = std::make_shared<juce::FileChooser>("Save the .merik file as",
-                                                      audioFile.withFileExtension("merik"), "*.merik");
-
-        chooser->launchAsync(
-            juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                | juce::FileBrowserComponent::warnAboutOverwriting,
-            [safe = juce::Component::SafePointer<StemsMakerContent>(this)](const juce::FileChooser& fc)
-            {
-                auto file = fc.getResult();
-
-                if (safe == nullptr || file == juce::File())
-                    return;
-
-                if (!file.hasFileExtension("merik"))
-                    file = file.withFileExtension("merik");
-
-                safe->startMake(file);
-            });
+        startBatch();
     }
 
-    void startMake(const juce::File& output)
-    {
-        const auto script = writeEmbedded("merik-stems.py", BinaryData::merikstems_py, BinaryData::merikstems_pySize);
-
-        juce::StringArray args { pythonFile().getFullPathName(), "-I", script.getFullPathName(),
-                                 "--audio", audioFile.getFullPathName(), "--out", output.getFullPathName() };
-
-        if (lyricsFile.existsAsFile())
-            args.addArray({ "--lyrics", lyricsFile.getFullPathName() });
-
-        if (flacToggle.getToggleState())
-            args.add("--flac");
-
-        if (keepToggle.getToggleState())
-            args.addArray({ "--keep-work", "--reuse" });   // stems die al in de tussenmap staan (zelfde lengte) worden hergebruikt
-
-        if (vocalsToggle.getToggleState())
-            args.addArray({ "--vocals-out", output.withFileExtension("vocals.wav").getFullPathName() });
-
-        run(args, output);
-    }
-
-    void run(const juce::StringArray& command, const juce::File& output)
+    void prepareRun()
     {
         cancel = false;
         finished = false;
+        succeeded = false;
         progress = 0.0f;
         progressValue = 0.0;
-        created = juce::File();
-        outputFile = output;
+        lastCreated = juce::File();
         errorText = {};
+        logLines = {};
+        message = "Starting...";
         log.clear();
 
         startButton.setVisible(false);
         cancelButton.setVisible(true);
-        audioButton.setEnabled(false);
-        lyricsButton.setEnabled(false);
-        addToSetlistButton.setVisible(false);
+        folderButton.setEnabled(false);
+        filesButton.setEnabled(false);
         showButton.setVisible(false);
         statusLabel.setVisible(false);
         progressBar->setVisible(true);
-        message = "Starting...";
+    }
 
-        worker = std::make_unique<Worker>([this, command]
+    void runSetup(const juce::File& script)
+    {
+        prepareRun();
+        setupRun = true;
+
+        worker = std::make_unique<Worker>([this, script]
         {
-            juce::ChildProcess process;
-            juce::String environmentPath = "/opt/homebrew/bin:/usr/local/bin:" + juce::SystemStats::getEnvironmentVariable("PATH", "/usr/bin:/bin");
-            setenv("PATH", environmentPath.toRawUTF8(), 1);
-            setenv("PYTHONUNBUFFERED", "1", 1);
-
-            if (!process.start(command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
-            {
-                const juce::ScopedLock lock(messageLock);
-                errorText = "Could not start the process";
-                finished = true;
-                return;
-            }
-
-            juce::String pending;
-            char buffer[2048];
             bool done = false;
+            const int code = runProcess({ "/bin/bash", script.getFullPathName() }, 0.0f, 1.0f, done);
+            const juce::ScopedLock lock(messageLock);
+            succeeded = done && code == 0 && !cancel.load();
 
-            while (true)
-            {
-                if (cancel.load())
-                {
-                    process.kill();
-                    break;
-                }
-
-                const int n = process.readProcessOutput(buffer, sizeof(buffer) - 1);
-
-                if (n <= 0)
-                    break;
-
-                pending += juce::String::fromUTF8(buffer, n);
-
-                for (int nl = pending.indexOfChar('\n'); nl >= 0; nl = pending.indexOfChar('\n'))
-                {
-                    const auto line = pending.substring(0, nl).trim();
-                    pending = pending.substring(nl + 1);
-                    handleLine(line, done);
-                }
-            }
-
-            process.waitForProcessToFinish(2000);
-            const auto exitCode = process.getExitCode();
-
-            {
-                const juce::ScopedLock lock(messageLock);
-                succeeded = done && exitCode == 0 && !cancel.load();
-
-                if (!succeeded && errorText.isEmpty())
-                    errorText = cancel.load() ? "Cancelled" : "Stopped with an error (see the log)";
-            }
+            if (!succeeded && errorText.isEmpty())
+                errorText = cancel.load() ? "Cancelled" : "Setup stopped with an error (see the log)";
 
             finished = true;
         });
@@ -2512,7 +2477,130 @@ private:
         startTimerHz(10);
     }
 
-    void handleLine(const juce::String& line, bool& done)
+    void startBatch()
+    {
+        const auto script = writeEmbedded("merik-stems.py", BinaryData::merikstems_py, BinaryData::merikstems_pySize);
+        const auto allJobs = jobs;
+        const bool flac = flacToggle.getToggleState(), keep = keepToggle.getToggleState(),
+                   vocals = vocalsToggle.getToggleState(), edited = editedToggle.getToggleState();
+
+        prepareRun();
+        setupRun = false;
+
+        worker = std::make_unique<Worker>([this, script, allJobs, flac, keep, vocals, edited]
+        {
+            int made = 0, failed = 0;
+            const int count = static_cast<int>(allJobs.size());
+
+            for (int i = 0; i < count && !cancel.load(); ++i)
+            {
+                const auto& job = allJobs[static_cast<std::size_t>(i)];
+                const auto output = job.audio.withFileExtension("merik");
+
+                {
+                    const juce::ScopedLock lock(messageLock);
+                    logLines << "\n=== " << (i + 1) << "/" << count << ":  " << job.audio.getFileName() << " ===\n";
+                    logLines << (job.siblings.isEmpty() ? "files with the same name: none\n" : "files with the same name: ");
+
+                    for (int s = 0; s < job.siblings.size(); ++s)
+                        logLines << (s > 0 ? ", " : "") << job.siblings[s].getFileName() << (s == job.siblings.size() - 1 ? "\n" : "");
+
+                    songPrefix = "Song " + juce::String(i + 1) + " of " + juce::String(count) + ": ";
+                }
+
+                juce::StringArray args { pythonFile().getFullPathName(), "-I", script.getFullPathName(),
+                                         "--audio", job.audio.getFullPathName(), "--out", output.getFullPathName() };
+
+                for (const auto& sibling : job.siblings)
+                    args.addArray({ "--source", sibling.getFullPathName() });
+
+                if (flac)
+                    args.add("--flac");
+
+                if (keep)
+                    args.addArray({ "--keep-work", "--reuse" });
+
+                if (keep && edited)
+                    args.add("--use-edited");
+
+                if (vocals)
+                    args.addArray({ "--vocals-out", output.withFileExtension("vocals.wav").getFullPathName() });
+
+                bool done = false;
+                const float from = static_cast<float>(i) / static_cast<float>(count);
+                const float to = static_cast<float>(i + 1) / static_cast<float>(count);
+                const int code = runProcess(args, from, to, done);
+
+                if (done && code == 0 && !cancel.load())
+                {
+                    ++made;
+                    lastCreated = output;
+                }
+                else if (!cancel.load())
+                {
+                    ++failed;
+                    const juce::ScopedLock lock(messageLock);
+                    logLines << "FAILED" << (errorText.isNotEmpty() ? ": " + errorText : juce::String()) << "\n";
+                    errorText = {};
+                }
+            }
+
+            const juce::ScopedLock lock(messageLock);
+            succeeded = made > 0 && !cancel.load();
+            errorText = cancel.load() ? "Cancelled" : (made == 0 ? "Nothing was made (see the log)" : juce::String());
+            summary = juce::String(made) + " of " + juce::String(count) + " songs made" + (failed > 0 ? ", " + juce::String(failed) + " failed" : juce::String());
+            finished = true;
+        });
+
+        startTimerHz(10);
+    }
+
+    // Runs one process; PROGRESS lines map to [from, to] of the overall bar. Returns the exit code.
+    int runProcess(const juce::StringArray& command, float from, float to, bool& done)
+    {
+        juce::ChildProcess process;
+        const juce::String environmentPath = "/opt/homebrew/bin:/usr/local/bin:" + juce::SystemStats::getEnvironmentVariable("PATH", "/usr/bin:/bin");
+        setenv("PATH", environmentPath.toRawUTF8(), 1);
+        setenv("PYTHONUNBUFFERED", "1", 1);
+
+        if (!process.start(command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
+        {
+            const juce::ScopedLock lock(messageLock);
+            errorText = "Could not start the process";
+            return -1;
+        }
+
+        juce::String pending;
+        char buffer[2048];
+
+        while (true)
+        {
+            if (cancel.load())
+            {
+                process.kill();
+                break;
+            }
+
+            const int n = process.readProcessOutput(buffer, sizeof(buffer) - 1);
+
+            if (n <= 0)
+                break;
+
+            pending += juce::String::fromUTF8(buffer, n);
+
+            for (int nl = pending.indexOfChar('\n'); nl >= 0; nl = pending.indexOfChar('\n'))
+            {
+                const auto line = pending.substring(0, nl).trim();
+                pending = pending.substring(nl + 1);
+                handleLine(line, from, to, done);
+            }
+        }
+
+        process.waitForProcessToFinish(2000);
+        return static_cast<int>(process.getExitCode());
+    }
+
+    void handleLine(const juce::String& line, float from, float to, bool& done)
     {
         if (line.isEmpty())
             return;
@@ -2522,16 +2610,19 @@ private:
         if (line.startsWith("PROGRESS "))
         {
             const auto rest = line.fromFirstOccurrenceOf("PROGRESS ", false, false);
-            progress = rest.upToFirstOccurrenceOf(" ", false, false).getFloatValue();
-            message = rest.fromFirstOccurrenceOf(" ", false, false);
+            const float p = rest.upToFirstOccurrenceOf(" ", false, false).getFloatValue();
+            progress = from + (to - from) * juce::jlimit(0.0f, 1.0f, p);
+            message = songPrefix + rest.fromFirstOccurrenceOf(" ", false, false);
         }
         else if (line.startsWith("DONE"))
             done = true;
         else if (line.startsWith("ERROR "))
         {
             errorText = line.fromFirstOccurrenceOf("ERROR ", false, false);
-            logLines += line + "\n";
+            logLines += "ERROR " + errorText + "\n";
         }
+        else if (line.startsWith("INFO "))
+            logLines += "  " + line.fromFirstOccurrenceOf("INFO ", false, false) + "\n";
         else
             logLines += line + "\n";
     }
@@ -2568,35 +2659,36 @@ private:
         cancelButton.setVisible(false);
         startButton.setVisible(true);
         statusLabel.setVisible(true);
-        audioButton.setEnabled(true);
-        lyricsButton.setEnabled(true);
+        folderButton.setEnabled(true);
+        filesButton.setEnabled(true);
+
+        const auto green = juce::Colour::fromRGB(46, 204, 113);
 
         if (succeeded)
         {
-            if (needsSetup)
+            statusLabel.setColour(juce::Label::textColourId, green);
+
+            if (setupRun)
             {
                 needsSetup = !environmentReady();
-                statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(46, 204, 113));
-                statusLabel.setText("Setup finished. Choose an audio file.", juce::dontSendNotification);
-                startButton.setButtonText("Make .merik...");
-                startButton.setEnabled(audioFile.existsAsFile());
+                statusLabel.setText("Setup finished. Choose a folder or audio files.", juce::dontSendNotification);
+                startButton.setButtonText("Start");
+                startButton.setEnabled(!jobs.empty());
                 return;
             }
 
-            created = outputFile;
-            statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(46, 204, 113));
-            statusLabel.setText("Created " + outputFile.getFileName(), juce::dontSendNotification);
-            addToSetlistButton.setEnabled(true);
-            addToSetlistButton.setVisible(true);
-            showButton.setVisible(true);
+            statusLabel.setText(summary, juce::dontSendNotification);
+
+            if (lastCreated != juce::File())
+                showButton.setVisible(true);
         }
         else
         {
             statusLabel.setColour(juce::Label::textColourId, juce::Colour::fromRGB(255, 120, 120));
-            statusLabel.setText(errorText, juce::dontSendNotification);
+            statusLabel.setText(errorText.isNotEmpty() ? errorText : summary, juce::dontSendNotification);
         }
 
-        startButton.setEnabled(needsSetup || audioFile.existsAsFile());
+        startButton.setEnabled(needsSetup || !jobs.empty());
     }
 
     class Worker final : public juce::Thread
@@ -2615,29 +2707,31 @@ private:
         std::function<void()> job;
     };
 
-    juce::Label heading, hint, audioLabel, lyricsLabel, statusLabel;
-    juce::TextButton audioButton, lyricsButton, startButton, cancelButton, addToSetlistButton, showButton;
-    juce::ToggleButton flacToggle, vocalsToggle, keepToggle;
+    juce::Label heading, hint, statusLabel;
+    juce::TextButton folderButton, filesButton, startButton, cancelButton, showButton;
+    juce::ToggleButton flacToggle, vocalsToggle, keepToggle, editedToggle;
     juce::TextEditor log;
     std::unique_ptr<juce::ProgressBar> progressBar;
     double progressValue = 0.0;
 
     std::shared_ptr<juce::FileChooser> chooser;
-    juce::File lastFolder, audioFile, lyricsFile, created, outputFile;
-    bool needsSetup = false;
+    juce::File lastFolder;
+    juce::File lastCreated;
+    std::vector<Job> jobs;
+    bool needsSetup = false, setupRun = false;
 
     std::unique_ptr<Worker> worker;
     std::atomic<bool> cancel { false }, finished { false }, succeeded { false };
     std::atomic<float> progress { 0.0f };
     juce::CriticalSection messageLock;
-    juce::String message, errorText, logLines;
+    juce::String message, errorText, logLines, songPrefix, summary;
 };
 
 class StemsMakerWindow final : public juce::DialogWindow
 {
 public:
     explicit StemsMakerWindow(juce::Component* content, juce::Component* owner)
-        : juce::DialogWindow("Make stems from a song", backgroundColour, true)
+        : juce::DialogWindow("Make stems from songs", backgroundColour, true)
     {
         setUsingNativeTitleBar(true);
         setResizable(false, false);
@@ -4593,21 +4687,6 @@ void MainComponent::showStemsMaker()
 
     auto* content = new StemsMakerContent(
         currentMidiFile.existsAsFile() ? currentMidiFile.getParentDirectory() : juce::File());
-
-    content->onAddToSetlist = [this](const juce::File& file)
-    {
-        if (selectedSetlist < 0 || selectedSetlist >= static_cast<int>(setlists.size()))
-            return;
-
-        SongEntry entry;
-        entry.file = file;
-        setlists[static_cast<std::size_t>(selectedSetlist)].songs.push_back(std::move(entry));
-
-        savePersistentState();
-        refreshSongModel();
-        refreshSetlistModel();
-        scanSongInfo();
-    };
 
     stemsWindow = new StemsMakerWindow(content, this);
 }
