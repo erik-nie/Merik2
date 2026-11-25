@@ -193,7 +193,8 @@ SECTION_RE = re.compile(r"^(intro|verse|vers|chorus|refrain|pre[- ]?chorus|bridg
 
 
 class Candidate:
-    def __init__(self, path, kind, lines, sections=None, chords=None):
+    def __init__(self, path, kind, lines, sections=None, chords=None, quarters=None, beats_per_bar=None):
+        self.quarters, self.beats_per_bar = quarters or [], beats_per_bar
         self.path, self.kind, self.lines = Path(path), kind, lines
         self.sections = sections or {}   # regelindex -> naam
         self.chords = chords or []       # akkoordnamen in volgorde (alleen MIDI)
@@ -296,7 +297,13 @@ def load_midi_candidate(path):
             if lt >= tick - 10:
                 smap.setdefault(i, name)
                 break
-    return Candidate(path, "midi", lines, smap, chords)
+    numerator = None
+    for track in mid.tracks:
+        for msg in track:
+            if msg.type == "time_signature" and numerator is None and msg.denominator == 4 and 2 <= msg.numerator <= 4:
+                numerator = msg.numerator
+    quarters = [t / mid.ticks_per_beat for t in line_ticks] if len(line_ticks) == len(lines) else []
+    return Candidate(path, "midi", lines, smap, chords, quarters, numerator)
 
 
 def load_candidate(path):
@@ -393,7 +400,7 @@ def analyse_chords(harmonic, sr, on_progress, rhythm=None, midi_chords=None):
         if names[c] != last:
             chords.append((float(t), names[c]))
             last = names[c]
-    info = {"fit": None}
+    info = {"fit": None, "first_beat": float(grid[0]) if len(grid) else 0.0}
     if midi_chords and len(scores):
         aligned = align_chord_sequence(midi_chords, names, grid[:-1], scores)
         if aligned:
@@ -510,13 +517,39 @@ def vlq(value):
     return bytes(reversed(out))
 
 
-def write_midi(path, bpm, downbeat, lyric_lines, chords, title, beats_per_bar=4, sections=()):
+def shift_for_count_in(downbeat, bpm, beats_per_bar, count_in_bars):
+    """Met aftikken schuift de audio later: eerst zodat de eerste 1 op een maat valt, dan met de maten van het aftikken."""
+    if count_in_bars <= 0:
+        return 0.0, 0.0
+    bar = beats_per_bar * 60.0 / bpm
+    rest = downbeat % bar
+    pad = 0.0 if rest < 0.05 or bar - rest < 0.05 else bar - rest
+    return pad, count_in_bars * bar
+
+
+def midi_downbeat(times, quarters, first_beat, bpm, beats_per_bar):
+    """De eerste 1 volgens de MIDI: de regels staan op bekende tellen in de MIDI en op bekende tijden in de audio."""
+    if len(times) != len(quarters) or len(times) < 4:
+        return None
+    beat = 60.0 / bpm
+    votes = [0] * beats_per_bar
+    for t, q in zip(times, quarters):
+        b = round((t - first_beat) / beat)
+        votes[(b - round(q)) % beats_per_bar] += 1
+    best = max(range(beats_per_bar), key=lambda k: votes[k])
+    return first_beat + best * beat, votes[best] / len(times)
+
+
+def write_midi(path, bpm, downbeat, lyric_lines, chords, title, beats_per_bar=4, sections=(), count_in_bars=0, end_time=None):
     """Constante tempo. `downbeat` is de eerste "1" van een maat; ligt die niet op 0, dan komen er hele maten vóór,
     zodat maten, tellen en click gelijklopen met de audio. Lyrics (FF05), akkoorden en secties (markers FF06)."""
     ppq = 480
     events = []  # (tick, volgorde, bytes)
     beat = 60.0 / bpm
-    lead = downbeat if downbeat > 0.05 else 0.0
+    pad, count_seconds = shift_for_count_in(downbeat, bpm, beats_per_bar, count_in_bars)
+    moved = count_in_bars > 0
+    total = pad + count_seconds
+    lead = downbeat if (downbeat > 0.05 and not moved) else 0.0
     lead_bars = max(1, math.ceil(lead / beat / beats_per_bar)) if lead else 0
     lead_beats = lead_bars * beats_per_bar
     lead_ticks = lead_beats * ppq
@@ -528,6 +561,8 @@ def write_midi(path, bpm, downbeat, lyric_lines, chords, title, beats_per_bar=4,
     events.append((0, 0, b"\xff\x58\x04" + bytes([beats_per_bar, 2, 24, 8])))
 
     def tick(t):
+        if moved:
+            return int(round((t + total) / beat * ppq))
         if lead and t < lead:
             return int(t / lead * lead_ticks)
         return int(lead_ticks + (t - lead) / beat * ppq)
@@ -549,7 +584,8 @@ def write_midi(path, bpm, downbeat, lyric_lines, chords, title, beats_per_bar=4,
     for t, _o, data in events:
         track += vlq(t - prev) + data
         prev = t
-    track += vlq(0) + b"\xff\x2f\x00"
+    end_tick = max(prev, tick(end_time)) if end_time is not None else prev
+    track += vlq(end_tick - prev) + b"\xff\x2f\x00"
     path.write_bytes(b"MThd" + (6).to_bytes(4, "big") + (0).to_bytes(2, "big") + (1).to_bytes(2, "big")
                      + ppq.to_bytes(2, "big") + b"MTrk" + len(track).to_bytes(4, "big") + track)
 
@@ -611,6 +647,9 @@ def main():
                     help="stems die al in de tussenmap staan met de lengte van het nummer niet opnieuw maken (met --keep-work)")
     ap.add_argument("--use-edited", action="store_true",
                     help="gebruik de (bewerkte) analysis.json, chords.json en lyrics.json uit de tussenmap (met --keep-work)")
+    ap.add_argument("--count-in", type=int, default=0, choices=[0, 1, 2],
+                    help="aftikken: 1 of 2 maten click voor het nummer; audio, lyrics en akkoorden schuiven even veel op")
+    ap.add_argument("--click-audio", action="store_true", help="click als audio (8-click.wav, eigen uitgang) in plaats van de click uit de MIDI")
     ap.add_argument("--title")
     args = ap.parse_args()
 
@@ -727,6 +766,13 @@ def main():
         bpm, downbeat, chords, beats_per_bar, conf, info = analyse_chords(
             backing, sr, lambda f: progress(0.77 + 0.1 * f, "Detecting tempo and chords"), rhythm=sources["drums"], midi_chords=midi_chords)
         inventory.append(f"tempo {bpm:.1f} bpm, maat {beats_per_bar}/4, eerste 1 op {downbeat:.2f} s (zekerheid {conf * 100:.0f}%)")
+        if chosen is not None and chosen.kind == "midi" and chosen.beats_per_bar and timed:
+            r = midi_downbeat([l[0][1] for l in timed if l], chosen.quarters, info["first_beat"], bpm, chosen.beats_per_bar)
+            if r and r[1] >= 0.5:
+                beats_per_bar, downbeat = chosen.beats_per_bar, r[0]
+                inventory.append(f"maat uit de MIDI: {beats_per_bar}/4, eerste 1 op {downbeat:.2f} s ({r[1] * 100:.0f}% van de regels komt overeen)")
+            else:
+                inventory.append("maat uit de MIDI niet te leggen over de audio: maat uit de audio gebruikt")
         if info["fit"]:
             inventory.append(f"akkoorden: uit de MIDI over de audio gelegd (pasvorm {info['fit'][0]:.2f}, vrije keuze {info['fit'][1]:.2f})")
         else:
@@ -746,23 +792,92 @@ def main():
             lyrics_json.write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")
 
     progress(0.88, "Writing MIDI")
-    write_midi(work / "song.mid", bpm, downbeat, lyric_lines, chords, title, beats_per_bar, section_list)
+    song_seconds = len(vocals) / sr
+    pad, count_seconds = shift_for_count_in(downbeat, bpm, beats_per_bar, args.count_in)
+    shift = pad + count_seconds
+    write_midi(work / "song.mid", bpm, downbeat, lyric_lines, chords, title, beats_per_bar, section_list,
+               count_in_bars=args.count_in, end_time=song_seconds)
 
     progress(0.90, "Building the .merik")
+    pack = Path(tempfile.mkdtemp(prefix="merik-pack-"))
     entries = []
     for fam, label, wav in stem_files:
+        src_wav = wav
+        if shift > 0:
+            data, rate = sf.read(str(wav), always_2d=True, dtype="float32")
+            src_wav = pack / wav.name
+            sf.write(str(src_wav), np.concatenate([np.zeros((int(shift * rate), data.shape[1]), dtype="float32"), data]), rate, subtype="PCM_24")
         if args.flac:
-            flac = wav.with_suffix(".flac")
-            to_flac(wav, flac)
+            flac = (pack / wav.name).with_suffix(".flac")
+            to_flac(src_wav, flac)
             entries.append((flac.name, flac))
         else:
-            entries.append((wav.name, wav))
+            entries.append((wav.name, src_wav))
+    if args.click_audio:
+        rate = 44100
+        total = int((song_seconds + shift) * rate)
+        click = np.zeros(total, dtype="float32")
+        beat_len = 60.0 / bpm
+        t = 0.0
+        index = 0
+        # beats of the written MIDI: constant tempo from time 0 (count-in), or the lead-in bar before the first 1
+        times = []
+        if args.count_in > 0:
+            n = 0
+            while n * beat_len < song_seconds + shift:
+                times.append((n * beat_len, n % beats_per_bar == 0))
+                n += 1
+        else:
+            n = 0
+            while downbeat + n * beat_len < song_seconds:
+                times.append((downbeat + n * beat_len, n % beats_per_bar == 0))
+                n += 1
+            # beats before the first 1, regular, so that the click does not start late
+            k = 1
+            while downbeat - k * beat_len >= 0:
+                times.append((downbeat - k * beat_len, (-k) % beats_per_bar == 0))
+                k += 1
+        length = int(0.03 * rate)
+        env = np.exp(-np.arange(length) / (0.006 * rate))
+        for tt, accent in times:
+            first = int(tt * rate)
+            if first >= total:
+                continue
+            f = 1800.0 if accent else 1200.0
+            burst = (0.8 * env * np.sin(2 * np.pi * f * np.arange(length) / rate)).astype("float32")
+            click[first:first + length] += burst[:max(0, min(length, total - first))]
+        click_wav = pack / "8-click.wav"
+        sf.write(str(click_wav), np.stack([click, click], axis=1), rate, subtype="PCM_24")
+        if args.flac:
+            click_flac = pack / "8-click.flac"
+            to_flac(click_wav, click_flac)
+            entries.append((click_flac.name, click_flac))
+        else:
+            entries.append((click_wav.name, click_wav))
+        inventory.append("click: als audio (8-click, eigen uitgang)")
+    else:
+        inventory.append("click: uit de MIDI (MIDI-uitgang)")
+    if shift > 0:
+        inventory.append(f"aftikken: {args.count_in} maat/maten; audio en alles {shift:.1f} s later (waarvan {pad:.1f} s om de 1 op een maat te leggen)")
     entries.append(("song.mid", work / "song.mid"))
-    entries.append(("chords.json", chords_json))
+    shifted_chords = pack / "chords.json"
+    shifted_chords.write_text(json.dumps([{"time": round(t + shift, 3), "chord": c} for t, c in chords], indent=1), encoding="utf-8")
+    entries.append(("chords.json", shifted_chords))
     if lyric_lines:
-        entries.append(("lyrics.json", lyrics_json))
+        shifted_lyrics = pack / "lyrics.json"
+        sec_by_time = {round(t, 3): n for t, n in section_list}
+        rows = []
+        for l in lyric_lines:
+            e = {"time": round(l[0][1] + shift, 3), "text": " ".join(w for w, _, _ in l),
+                 "words": [{"time": round(st + shift, 3), "text": w} for w, st, _ in l]}
+            if round(l[0][1], 3) in sec_by_time:
+                e["section"] = sec_by_time[round(l[0][1], 3)]
+            rows.append(e)
+        shifted_lyrics.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+        entries.append(("lyrics.json", shifted_lyrics))
     out.parent.mkdir(parents=True, exist_ok=True)
     write_merik(out, entries)
+    shutil.rmtree(pack, ignore_errors=True)
     inventory.append("tussenbestanden: " + ", ".join(sorted(p.name for p in work.iterdir())))
     inventory.append(f"uitvoer: {out.name}")
     for line in inventory:

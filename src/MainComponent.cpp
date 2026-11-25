@@ -2203,6 +2203,19 @@ public:
         editedToggle.setButtonText("Use the edited json of the intermediate folder (analysis, chords, lyrics)");
         addAndMakeVisible(editedToggle);
 
+        countLabel.setText("Count-in:", juce::dontSendNotification);
+        countLabel.setFont(merikLookAndFeel.getMediumFont(14.0f));
+        countLabel.setColour(juce::Label::textColourId, textColour);
+        addAndMakeVisible(countLabel);
+        countBox.addItem("None", 1);
+        countBox.addItem("1 bar", 2);
+        countBox.addItem("2 bars (tempo first, then count in: for the drummer)", 3);
+        countBox.setSelectedId(1, juce::dontSendNotification);
+        addAndMakeVisible(countBox);
+
+        clickToggle.setButtonText("Click as audio (own output, 8-click) instead of the click from the MIDI file");
+        addAndMakeVisible(clickToggle);
+
         log.setMultiLine(true, false);
         log.setReadOnly(true);
         log.setScrollbarsShown(true);
@@ -2233,7 +2246,7 @@ public:
         progressBar->setPercentageDisplay(false);
         addChildComponent(*progressBar);
 
-        setSize(700, 700);
+        setSize(700, 760);
 
         if (!environmentReady())
         {
@@ -2276,6 +2289,11 @@ public:
         vocalsToggle.setBounds(area.removeFromTop(26));
         keepToggle.setBounds(area.removeFromTop(26));
         editedToggle.setBounds(area.removeFromTop(26));
+        clickToggle.setBounds(area.removeFromTop(26));
+        area.removeFromTop(4);
+        auto countRow = area.removeFromTop(28);
+        countLabel.setBounds(countRow.removeFromLeft(90));
+        countBox.setBounds(countRow.removeFromLeft(420));
         area.removeFromTop(10);
 
         auto bottom = area.removeFromBottom(100);
@@ -2482,12 +2500,14 @@ private:
         const auto script = writeEmbedded("merik-stems.py", BinaryData::merikstems_py, BinaryData::merikstems_pySize);
         const auto allJobs = jobs;
         const bool flac = flacToggle.getToggleState(), keep = keepToggle.getToggleState(),
-                   vocals = vocalsToggle.getToggleState(), edited = editedToggle.getToggleState();
+                   vocals = vocalsToggle.getToggleState(), edited = editedToggle.getToggleState(),
+                   clickAudio = clickToggle.getToggleState();
+        const int countIn = juce::jmax(0, countBox.getSelectedId() - 1);
 
         prepareRun();
         setupRun = false;
 
-        worker = std::make_unique<Worker>([this, script, allJobs, flac, keep, vocals, edited]
+        worker = std::make_unique<Worker>([this, script, allJobs, flac, keep, vocals, edited, clickAudio, countIn]
         {
             int made = 0, failed = 0;
             const int count = static_cast<int>(allJobs.size());
@@ -2525,6 +2545,12 @@ private:
 
                 if (vocals)
                     args.addArray({ "--vocals-out", output.withFileExtension("vocals.wav").getFullPathName() });
+
+                if (countIn > 0)
+                    args.addArray({ "--count-in", juce::String(countIn) });
+
+                if (clickAudio)
+                    args.add("--click-audio");
 
                 bool done = false;
                 const float from = static_cast<float>(i) / static_cast<float>(count);
@@ -2709,7 +2735,9 @@ private:
 
     juce::Label heading, hint, statusLabel;
     juce::TextButton folderButton, filesButton, startButton, cancelButton, showButton;
-    juce::ToggleButton flacToggle, vocalsToggle, keepToggle, editedToggle;
+    juce::ToggleButton flacToggle, vocalsToggle, keepToggle, editedToggle, clickToggle;
+    juce::Label countLabel;
+    juce::ComboBox countBox;
     juce::TextEditor log;
     std::unique_ptr<juce::ProgressBar> progressBar;
     double progressValue = 0.0;
