@@ -649,7 +649,6 @@ def main():
                     help="gebruik de (bewerkte) analysis.json, chords.json en lyrics.json uit de tussenmap (met --keep-work)")
     ap.add_argument("--count-in", type=int, default=0, choices=[0, 1, 2],
                     help="aftikken: 1 of 2 maten click voor het nummer; audio, lyrics en akkoorden schuiven even veel op")
-    ap.add_argument("--click-audio", action="store_true", help="click als audio (8-click.wav, eigen uitgang) in plaats van de click uit de MIDI")
     ap.add_argument("--title")
     args = ap.parse_args()
 
@@ -813,50 +812,6 @@ def main():
             entries.append((flac.name, flac))
         else:
             entries.append((wav.name, src_wav))
-    if args.click_audio:
-        rate = 44100
-        total = int((song_seconds + shift) * rate)
-        click = np.zeros(total, dtype="float32")
-        beat_len = 60.0 / bpm
-        t = 0.0
-        index = 0
-        # beats of the written MIDI: constant tempo from time 0 (count-in), or the lead-in bar before the first 1
-        times = []
-        if args.count_in > 0:
-            n = 0
-            while n * beat_len < song_seconds + shift:
-                times.append((n * beat_len, n % beats_per_bar == 0))
-                n += 1
-        else:
-            n = 0
-            while downbeat + n * beat_len < song_seconds:
-                times.append((downbeat + n * beat_len, n % beats_per_bar == 0))
-                n += 1
-            # beats before the first 1, regular, so that the click does not start late
-            k = 1
-            while downbeat - k * beat_len >= 0:
-                times.append((downbeat - k * beat_len, (-k) % beats_per_bar == 0))
-                k += 1
-        length = int(0.03 * rate)
-        env = np.exp(-np.arange(length) / (0.006 * rate))
-        for tt, accent in times:
-            first = int(tt * rate)
-            if first >= total:
-                continue
-            f = 1800.0 if accent else 1200.0
-            burst = (0.8 * env * np.sin(2 * np.pi * f * np.arange(length) / rate)).astype("float32")
-            click[first:first + length] += burst[:max(0, min(length, total - first))]
-        click_wav = pack / "8-click.wav"
-        sf.write(str(click_wav), np.stack([click, click], axis=1), rate, subtype="PCM_24")
-        if args.flac:
-            click_flac = pack / "8-click.flac"
-            to_flac(click_wav, click_flac)
-            entries.append((click_flac.name, click_flac))
-        else:
-            entries.append((click_wav.name, click_wav))
-        inventory.append("click: als audio (8-click, eigen uitgang)")
-    else:
-        inventory.append("click: uit de MIDI (MIDI-uitgang)")
     if shift > 0:
         inventory.append(f"aftikken: {args.count_in} maat/maten; audio en alles {shift:.1f} s later (waarvan {pad:.1f} s om de 1 op een maat te leggen)")
     entries.append(("song.mid", work / "song.mid"))

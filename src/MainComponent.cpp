@@ -2213,8 +2213,6 @@ public:
         countBox.setSelectedId(1, juce::dontSendNotification);
         addAndMakeVisible(countBox);
 
-        clickToggle.setButtonText("Click as audio (own output, 8-click) instead of the click from the MIDI file");
-        addAndMakeVisible(clickToggle);
 
         log.setMultiLine(true, false);
         log.setReadOnly(true);
@@ -2289,7 +2287,6 @@ public:
         vocalsToggle.setBounds(area.removeFromTop(26));
         keepToggle.setBounds(area.removeFromTop(26));
         editedToggle.setBounds(area.removeFromTop(26));
-        clickToggle.setBounds(area.removeFromTop(26));
         area.removeFromTop(4);
         auto countRow = area.removeFromTop(28);
         countLabel.setBounds(countRow.removeFromLeft(90));
@@ -2500,14 +2497,13 @@ private:
         const auto script = writeEmbedded("merik-stems.py", BinaryData::merikstems_py, BinaryData::merikstems_pySize);
         const auto allJobs = jobs;
         const bool flac = flacToggle.getToggleState(), keep = keepToggle.getToggleState(),
-                   vocals = vocalsToggle.getToggleState(), edited = editedToggle.getToggleState(),
-                   clickAudio = clickToggle.getToggleState();
+                   vocals = vocalsToggle.getToggleState(), edited = editedToggle.getToggleState();
         const int countIn = juce::jmax(0, countBox.getSelectedId() - 1);
 
         prepareRun();
         setupRun = false;
 
-        worker = std::make_unique<Worker>([this, script, allJobs, flac, keep, vocals, edited, clickAudio, countIn]
+        worker = std::make_unique<Worker>([this, script, allJobs, flac, keep, vocals, edited, countIn]
         {
             int made = 0, failed = 0;
             const int count = static_cast<int>(allJobs.size());
@@ -2548,9 +2544,6 @@ private:
 
                 if (countIn > 0)
                     args.addArray({ "--count-in", juce::String(countIn) });
-
-                if (clickAudio)
-                    args.add("--click-audio");
 
                 bool done = false;
                 const float from = static_cast<float>(i) / static_cast<float>(count);
@@ -2735,7 +2728,7 @@ private:
 
     juce::Label heading, hint, statusLabel;
     juce::TextButton folderButton, filesButton, startButton, cancelButton, showButton;
-    juce::ToggleButton flacToggle, vocalsToggle, keepToggle, editedToggle, clickToggle;
+    juce::ToggleButton flacToggle, vocalsToggle, keepToggle, editedToggle;
     juce::Label countLabel;
     juce::ComboBox countBox;
     juce::TextEditor log;
