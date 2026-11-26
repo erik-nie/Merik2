@@ -1,9 +1,7 @@
 name: Build
 
+# Alleen handmatig starten (Actions > Build > Run workflow).
 on:
-  push:
-    branches: [main, windows-port]
-  pull_request:
   workflow_dispatch:
 
 jobs:
